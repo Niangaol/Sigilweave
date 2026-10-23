@@ -1,0 +1,26 @@
+{
+  "name": "sigilweave",
+  "version": "0.1.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "vitest run",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "sim": "node scripts/simulate.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": "true",
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

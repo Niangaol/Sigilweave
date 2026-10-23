@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0d0a17" />
+  <title>共振法阵 · 第一幕</title>
+  <style>
+    /* 像素风页面底座：纯色硬边，不做渐变、不做毛玻璃 */
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: #0d0a17; overflow: hidden;
+    }
+    #game-root {
+      width: 100vw; height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #game-root canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      touch-action: none;
+    }
+    .fallback {
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      color: #f0d9a8; font: 14px "SimSun", "Songti SC", serif; text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-root"></div>
+  <noscript><p class="fallback">本作需要启用 JavaScript 才能运行。</p></noscript>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
