@@ -72,15 +72,23 @@ describe("符印触发", () => {
     expect(enemies[1].hp).toBe(100);
   });
 
-  it("空区域也返回瞄准点，不跨区找敌", () => {
+  it("空区域改为就近补射：能打中其他区域的敌人", () => {
     const g = grid16();
     const st = { player: player(0, 0), now: 0 };
     const enemies = [{ id: 1, alive: true, hp: 100, x: 100, y: 100, armor: 0 }];
     const r = resolveSigilTrigger({ grid: g, cellId: 0, defId: "arcane_bolt", state: st, enemies, half: 120 });
+    expect(r.hits).toBe(1);
+    expect(r.empty).toBe(false);
+    expect(enemies[0].hp).toBeCloseTo(88, 6);
+  });
+
+  it("一个敌人都没有时仍朝区域中心空射", () => {
+    const g = grid16();
+    const st = { player: player(0, 0), now: 0 };
+    const r = resolveSigilTrigger({ grid: g, cellId: 0, defId: "arcane_bolt", state: st, enemies: [], half: 120 });
     expect(r.hits).toBe(0);
     expect(r.empty).toBe(true);
     expect(r.aim).not.toBeNull();
-    expect(enemies[0].hp).toBe(100);
   });
 
   it("圣光壁垒给自己护盾且有上限", () => {
@@ -108,8 +116,9 @@ describe("联组追加结算", () => {
     for (const id of [0, 1]) g.cells[id].slot = { kind: "sigil", defId: "arcane_bolt" };
     const st = { player: player(0, 0), now: 0 };
     const enemies = [{ id: 9, alive: true, hp: 500, x: -100, y: -100, armor: 0 }];
+    // 两个格都就近补射同一个敌人，因此命中两次
     const r = resolveComboBonus({ grid: g, order: [0, 1], bonus: 0.2, state: st, enemies, half: 120 });
-    expect(r.hits).toBe(1);
-    expect(r.damage).toBeCloseTo(12 * 0.2, 6);
+    expect(r.hits).toBe(2);
+    expect(r.damage).toBeCloseTo(12 * 0.2 * 2, 6);
   });
 });

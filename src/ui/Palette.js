@@ -42,7 +42,7 @@ export const HEX = {
   bone: '#e4dcc4',
   rot: '#5d7a46',
   white: '#fff6e0',
-  mute: '#8a7aa8',
+  mute: '#b3a6cc',
   ink: '#241c3a',
   inkDark: '#171226',
 };
@@ -50,13 +50,13 @@ export const HEX = {
 // 像素衬线体：西幻感的关键是衬线，不用圆体
 export const FONT = '"SimSun", "Songti SC", "STSong", "Noto Serif SC", serif';
 
-// Phaser 文本样式工厂；resolution 固定为 1，靠 nearest 过滤保持像素颗粒
+// Phaser 文本样式工厂：resolution 2 让中文在 2 倍画布下仍然锐利（resolution 1 会糊）
 export function textStyle(size = 9, color = HEX.parchment, extra = {}) {
   return {
     fontFamily: FONT,
     fontSize: size + 'px',
     color,
-    resolution: 1,
+    resolution: 2,
     padding: { x: 0, y: 1 },
     ...extra,
   };
@@ -64,7 +64,7 @@ export function textStyle(size = 9, color = HEX.parchment, extra = {}) {
 
 export function addText(scene, x, y, str, size = 9, color = HEX.parchment, extra = {}) {
   const t = scene.add.text(Math.round(x), Math.round(y), str, textStyle(size, color, extra));
-  t.setResolution(1);
+  t.setResolution(2);
   return t;
 }
 

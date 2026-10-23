@@ -150,19 +150,17 @@ describe('献祭结算', () => {
     expect(e.hp).toBeCloseTo(88, 6);
   });
 
-  it('空射不扣护盾，只空转返回', () => {
+  it('完全没有敌人时才是空射，不扣护盾', () => {
     const g = full();
     sacrificeAt(g, 5, 6);
     const st = state(16);
-    const far = enemy(1, 100, 100); // 不在区域 5
-    const r = resolveSigilTrigger({ grid: g, cellId: 5, defId: 'arcane_bolt', state: st, enemies: [far], half: 120 });
+    const r = resolveSigilTrigger({ grid: g, cellId: 5, defId: 'arcane_bolt', state: st, enemies: [], half: 120 });
     expect(r.hits).toBe(0);
     expect(r.empty).toBe(true);
     expect(r.damage).toBe(0);
     expect(st.player.shield).toBe(16);
     expect(r.sacrificeSpent).toBe(0);
     expect(r.sacrificeApplied).toBe(false);
-    expect(far.hp).toBe(100);
   });
 
   it('一次触发命中多个目标也只扣一次护盾', () => {

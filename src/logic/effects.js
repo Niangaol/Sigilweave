@@ -97,7 +97,8 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, half,
   const player = state.player;
   const selectTarget = () => {
     if (!aimPoint) return resolveTarget(cellId, player, enemies, half);
-    const target = enemies.filter(e => e.alive && dist2(e, aimPoint) <= 18 * 18)
+    // 命中判定半径放宽到 28px：弹丸落点有轻微追踪，仍然允许侧身闪避
+    const target = enemies.filter(e => e.alive && dist2(e, aimPoint) <= 28 * 28)
       .sort((a, b) => dist2(a, aimPoint) - dist2(b, aimPoint) || a.id - b.id)[0] ?? null;
     return { target, aim: { ...aimPoint }, empty: !target };
   };

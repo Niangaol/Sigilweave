@@ -1,8 +1,9 @@
-// 共振法阵 · 入口：注册四个场景，固定 480×270 像素画布。
+// 共振法阵 · 入口：注册全部场景，固定 480×270 像素画布。
 // 注意：所有逻辑参数来自 src/logic/*（只读），这里只做表现与输入。
 import Phaser from 'phaser';
 import BootScene from './scenes/BootScene.js';
 import TitleScene from './scenes/TitleScene.js';
+import LoadoutScene from './scenes/LoadoutScene.js';
 import BattleScene from './scenes/BattleScene.js';
 import GameOverScene from './scenes/GameOverScene.js';
 import IntermissionScene from './scenes/IntermissionScene.js';
@@ -24,7 +25,7 @@ const game = new Phaser.Game({
     pixelArt: true,
     roundPixels: true,
   },
-  scene: [BootScene, TitleScene, BattleScene, IntermissionScene, GameOverScene],
+  scene: [BootScene, TitleScene, LoadoutScene, BattleScene, IntermissionScene, GameOverScene],
 });
 
 // 方便调试与验收时查看实例；不影响正式流程

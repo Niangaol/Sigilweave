@@ -255,7 +255,7 @@ describe('方位索敌', () => {
     expect(regionCenter(0, px, py, half).x).toBeLessThan(px);
     expect(regionCenter(15, px, py, half).x).toBeGreaterThan(px);
   });
-  it('只打本区域最近敌人，空区朝区域中心空射', () => {
+  it('优先打本区域最近敌人，空区就近补射，无敌人时才空射', () => {
     const px = 0, py = 0;
     const half = 120;
     const enemies = [
@@ -274,8 +274,13 @@ describe('方位索敌', () => {
     const r5 = resolveTarget(5, { x: px, y: py }, enemies, half);
     expect(r5.target.id).toBe(4);
 
-    // 空白区域朝该区中心空射，不跨区找敌
-    const empty = resolveTarget(10, { x: px, y: py }, [-100, -110].map((v, i) => ({ id: i + 1, alive: true, x: v, y: v })), half);
+    // 空白区域（10 号）会就近补射离该区中心最近的敌人，并标记 assisted
+    const assisted = resolveTarget(10, { x: px, y: py }, [-100, -110].map((v, i) => ({ id: i + 1, alive: true, x: v, y: v })), half);
+    expect(assisted.empty).toBe(false);
+    expect(assisted.assisted).toBe(true);
+    expect(assisted.target.id).toBe(1);
+    // 一个敌人都没有时，仍朝区域中心空射
+    const empty = resolveTarget(10, { x: px, y: py }, [], half);
     expect(empty.empty).toBe(true);
     expect(empty.target).toBeNull();
     expect(empty.aim).toEqual(regionCenter(10, px, py, half));

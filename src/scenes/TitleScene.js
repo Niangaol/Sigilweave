@@ -53,7 +53,7 @@ export default class TitleScene extends Phaser.Scene {
     pxDiamond(rule, 74, 94, 2, C.brass, 0.7, true);
     pxDiamond(rule, 406, 94, 2, C.brass, 0.7, true);
 
-    this.prompt = addText(this, 240, 201, '按 Enter / 空格 开始', 10, HEX.arcaneLight)
+    this.prompt = addText(this, 240, 201, '按 Enter / 空格 开始　·　选择初始套装', 10, HEX.arcaneLight)
       .setOrigin(0.5, 0).setDepth(10);
     addText(this, 240, 220, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 暂停菜单', 8, HEX.mute)
       .setOrigin(0.5, 0).setDepth(10);
@@ -112,7 +112,7 @@ export default class TitleScene extends Phaser.Scene {
     if (this.started) return;
     this.started = true;
     this.cameras.main.fadeOut(180, 0, 0, 0);
-    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('BattleScene'));
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('LoadoutScene'));
   }
 
   buildEmbers() {

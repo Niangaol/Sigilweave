@@ -38,3 +38,10 @@ export const COMBO_WINDOW_FACTOR = 1.4;
 
 // 方位索敌：角色相对 4x4 近远区域的半边长（像素）
 export const SECTOR_HALF_SIZE = 120;
+
+// 大地图：每幕一张固定世界（像素），屏幕逻辑分辨率仍 480×270，摄像机跟随
+export const WORLD_SIZES = Object.freeze({
+  1: { w: 1920, h: 1440 },
+  2: { w: 2400, h: 1600 },
+  3: { w: 2400, h: 1800 },
+});

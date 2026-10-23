@@ -22,6 +22,8 @@ try {
   await page.waitForFunction(() => window.__SIGILWEAVE_TITLE_HELP__ === false);
 
   await page.keyboard.press('Enter');
+  await page.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('LoadoutScene'));
+  await page.keyboard.press('Enter'); // 默认套装疾风出发
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.phase === 'play');
   // 等几次触发，保证暂停诊断有真实数据
   await page.waitForTimeout(12000); // 第一幕 2s 间隔，等足几次触发再开暂停

@@ -21,8 +21,10 @@ export function regionOf(x, y, px, py, half = SECTOR_HALF_SIZE) {
   return dr * N + dc;
 }
 
-// 只攻击本区域内的敌人；区域为空则朝区域中心空射，不跨区找敌
-export function resolveTarget(cellId, player, enemies, half = SECTOR_HALF_SIZE) {
+// 优先本区域最近敌人；区域为空时补射“离本区中心最近的敌人”（方向辅助），
+// 一个敌人都没有才朝区域中心空射。补射会在返回值里标记 assisted，便于统计。
+export function resolveTarget(cellId, player, enemies, half = SECTOR_HALF_SIZE, options = {}) {
+  const { assist = true } = options;
   const px = player.x;
   const py = player.y;
   let best = null;
@@ -42,5 +44,16 @@ export function resolveTarget(cellId, player, enemies, half = SECTOR_HALF_SIZE) 
   if (best) {
     return { target: best, aim: { x: best.x, y: best.y }, empty: false };
   }
-  return { target: null, aim: regionCenter(cellId, px, py, half), empty: true };
+  if (assist) {
+    const center = regionCenter(cellId, px, py, half);
+    let near = null;
+    let nearD = Infinity;
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const d = (e.x - center.x) ** 2 + (e.y - center.y) ** 2;
+      if (d < nearD || (d === nearD && near && e.id < near.id)) { nearD = d; near = e; }
+    }
+    if (near) return { target: near, aim: { x: near.x, y: near.y }, empty: false, assisted: true };
+  }
+  return { target: null, aim: regionCenter(cellId, px, py, half), empty: true, assisted: false };
 }

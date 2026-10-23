@@ -10,6 +10,8 @@ try {
   await page.goto((process.env.BASE_URL ?? 'http://127.0.0.1:5173') + '/?seed=layout-check');
   await page.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('TitleScene'));
   await page.keyboard.press('Enter');
+  await page.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('LoadoutScene'));
+  await page.keyboard.press('Enter'); // 默认套装出发
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.player);
   await page.keyboard.down('ArrowDown');
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__.player.y > 210);

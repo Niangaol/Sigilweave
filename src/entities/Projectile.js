@@ -30,7 +30,11 @@ export default class Projectile {
   update(dtMs) {
     if (!this.alive) return false;
     this.elapsed += dtMs;
-    // 发射时固定落点；移动目标可以躲开，不因玩家或目标移动追踪。
+    // 目标还活着就跟随它的当前位置：固定落点几乎打不中移动的怪（实测手感问题）
+    if (this.targetEnemy && this.targetEnemy.alive) {
+      this.tx = this.targetEnemy.x;
+      this.ty = this.targetEnemy.y;
+    }
     const k = Math.min(1, this.elapsed / this.duration);
     this.x = this.sx + (this.tx - this.sx) * k;
     this.y = this.sy + (this.ty - this.sy) * k - Math.sin(k * Math.PI) * 10;
