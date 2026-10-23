@@ -847,10 +847,11 @@ export default class BattleScene extends Phaser.Scene {
     this.stressTopUp = topUp;
     const deltas = [];
     const begin = performance.now();
+    const windowMs = Math.min(180000, Math.max(20000, Number(this.debugParams?.get('stressMs')) || 20000));
     let last = begin;
     const tick = (t) => {
       deltas.push(t - last); last = t;
-      if (t - begin < 20000) { requestAnimationFrame(tick); return; }
+      if (t - begin < windowMs) { requestAnimationFrame(tick); return; }
       topUp.remove();
       const sorted = [...deltas].slice(2).sort((a, b) => a - b);
       const pick = (q) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] ?? 0;

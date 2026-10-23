@@ -7,13 +7,15 @@ try {
   const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(BASE + '/?scene=battle&stress=1&seed=stress');
-  await page.waitForFunction(() => window.__STRESS__, null, { timeout: 90000 });
+  const long = process.env.LONG === '1';
+  const windowMs = long ? 120000 : 20000;
+  await page.goto(BASE + '/?scene=battle&stress=1&stressMs=' + windowMs + '&seed=stress');
+  await page.waitForFunction(() => window.__STRESS__, null, { timeout: windowMs + 120000 });
   const stress = await page.evaluate(() => ({ ...window.__STRESS__ }));
   console.log('STRESS', JSON.stringify(stress));
   await page.screenshot({ path: 'docs/p4-压测.png' });
   assert.equal(errors.length, 0, errors.join('; '));
-  assert.equal(stress.frames > 600, true, 'should sample >600 frames');
+  assert.equal(stress.frames > (long ? 3000 : 600), true, 'should sample enough frames');
   assert(stress.max < 250, 'no freeze over 250ms, max=' + stress.max);
   // 池化：不得超出容量，压测期间应有复用；饱和允许出现但需记录
   assert(stress.pools.projectile.created <= 300, 'projectile pool cap');
