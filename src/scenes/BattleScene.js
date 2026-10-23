@@ -645,7 +645,9 @@ export default class BattleScene extends Phaser.Scene {
     this.kills++;
     this.effects.burst(e.x, e.y, C.bone, 10);
     this.effects.dissipate(e.x, e.y, C.groove);
-    this.spawnShard(e.x, e.y);
+    // 按敌种掉落：腐尸/邪教徒/骑士更值钱；18% 额外一颗保持稀有惊喜
+    const drop = Math.max(1, Math.round(e.def?.shards ?? 1));
+    for (let i = 0; i < drop; i++) this.spawnShard(e.x + (i - (drop - 1) / 2) * 4, e.y - (i % 2) * 3);
     if (this.combatRng.next() < 0.18) this.spawnShard(e.x + 5, e.y - 3);
     e.alive = false;
     e.destroy();
