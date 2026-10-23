@@ -90,6 +90,9 @@ export default class BattleScene extends Phaser.Scene {
     this.grid = createGrid();
     const committed = applyDraft(this.grid, this.run.draft, { phase: 'intermission' });
     if (!committed.ok) throw new Error('战斗构筑快照无效');
+    // 平衡对照开关：只在 URL 显式给参时生效，默认玩法完全不变。
+    this.tuning = this.readTuning(params);
+    if (this.tuning.intervalMs) rebuildDerived(this.grid, this.tuning.intervalMs);
     this.board = new SigilBoard(this, this.grid);
 
     // 起点：按玩家归一化位置映射到最近的已解封格
@@ -100,8 +103,11 @@ export default class BattleScene extends Phaser.Scene {
     this.engine = new SigilEngine({
       seed: this.run.seed + ':signal:' + this.act,
       grid: this.grid,
-      startCells: this.act === 3 ? [this.startCell, this.grid.unlockedIds().find(id => id !== this.startCell)] : [this.startCell],
-      combos: buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4']).filter(inst => inst.order.every(id => this.grid.cells[id].unlocked && this.grid.cells[id].slot?.kind === 'sigil' && !this.grid.cells[id].mutedOutput)),
+      startCells: this.pickStartCells(),
+      combos: buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4'])
+        .map(inst => (inst.defId === 'duo' && this.tuning.duoBonus !== null
+          ? { ...inst, bonus: this.tuning.duoBonus } : inst))
+        .filter(inst => inst.order.every(id => this.grid.cells[id].unlocked && this.grid.cells[id].slot?.kind === 'sigil' && !this.grid.cells[id].mutedOutput)),
       onEvent: (type, data) => this.onEngineEvent(type, data),
     });
     this.engine.start();
@@ -176,6 +182,30 @@ export default class BattleScene extends Phaser.Scene {
     // 暴露给验收脚本：只读查看引擎状态
     this.bootCount = (this.bootCount ?? 0) + 1;
     window.__SIGILWEAVE_BATTLE__ = this;
+  }
+
+  // 解析 URL 平衡对照参数：interval（秒）、starts（1-4）、duo（对偶倍率）
+  readTuning(params) {
+    // 注意 Number(null) === 0，必须先用 has 区分“没传”与“传了 0”
+    const intervalSec = params.has('interval') ? Number(params.get('interval')) : NaN;
+    const starts = params.has('starts') ? Number.parseInt(params.get('starts'), 10) : NaN;
+    const duo = params.has('duo') ? Number(params.get('duo')) : NaN;
+    return {
+      intervalMs: Number.isFinite(intervalSec) && intervalSec >= 0.8 && intervalSec <= 5 ? intervalSec * 1000 : null,
+      starts: Number.isInteger(starts) && starts >= 1 && starts <= 4 ? starts : null,
+      duoBonus: Number.isFinite(duo) && duo >= 0 && duo <= 2 ? duo : null,
+    };
+  }
+
+  pickStartCells() {
+    const unlocked = this.grid.unlockedIds();
+    const count = this.tuning?.starts ?? (this.act === 3 ? 2 : 1);
+    const cells = [this.startCell];
+    for (const id of unlocked) {
+      if (cells.length >= count) break;
+      if (!cells.includes(id)) cells.push(id);
+    }
+    return cells;
   }
 
   // ---------- 起点映射 ----------
