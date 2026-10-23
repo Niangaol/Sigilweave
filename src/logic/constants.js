@@ -17,19 +17,19 @@ export const ORTHO_DIRS = ['up', 'down', 'left', 'right'];
 export const DIAG_DIRS = ['upleft', 'upright', 'downleft', 'downright'];
 export const ALL_DIRS = [...ORTHO_DIRS, ...DIAG_DIRS];
 
-// 位置化冷却（毫秒）：角 1.5s / 边 2.0s / 中心 4.0s
-export const POSITION_COOLDOWN = { corner: 1500, edge: 2000, center: 4000 };
-export const INTERVAL_FLOOR_MS = 800;
-export const COOLDOWN_FLOOR_MS = 1200;
+// 位置化冷却（毫秒）：角 0.8s / 边 1.1s / 中心 2.2s
+export const POSITION_COOLDOWN = { corner: 800, edge: 1100, center: 2200 };
+export const INTERVAL_FLOOR_MS = 500;
+export const COOLDOWN_FLOOR_MS = 600;
 
 // 共鸣石：对正交四邻的间隔与冷却同时乘算 -25%
 export const RESONANCE_FACTOR = 0.75;
 
 // 三幕参数
 export const ACTS = [
-  { act: 1, baseIntervalMs: 2000, starts: 1, unlocked: 6 },
-  { act: 2, baseIntervalMs: 1700, starts: 1, unlocked: 12 },
-  { act: 3, baseIntervalMs: 1400, starts: 2, unlocked: 16 },
+  { act: 1, baseIntervalMs: 1400, starts: 2, unlocked: 6 },
+  { act: 2, baseIntervalMs: 1200, starts: 3, unlocked: 12 },
+  { act: 3, baseIntervalMs: 1000, starts: 3, unlocked: 16 },
 ];
 
 export const MAX_REROUTE = 2;          // 冷却受阻最多改道两次

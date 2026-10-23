@@ -4,7 +4,7 @@ import { C, HEX, addText, pxRect, pxFrame, pxDiamond } from './Palette.js';
 export default class EncounterPanel {
   constructor(scene, onSelect, onConfirm, onContinue) {
     this.scene = scene; this.onSelect = onSelect; this.onConfirm = onConfirm; this.onContinue = onContinue;
-    this.view = scene.add.container(0, 0).setDepth(3000).setVisible(false);
+    this.view = scene.add.container(0, 0).setDepth(3000).setVisible(false).setScrollFactor(0);
     this.current = null;
   }
   text(x, y, message, size = 9, color = HEX.parchment, extra = {}) {

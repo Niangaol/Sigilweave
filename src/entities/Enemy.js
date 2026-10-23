@@ -61,8 +61,7 @@ export default class Enemy {
     this.applyResult(result, dtMs);
     this.draw(now);
     this.g.setDepth(Math.floor(this.y));
-    // 走出战场（包括被玩家甩开、穿过底部）就退场，沿用原逻辑
-    if (this.x < -28 || this.x > 508 || this.y < 8 || this.y > 294) this.alive = false;
+    // 大地图世界边界由 enemy-ai 的 bounds 约束；离玩家过远的回收在战斗层处理
   }
 
   selfState(factor = 1) {
@@ -96,6 +95,10 @@ export default class Enemy {
     // 敌方弹丸转发；addHostileShot 不存在时静默跳过（纯逻辑可单独测试）
     if (Array.isArray(result.shots) && result.shots.length && typeof this.scene.addHostileShot === 'function') {
       for (const shot of result.shots) this.scene.addHostileShot(shot);
+    }
+    // 精英践踏事件转发（缝合尸魁）：由战斗层判定玩家是否在圈内
+    if (result.stomp && typeof this.scene.onEnemyStomp === 'function') {
+      this.scene.onEnemyStomp(this, result.stomp);
     }
     if (Number.isFinite(dtMs) && dtMs > 0) this.walkPhase += dtMs;
   }
@@ -133,6 +136,15 @@ export default class Enemy {
       default: this.drawSkeleton(g, x, y, bob, color, flash); break;
     }
     this.drawHealth(g, x, y);
+    // 精英标识：金描边＋顶部血条（普通怪血条在 drawHealth 内部按需显示）
+    if (this.def?.elite) {
+      pxRect(g, x - this.radius - 2, y - this.radius - 2, this.radius * 2 + 4, 1, C.brass, 0.9);
+      pxRect(g, x - this.radius - 2, y + this.radius + 1, this.radius * 2 + 4, 1, C.brass, 0.9);
+      pxRect(g, x - this.radius - 2, y - this.radius - 2, 1, this.radius * 2 + 4, C.brass, 0.9);
+      pxRect(g, x + this.radius + 1, y - this.radius - 2, 1, this.radius * 2 + 4, C.brass, 0.9);
+      pxRect(g, x - 8, y - this.radius - 8, 16, 2, C.void, 0.8);
+      pxRect(g, x - 8, y - this.radius - 8, Math.max(1, Math.round(16 * this.hp / this.maxHp)), 2, C.brassLight, 1);
+    }
   }
 
   // 预警：血线指向锁定的目标点，目标点画蹄形环，敌人头顶亮菱形

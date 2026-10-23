@@ -53,10 +53,10 @@ describe('法阵拓扑', () => {
     expect(types.filter((t) => t === 'edge').length).toBe(8);
     expect(types.filter((t) => t === 'center').length).toBe(4);
   });
-  it('位置化冷却 角1.5 边2 中心4 秒', () => {
-    expect(baseCooldown(toId(0, 0))).toBe(1500);
-    expect(baseCooldown(toId(0, 1))).toBe(2000);
-    expect(baseCooldown(toId(1, 1))).toBe(4000);
+  it('位置化冷却 角0.8 边1.1 中心2.2 秒', () => {
+    expect(baseCooldown(toId(0, 0))).toBe(800);
+    expect(baseCooldown(toId(0, 1))).toBe(1100);
+    expect(baseCooldown(toId(1, 1))).toBe(2200);
   });
   it('邻格数 角2 边3 中心4', () => {
     expect(neighborsOf(toId(0, 0)).length).toBe(2);
@@ -92,8 +92,8 @@ describe('共鸣石', () => {
       g.cells[id].slot = { kind: 'auxiliary', defId: 'resonance_stone' };
     }
     rebuildDerived(g, 800);
-    expect(g.cells[toId(1, 2)].effIntervalMs).toBeGreaterThanOrEqual(800);
-    expect(g.cells[toId(1, 2)].effCooldownMs).toBeGreaterThanOrEqual(1200);
+    expect(g.cells[toId(1, 2)].effIntervalMs).toBe(500);
+    expect(g.cells[toId(1, 2)].effCooldownMs).toBeGreaterThanOrEqual(600);
   });
 });
 
@@ -145,7 +145,7 @@ describe('脉流引擎', () => {
   });
 
   it('基础间隔 2 秒时位置化冷却不生效（实测结论）', () => {
-    // 禁止立即回退后最短合法回路是 4 跳；4 x 2000ms = 8000ms 已超过中心位 4000ms 冷却
+    // 禁止立即回退后最短合法回路是 3 跳；3 x 2000ms = 6000ms 仍超过中心位 2200ms 冷却
     const g = makeGrid([...Array(16).keys()], 2000);
     const e = new SigilEngine({ seed: 11, grid: g, startCells: [toId(1, 1)] });
     e.start();
@@ -154,8 +154,8 @@ describe('脉流引擎', () => {
     expect(e.stats.blocked).toBe(0);
   });
 
-  it('间隔压到 0.8 秒后冷却才开始吞跳', () => {
-    const g = makeGrid([...Array(16).keys()], 800);
+  it('间隔压到 0.5 秒后冷却才开始吞跳', () => {
+    const g = makeGrid([...Array(16).keys()], 500);
     const e = new SigilEngine({ seed: 11, grid: g, startCells: [toId(1, 1)] });
     e.start();
     e.advanceTo(180000);

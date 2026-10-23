@@ -22,7 +22,9 @@ export default class Boss {
       this.x += dx / d * 14 * factor * dtMs / 1000;
       this.y += dy / d * 14 * factor * dtMs / 1000;
     }
-    this.x = Math.max(28, Math.min(452, this.x)); this.y = Math.max(42, Math.min(246, this.y));
+    const W = this.scene.world ?? { w: 480, h: 270 };
+    this.x = Math.max(28, Math.min(W.w - 28, this.x));
+    this.y = Math.max(42, Math.min(W.h - 28, this.y));
     for (const shot of stepBoss(this.model, dtMs, this, p)) this.scene.addHostileShot(shot);
     this.draw(now);
     this.g.setDepth(Math.floor(this.y));

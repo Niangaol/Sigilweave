@@ -6,7 +6,7 @@ import { SigilEngine } from '../logic/engine.js';
 import { createGrid, rebuildDerived, toId, toRC, manhattan } from '../logic/grid.js';
 import { buildComboCatalog } from '../logic/combo.js';
 import { resolveTarget } from '../logic/sector.js';
-import { ACTS } from '../logic/constants.js';
+import { ACTS, WORLD_SIZES } from '../logic/constants.js';
 import { applyDraft, snapshotBuild } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, resolveSigilTrigger, resolveComboBonus } from '../logic/effects.js';
 import { createRun, recordAct } from '../logic/run.js';
@@ -77,15 +77,24 @@ export default class BattleScene extends Phaser.Scene {
     this.hintUntil = 13000;
 
     // ---------- 视觉层 ----------
-    this.background = new Background(this);
+    this.background = new Background(this, this.act, this.world);
     this.effects = new EffectsLayer(this);
     this.hud = new Hud(this);
     this.pauseMenu = new PauseMenu(this);
     this.hostileG = this.add.graphics().setDepth(450);
     this.encounterPanel = new EncounterPanel(this, id => this.selectEncounterAnswer(id), () => this.confirmEncounterAnswer(), () => this.continueEncounter());
 
+    // ---------- 世界与摄像机（每幕一张大地图） ----------
+    const world = WORLD_SIZES[this.act] ?? WORLD_SIZES[1];
+    this.world = { w: world.w, h: world.h };
+    this.worldBounds = { left: 24, top: 40, right: world.w - 24, bottom: world.h - 24 };
+    this.battleBounds = this.worldBounds; // 敌人 AI 读取的世界活动范围
+
     // ---------- 玩家 ----------
-    this.player = new Player(this, 240, 132);
+    this.player = new Player(this, world.w / 2, world.h / 2);
+    this.cameras.main.setBounds(0, 0, world.w, world.h);
+    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
+    this.cameras.main.setDeadzone(60, 40);
 
     // 对象池：弹丸与碎片高频创建，复用图形对象；饱和时拒绝新建而不是抢占活动对象
     this.projectilePool = new Pool({
@@ -148,7 +157,7 @@ export default class BattleScene extends Phaser.Scene {
     };
     this.onMute = () => {
       const on = toggleSound();
-      this.effects.text(240, 150, on ? '音效已开启' : '音效已关闭', HEX.arcaneLight);
+      this.effects.text(240, 150, on ? '音效已开启' : '音效已关闭', HEX.arcaneLight, true);
     };
     this.onTitle = () => {
       if (this.menuOpen) this.scene.start('TitleScene');
@@ -180,9 +189,9 @@ export default class BattleScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
 
     // 操作提示（12 秒后淡出）
-    this.hint = addText(this, 10, 250, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 菜单', 8, HEX.parchment)
+    this.hint = addText(this, 10, 250, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 菜单', 8, HEX.parchment).setScrollFactor(0)
       .setOrigin(0, 0.5).setDepth(1005).setAlpha(0.9);
-    this.pauseHint = addText(this, 10, 182, '观察中 · 松开空格继续　（Esc 打开菜单）', 8, HEX.arcaneLight)
+    this.pauseHint = addText(this, 10, 182, '观察中 · 松开空格继续　（Esc 打开菜单）', 8, HEX.arcaneLight).setScrollFactor(0)
       .setOrigin(0, 0.5).setDepth(1006).setVisible(false);
 
     this.cameras.main.fadeIn(220, 0, 0, 0);
@@ -212,7 +221,7 @@ export default class BattleScene extends Phaser.Scene {
 
   pickStartCells() {
     const unlocked = this.grid.unlockedIds();
-    const count = this.tuning?.starts ?? (this.act === 3 ? 2 : 1);
+    const count = this.tuning?.starts ?? ACTS[this.act - 1].starts;
     const cells = [this.startCell];
     for (const id of unlocked) {
       if (cells.length >= count) break;
@@ -224,9 +233,9 @@ export default class BattleScene extends Phaser.Scene {
   // ---------- 起点映射 ----------
   sampleStartCell() {
     // 玩家在战场中的归一化位置 -> 4×4 虚拟格坐标，再找最近的已解封格
-    const normC = Phaser.Math.Clamp(Math.floor((this.player.x / 480) * 4), 0, 3);
+    const normC = Phaser.Math.Clamp(Math.floor((this.player.x / this.world.w) * 4), 0, 3);
     const normR = Phaser.Math.Clamp(
-      Math.floor(((this.player.y - 20) / (BATTLE.bottom + 8 - 20)) * 4), 0, 3,
+      Math.floor((this.player.y / this.world.h) * 4), 0, 3,
     );
     const anchor = toId(normR, normC);
     let best = null;
@@ -295,7 +304,7 @@ export default class BattleScene extends Phaser.Scene {
       case 'combo:break': {
         const labels = { cooldown: '冷却受阻', fallback: '保底改道', dissipate: '脉流消散' };
         const shapes = (data.shapes ?? []).map(s => COMBO_NAMES[s] ?? s).join('、');
-        this.effects.text(402, 168, '联组断 · ' + (labels[data.reason] ?? data.reason) + (shapes ? '（' + shapes + '）' : ''), HEX.blood);
+        this.effects.text(402, 168, '联组断 · ' + (labels[data.reason] ?? data.reason) + (shapes ? '（' + shapes + '）' : ''), HEX.blood, true);
         this.comboBreakCount = (this.comboBreakCount ?? 0) + 1;
         sfx.comboBreak();
         break;
@@ -347,7 +356,7 @@ export default class BattleScene extends Phaser.Scene {
     if (index === 0) {
       this.startCell = next;
       this.board.setStart(next);
-      this.effects.text(240, 178, '脉流从新方位重生', HEX.arcaneLight);
+      this.effects.text(240, 178, '脉流从新方位重生', HEX.arcaneLight, true);
     }
   }
 
@@ -462,7 +471,7 @@ export default class BattleScene extends Phaser.Scene {
   updatePlayer(dt) {
     const { dx, dy } = this.readMoveAxis();
     const factor = this.engine.now < this.playerSlowUntil ? 0.75 : 1;
-    this.player.update(dt * factor, dx, dy, BATTLE, this.engine.now);
+    this.player.update(dt * factor, dx, dy, this.worldBounds, this.engine.now);
   }
 
   updateStartSample(dt) {
@@ -496,9 +505,24 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   spawnEnemy(dif) {
-    const x = 16 + this.combatRng.next() * 448;
-    const y = 24 + this.combatRng.next() * 14;
-    if (Math.hypot(x - this.player.x, y - this.player.y) < 46) return;
+    // 幸存者式：以玩家为中心、屏幕外环形生成；被世界边界 clamp 后若过近/过远则重采样
+    let x = 0, y = 0;
+    for (let attempt = 0; attempt < 7; attempt++) {
+      const angle = this.combatRng.next() * Math.PI * 2;
+      const dist = 260 + this.combatRng.next() * 60;
+      x = Math.max(28, Math.min(this.world.w - 28, this.player.x + Math.cos(angle) * dist));
+      y = Math.max(48, Math.min(this.world.h - 28, this.player.y + Math.sin(angle) * dist));
+      const d = Math.hypot(x - this.player.x, y - this.player.y);
+      if (d >= 140 && d <= 520) break;
+      if (attempt === 6) {
+        // 兜底：朝地图中心方向 280px（必在界内且离玩家足够远）
+        const cx = this.world.w / 2, cy = this.world.h / 2;
+        const dx = cx - this.player.x, dy = cy - this.player.y;
+        const len = Math.hypot(dx, dy) || 1;
+        x = Math.max(28, Math.min(this.world.w - 28, this.player.x + (dx / len) * 280 + (this.combatRng.next() - 0.5) * 120));
+        y = Math.max(48, Math.min(this.world.h - 28, this.player.y + (dy / len) * 280 + (this.combatRng.next() - 0.5) * 120));
+      }
+    }
     // 按幕权重抽敌人类型；腐尸更厚更慢、蝠更快更脆，伤害取各自定义
     const def = pickEnemyType(this.act, this.combatRng.next());
     this.enemies.push(new Enemy(
@@ -526,7 +550,8 @@ export default class BattleScene extends Phaser.Scene {
       }
       e.update(dt, this.engine.now);
       // 罗盘属于 HUD，不是地图地形；怪物可穿过旧分界线。
-      if (e.y > BATTLE.bottom + 24 || e.y < BATTLE.top - 24 || e.x < -24 || e.x > 504) e.alive = false;
+      // 大地图：杂兵离玩家过远即回收（Boss 不受此限），不再按屏幕边界退场
+      if (!e.isBoss && Math.hypot(e.x - this.player.x, e.y - this.player.y) > 560) e.alive = false;
       if (!e.alive) {
         e.destroy();
         this.enemies.splice(i, 1);
@@ -591,7 +616,7 @@ export default class BattleScene extends Phaser.Scene {
     const result = resolveSigilTrigger({ grid: this.grid, cellId, defId, state: this.combatState(), enemies: this.enemies, half: SECTOR.half, aimPoint });
     if (result.sacrificeApplied) {
       const c = cellCenter(cellId);
-      this.effects.text(c.x, c.y - 10, '献祭 -8盾 双倍', HEX.blood);
+      this.effects.text(c.x, c.y - 10, '献祭 -8盾 双倍', HEX.blood, true);
     }
     for (const enemy of result.targets) {
       enemy.hitAt = this.engine.now;
@@ -599,6 +624,21 @@ export default class BattleScene extends Phaser.Scene {
     }
     this.collectDefeated();
     return result;
+  }
+
+  // 精英践踏：圈内玩家受击（带无敌帧，不会连续吃满）
+  onEnemyStomp(enemy, stomp) {
+    if (!stomp || this.phase !== 'play' || !this.player.alive) return;
+    const d = Math.hypot(this.player.x - stomp.x, this.player.y - stomp.y);
+    if (d <= (stomp.radius ?? 26) + this.player.radius) {
+      if (this.player.takeDamage(stomp.damage ?? 8, this.engine.now)) {
+        this.effects.hurt();
+        this.effects.impact(this.player.x, this.player.y, C.blood, true);
+        this.cameras.main.shake(120, 0.005);
+        sfx.hurt();
+      }
+    }
+    this.effects.impact(stomp.x, stomp.y, C.stone, true);
   }
 
   collectDefeated() {
@@ -771,7 +811,7 @@ export default class BattleScene extends Phaser.Scene {
     this.hostileShots = []; this.hostileG.clear();
     for (const enemy of this.enemies) enemy.destroy(); this.enemies = [];
     this.releaseProjectiles();
-    this.effects.text(240, 115, '契约解除 · Boss 已击败', HEX.arcaneLight);
+    this.effects.text(240, 115, '契约解除 · Boss 已击败', HEX.arcaneLight, true);
   }
 
   addHostileShot(shot) {

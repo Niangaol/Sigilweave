@@ -6,12 +6,12 @@ export default class PauseMenu {
     this.scene = scene;
     this.visible = false;
     this.mode = 'menu';
-    this.g = scene.add.graphics().setDepth(2000).setVisible(false);
+    this.g = scene.add.graphics().setDepth(2000).setVisible(false).setScrollFactor(0);
     this.title = addText(scene, 240, 62, '暂　停', 16, HEX.parchment, {
       stroke: '#0d0a17', strokeThickness: 2,
-    }).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
+    }).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false).setScrollFactor(0);
     this.note = addText(scene, 240, 88, '战场与脉流已冻结', 8, HEX.mute)
-      .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
+      .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false).setScrollFactor(0);
     this.lines = [
       addText(scene, 240, 108, 'Esc　　继续战斗', 9, HEX.parchment).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
       addText(scene, 240, 124, 'R　　　重开本局', 9, HEX.parchment).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),

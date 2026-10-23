@@ -5,7 +5,8 @@
 // 调用约定：
 //   createBrain(defId, { now, seed }) -> brain（纯数据，可 structuredClone）
 //   stepBrain(brain, { dtMs, now, self, player, opts })
-//     -> { x, y, shots: [], charging, windup }
+//     -> { x, y, shots: [], stomp, charging, windup }
+//   stomp 为 null 或 { x, y, radius, damage }：缝合尸魁贴身践踏的结算事件，由场景扣血。
 //   self: { x, y, speed, radius }；opts: { BATTLE: { left, right, top, bottom }, damage }
 //
 // 腐尸的「慢 / 厚」是 roster 里的 speedMul / hpMul，由刷怪层乘算后再传进 speed / hp；
@@ -34,7 +35,24 @@ export const KNIGHT_RULE = Object.freeze({
   chargeSpeedMul: 3.2,
 });
 
-const KNOWN_DEFS = new Set(['skeleton', 'bat', 'corpse', 'cultist', 'knight']);
+// 缝合尸魁（二幕精英）：慢速接近，贴身后每 0.8s 践踏一次；本层只产出事件与计时
+export const STITCH_RULE = Object.freeze({ stompDist: 26, stompMs: 800 });
+
+// 咒誓主教（三幕精英）：保持约 110px，每 4.2s 瞬移到玩家侧翼，停顿 0.5s 后 0.15s 间隔三连弹
+export const OATH_RULE = Object.freeze({
+  holdDist: 110,
+  blinkMs: 4200,
+  pauseMs: 500,
+  burstShots: 3,
+  burstGapMs: 150,
+  shotSpeed: 150,
+  shotLifeMs: 3200,
+});
+
+const KNOWN_DEFS = new Set([
+  'skeleton', 'bat', 'corpse', 'cultist', 'knight',
+  'stitch_abomination', 'oath_bishop',
+]);
 const TAU = Math.PI * 2;
 const MAX_STEP_MS = 10000;   // 单步上限：手滑传入超大 dt 也只前进 10s，不把坐标推到天边
 const COORD_LIMIT = 1e6;
@@ -118,12 +136,16 @@ function clampToBounds(point, bounds) {
   point.y = Math.min(bounds.bottom, Math.max(bounds.top, point.y));
 }
 
-function makeResult(brain, shots = [], charging = false, windup = false) {
+function makeResult(brain, shots = [], charging = false, windup = false, stomp = null) {
   const x = clampCoord(finiteOr(brain.x, 0));
   const y = clampCoord(finiteOr(brain.y, 0));
   brain.x = x;
   brain.y = y;
-  return { x, y, shots, charging, windup };
+  return { x, y, shots, stomp, charging, windup };
+}
+
+function isWindup(brain) {
+  return brain.mode === 'windup' || brain.pauseLeft > 0;
 }
 
 // ---------- 创建 ----------
@@ -149,6 +171,13 @@ export function createBrain(defId, options = {}) {
     chargeIn: 0,
     chargeLeft: 0,
     aim: null,           // 预警锁定的目标点快照
+    stompIn: 0,
+    stomps: 0,
+    blinkIn: 0,
+    pauseLeft: 0,
+    burstLeft: 0,
+    burstIn: 0,
+    blinks: 0,
     shots: 0,
     windups: 0,
     charges: 0,
@@ -160,6 +189,11 @@ export function createBrain(defId, options = {}) {
     brain.attackIn = CULTIST_RULE.attackMs;
   }
   if (def === 'knight') brain.chargeIn = KNIGHT_RULE.intervalMs;
+  if (def === 'stitch_abomination') brain.stompIn = STITCH_RULE.stompMs;
+  if (def === 'oath_bishop') {
+    brain.orbitDir = nextRandom(brain) < 0.5 ? -1 : 1;
+    brain.blinkIn = OATH_RULE.blinkMs;
+  }
   return brain;
 }
 
@@ -322,6 +356,114 @@ function stepKnight(brain, ctx) {
   return makeResult(brain, [], false, false);
 }
 
+// 缝合尸魁：慢速追人；进入 26px 后站定，每 800ms 生成一次践踏事件（伤害由场景结算）。
+function stepStitch(brain, ctx) {
+  const { self, player, dt, bounds, opts } = ctx;
+  const dist = Math.hypot(player.x - self.x, player.y - self.y);
+  let stomp = null;
+
+  if (dist <= STITCH_RULE.stompDist) {
+    // 贴身：站定蓄力，位置不变
+    brain.x = self.x;
+    brain.y = self.y;
+    brain.stompIn -= dt;
+    if (brain.stompIn <= 0) {
+      brain.stompIn = STITCH_RULE.stompMs;
+      brain.stomps += 1;
+      stomp = {
+        x: self.x,
+        y: self.y,
+        radius: STITCH_RULE.stompDist,
+        damage: Math.max(1, Math.round(finiteOr(opts?.damage, 14))),
+      };
+    }
+  } else {
+    // 离开范围：重置蓄力，重新贴身需再等满 800ms
+    brain.stompIn = STITCH_RULE.stompMs;
+    const dir = unitVector(player.x - self.x, player.y - self.y);
+    if (dir) {
+      brain.x = self.x + dir.x * self.speed * (dt / 1000);
+      brain.y = self.y + dir.y * self.speed * (dt / 1000);
+    } else {
+      brain.x = self.x;
+      brain.y = self.y;
+    }
+    clampToBounds(brain, bounds);
+  }
+  return makeResult(brain, [], false, false, stomp);
+}
+
+function makeOathShot(self, player, opts) {
+  const dir = unitVector(player.x - self.x, player.y - self.y) ?? { x: 0, y: 1 };
+  return {
+    x: self.x + dir.x * 6,
+    y: self.y + dir.y * 6,
+    vx: dir.x * OATH_RULE.shotSpeed,
+    vy: dir.y * OATH_RULE.shotSpeed,
+    damage: Math.max(1, Math.round(finiteOr(opts?.damage, 10))),
+    lifeMs: OATH_RULE.shotLifeMs,
+  };
+}
+
+// 咒誓主教：空闲时维持 110px 并缓慢环绕；每 4.2s 瞬移到玩家侧翼（seed 决定左右），
+// 瞬移后停顿 500ms（windup=true），随后 150ms 间隔打满三发；瞬移节拍不因停顿/连弹顺延。
+function stepOath(brain, ctx) {
+  const { self, player, dt, bounds, opts } = ctx;
+
+  brain.blinkIn -= dt;
+
+  // 1) 瞬移后的停顿：不移动，第一发在停顿结束的同一帧射出
+  if (brain.pauseLeft > 0) {
+    brain.pauseLeft -= dt;
+    brain.x = self.x;
+    brain.y = self.y;
+    if (brain.pauseLeft > 0) return makeResult(brain, [], false, true);
+    brain.pauseLeft = 0;
+    brain.burstLeft = OATH_RULE.burstShots - 1;
+    brain.burstIn = OATH_RULE.burstGapMs;
+    return makeResult(brain, [makeOathShot(self, player, opts)], false, false);
+  }
+
+  // 2) 三连弹剩余两发：站定射击
+  if (brain.burstLeft > 0) {
+    brain.burstIn -= dt;
+    brain.x = self.x;
+    brain.y = self.y;
+    if (brain.burstIn <= 0) {
+      brain.burstLeft -= 1;
+      brain.burstIn = OATH_RULE.burstGapMs;
+      return makeResult(brain, [makeOathShot(self, player, opts)], false, false);
+    }
+    return makeResult(brain, [], false, false);
+  }
+
+  // 3) 空闲：保持约 110px，缓慢环绕
+  const dx = player.x - self.x;
+  const dy = player.y - self.y;
+  const dist = Math.hypot(dx, dy);
+  const nx = dist > 1e-6 ? dx / dist : 0;
+  const ny = dist > 1e-6 ? dy / dist : 1;
+  const radial = Math.max(-self.speed, Math.min(self.speed, (dist - OATH_RULE.holdDist) * 2));
+  const tangential = self.speed * 0.6 * (brain.orbitDir < 0 ? -1 : 1);
+  brain.x = self.x + (-ny * tangential + nx * radial) * (dt / 1000);
+  brain.y = self.y + (nx * tangential + ny * radial) * (dt / 1000);
+  clampToBounds(brain, bounds);
+
+  // 4) 瞬移：落在玩家侧翼，左右由种子随机决定
+  if (brain.blinkIn <= 0) {
+    const side = nextRandom(brain) < 0.5 ? -1 : 1;
+    brain.x = player.x + -ny * side * OATH_RULE.holdDist;
+    brain.y = player.y + nx * side * OATH_RULE.holdDist;
+    clampToBounds(brain, bounds);
+    brain.pauseLeft = OATH_RULE.pauseMs;
+    brain.blinkIn = OATH_RULE.blinkMs;
+    brain.blinks += 1;
+    return makeResult(brain, [], false, true);
+  }
+
+  return makeResult(brain, [], false, false);
+}
+
 // ---------- 单步 ----------
 export function stepBrain(brain, rawInput) {
   const input = rawInput && typeof rawInput === 'object' ? rawInput : {};
@@ -331,7 +473,7 @@ export function stepBrain(brain, rawInput) {
   const player = readPlayer(input.player, self);
 
   if (!brain || typeof brain !== 'object' || !KNOWN_DEFS.has(brain.defId)) {
-    return { x: self.x, y: self.y, shots: [], charging: false, windup: false };
+    return { x: self.x, y: self.y, shots: [], stomp: null, charging: false, windup: false };
   }
 
   const dtRaw = Number(input.dtMs);
@@ -341,8 +483,9 @@ export function stepBrain(brain, rawInput) {
       x: self.x,
       y: self.y,
       shots: [],
+      stomp: null,
       charging: brain.mode === 'charge',
-      windup: brain.mode === 'windup',
+      windup: isWindup(brain),
     };
   }
 
@@ -355,6 +498,8 @@ export function stepBrain(brain, rawInput) {
     case 'corpse': return stepMarch(brain, ctx);
     case 'cultist': return stepCultist(brain, ctx);
     case 'knight': return stepKnight(brain, ctx);
+    case 'stitch_abomination': return stepStitch(brain, ctx);
+    case 'oath_bishop': return stepOath(brain, ctx);
     case 'skeleton':
     default: return stepMarch(brain, ctx);
   }

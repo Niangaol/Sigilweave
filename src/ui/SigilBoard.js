@@ -52,16 +52,16 @@ export default class SigilBoard {
   constructor(scene, grid) {
     this.scene = scene;
     this.grid = grid;
-    this.baseG = scene.add.graphics().setDepth(500);
-    this.dynG = scene.add.graphics().setDepth(510);
+    this.baseG = scene.add.graphics().setDepth(500).setScrollFactor(0);
+    this.dynG = scene.add.graphics().setDepth(510).setScrollFactor(0);
     this.flashes = new Map(); // cellId -> { kind, start, dur }
     this.startCell = null;
     this.detailVisible = false;
-    this.detailTitle = addText(scene, 8, 196, '最闲六格', 8, HEX.brassLight).setDepth(520).setVisible(false);
-    this.detailNote = addText(scene, 62, 196, '2.0s/跳', 7, HEX.mute).setDepth(520).setVisible(false);
+    this.detailTitle = addText(scene, 8, 196, '最闲六格', 8, HEX.brassLight).setDepth(520).setVisible(false).setScrollFactor(0);
+    this.detailNote = addText(scene, 62, 196, '2.0s/跳', 7, HEX.mute).setDepth(520).setVisible(false).setScrollFactor(0);
     this.detailLines = [];
     for (let i = 0; i < 6; i++) {
-      const t = addText(scene, 8, 208 + i * 9, '', 8, HEX.parchment).setDepth(521).setVisible(false);
+      const t = addText(scene, 8, 208 + i * 9, '', 8, HEX.parchment).setDepth(521).setVisible(false).setScrollFactor(0);
       this.detailLines.push(t);
     }
     this.drawBase();
@@ -120,7 +120,7 @@ export default class SigilBoard {
       pxRect(g, Math.round(x), Math.round(tl.y - 4), 1, 1, C.brassLight, 0.7);
     }
     // 盘面标题
-    addText(this.scene, 402, 180, '法术罗盘', 8, HEX.brass).setOrigin(0.5, 0).setDepth(515);
+    addText(this.scene, 402, 180, '法术罗盘', 8, HEX.brass).setOrigin(0.5, 0).setDepth(515).setScrollFactor(0);
 
     // 16 格
     for (let id = 0; id < 16; id++) {

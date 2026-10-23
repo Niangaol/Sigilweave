@@ -5,8 +5,8 @@ import { C, HEX, addText, pxRect, pxFrame, pxHeart, pxShard, fmtTime } from './P
 export default class Hud {
   constructor(scene) {
     this.scene = scene;
-    this.bg = scene.add.graphics().setDepth(1000);
-    this.dyn = scene.add.graphics().setDepth(1001);
+    this.bg = scene.add.graphics().setDepth(1000).setScrollFactor(0);
+    this.dyn = scene.add.graphics().setDepth(1001).setScrollFactor(0);
 
     this.hpText = addText(scene, 92, 4, '100', 9, HEX.parchment).setDepth(1002);
     this.shardText = addText(scene, 128, 4, '碎片 0', 9, HEX.parchment).setDepth(1002);

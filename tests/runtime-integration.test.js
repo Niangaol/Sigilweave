@@ -17,8 +17,8 @@ describe('构筑派生效果', () => {
    const g = full();
    g.cells[5].slot = { kind: 'auxiliary', defId: 'hourglass' }; g.cells[5].auxTarget = 6;
    g.cells[6].slot = { kind: 'sigil', defId: 'arcane_bolt' };
-   rebuildDerived(g, 1700); expect(g.cells[6].effCooldownMs).toBe(2800);
-   g.cells[5].slot = null; rebuildDerived(g, 1700); expect(g.cells[6].effCooldownMs).toBe(4000);
+   rebuildDerived(g, 1700); expect(g.cells[6].effCooldownMs).toBe(2200 * 0.7);
+   g.cells[5].slot = null; rebuildDerived(g, 1700); expect(g.cells[6].effCooldownMs).toBe(2200);
  });
  it('扩域不污染配置出口，卸下辅助恢复原出口', () => {
    const g = full(); g.cells[6].slot = { kind: 'sigil', defId: 'arcane_bolt' };
@@ -28,13 +28,13 @@ describe('构筑派生效果', () => {
    expect([...g.cells[6].exits]).toEqual(['down']);
    g.cells[5].slot = null; rebuildDerived(g, 1700); expect(exitTargets(g, 6)).toEqual([10]);
  });
- it('中继抑制本格输出并把出发间隔乘0.6，受0.8秒下限约束', () => {
+ it('中继抑制本格输出并把出发间隔乘0.6，受0.5秒下限约束', () => {
    const g = full(); g.cells[0].slot = { kind: 'sigil', defId: 'arcane_bolt' }; g.cells[0].runes[0] = 'relay';
    rebuildDerived(g, 2000); expect(g.cells[0].effIntervalMs).toBe(1200);
    const e = enemy(1, -100, -100);
    expect(resolveSigilTrigger({ grid: g, cellId: 0, defId: 'arcane_bolt', state: state(), enemies: [e] }).hits).toBe(0);
    expect(e.hp).toBe(100);
-   rebuildDerived(g, 1000); expect(g.cells[0].effIntervalMs).toBe(800);
+   rebuildDerived(g, 1000); expect(g.cells[0].effIntervalMs).toBe(600);
  });
  it('断流卸下后恢复保留的单向配置', () => {
    const g = full(); g.cells[5].exits = new Set(['right']); g.cells[5].runes[0] = 'sever';
@@ -45,7 +45,7 @@ describe('构筑派生效果', () => {
  it('符印冷却倍率与共鸣石乘算后再限底', () => {
    const g = full(); g.cells[0].slot = { kind: 'sigil', defId: 'judgment_hammer' };
    g.cells[1].slot = { kind: 'auxiliary', defId: 'resonance_stone' };
-   rebuildDerived(g, 2000); expect(g.cells[0].effCooldownMs).toBe(1500 * 1.25 * 0.75);
+   rebuildDerived(g, 2000); expect(g.cells[0].effCooldownMs).toBe(800 * 1.25 * 0.75);
    expect(g.cells[0].effIntervalMs).toBe(1500);
  });
  it.each([NaN, -1, 0, Infinity])('非法基础间隔 %j 不污染旧派生值', interval => {

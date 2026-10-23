@@ -16,7 +16,7 @@ function fullGrid(interval = 2000) {
 describe('联组断链诊断', () => {
   it('冷却受阻断链：事件带形状，统计按断掉的实例数计', () => {
     const events = [];
-    const grid = fullGrid(800); // 强制进入冷却吞跳区间
+    const grid = fullGrid(500); // 强制进入冷却吞跳区间（硬下限 500ms，最短回环 3×500ms 仍短于中心冷却 2200ms）
     const engine = new SigilEngine({
       seed: 7, grid, startCells: [5], combos,
       onEvent: (type, data) => events.push({ type, data }),

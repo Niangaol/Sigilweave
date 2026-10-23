@@ -200,14 +200,41 @@ export const ENEMY_TYPES = {
     speedMul: 1,
     color: 0x4a4166,
   },
+  // 二幕精英：缝合尸魁。慢速贴身后每 0.8s 践踏一次（事件由 enemy-ai 产出，伤害由场景结算）。
+  stitch_abomination: {
+    id: 'stitch_abomination',
+    name: '缝合尸魁',
+    radius: 14,
+    damage: 14,
+    shards: 5,
+    behavior: 'stomp',
+    hpMul: 4.5,
+    speedMul: 0.5,
+    color: 0x8a5f4a,
+    elite: true,
+  },
+  // 三幕精英：咒誓主教。保持 110px，每 4.2s 瞬移侧翼并打三连弹。
+  oath_bishop: {
+    id: 'oath_bishop',
+    name: '咒誓主教',
+    radius: 12,
+    damage: 10,
+    shards: 8,
+    behavior: 'blink_caster',
+    hpMul: 3.5,
+    speedMul: 1,
+    color: 0x7d6bb0,
+    elite: true,
+  },
 };
 
-// 三幕刷怪权重：每幕权重和恒为 1（全部取二进制分数，浮点求和精确等于 1，测试可直接判等）。
-// 第一幕：骷髅为主 + 少量蝠；第二幕：蝠 / 腐尸 / 骷髅；第三幕：五种齐全，骑士与邪教徒合计过半。
+// 三幕刷怪权重：每幕权重和恒为 1（浮点求和精确等于 1，测试可直接判等）。
+// 第一幕：骷髅为主 + 少量蝠；第二幕：蝠 / 腐尸 / 骷髅 + 缝合尸魁 8%；
+// 第三幕：常规五种 + 咒誓主教 12%，骑士与邪教徒合计 44%（每幕精英只占尾部权重）。
 export const ACT_ENEMY_WEIGHTS = {
   1: [['skeleton', 0.875], ['bat', 0.125]],
-  2: [['bat', 0.375], ['corpse', 0.375], ['skeleton', 0.25]],
-  3: [['skeleton', 0.125], ['bat', 0.1875], ['corpse', 0.1875], ['cultist', 0.25], ['knight', 0.25]],
+  2: [['bat', 0.34], ['corpse', 0.34], ['skeleton', 0.24], ['stitch_abomination', 0.08]],
+  3: [['skeleton', 0.11], ['bat', 0.165], ['corpse', 0.165], ['cultist', 0.22], ['knight', 0.22], ['oath_bishop', 0.12]],
 };
 
 // 确定性刷怪映射：roll ∈ [0,1) 自上而下落在哪个权重区间就是哪种敌人。

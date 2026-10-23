@@ -16,10 +16,11 @@ function clampRect(r) {
 export default class EffectsLayer {
   constructor(scene) {
     this.scene = scene;
-    this.g = scene.add.graphics().setDepth(900);
-    this.vg = scene.add.graphics().setDepth(940);
+    this.g = scene.add.graphics().setDepth(900);          // 世界层：弹着、爆点（随镜头滚动）
+    this.sg = scene.add.graphics().setDepth(905).setScrollFactor(0); // 屏幕层：光迹、联组链带
+    this.vg = scene.add.graphics().setDepth(940).setScrollFactor(0);
     this.comboLabel = addText(scene, 240, 143, '', 9, HEX.brassLight)
-      .setOrigin(0.5, 0.5).setDepth(910).setVisible(false);
+      .setOrigin(0.5, 0.5).setDepth(910).setVisible(false).setScrollFactor(0);
     this.items = [];
     this.texts = [];
     this.clock = 0;
@@ -79,33 +80,43 @@ export default class EffectsLayer {
     this.push({ kind: 'hurt', dur: 320 });
   }
 
-  text(x, y, str, color) {
+  text(x, y, str, color, fixed = false) {
     const obj = addText(this.scene, x, y, str, 8, color).setOrigin(0.5, 0.5).setDepth(915);
+    if (fixed) obj.setScrollFactor(0);
     this.texts.push({ obj, y0: y, t: 0, dur: 760 });
   }
 
-  drawSectorBrackets(g, rect, color, alpha) {
+  drawSectorBrackets(g, rect, color, alpha, sx = null, sy = null) {
     const r = clampRect(rect);
     if (!r) return;
+    const X = (v) => (sx ? sx(v) : v);
+    const Y = (v) => (sy ? sy(v) : v);
     // 只画四角括号，避免在战场上糊出一个大框
     const L = 6;
-    pxLine(g, r.x, r.y, r.x + L, r.y, color, alpha, 1);
-    pxLine(g, r.x, r.y, r.x, r.y + L, color, alpha, 1);
-    pxLine(g, r.x + r.w, r.y, r.x + r.w - L, r.y, color, alpha, 1);
-    pxLine(g, r.x + r.w, r.y, r.x + r.w, r.y + L, color, alpha, 1);
-    pxLine(g, r.x, r.y + r.h, r.x + L, r.y + r.h, color, alpha, 1);
-    pxLine(g, r.x, r.y + r.h, r.x, r.y + r.h - L, color, alpha, 1);
-    pxLine(g, r.x + r.w, r.y + r.h, r.x + r.w - L, r.y + r.h, color, alpha, 1);
-    pxLine(g, r.x + r.w, r.y + r.h, r.x + r.w, r.y + r.h - L, color, alpha, 1);
-    pxRect(g, r.x, r.y, r.w, r.h, color, alpha * 0.045);
+    const x0 = X(r.x), y0 = Y(r.y), x1 = X(r.x + r.w), y1 = Y(r.y + r.h);
+    pxLine(g, x0, y0, x0 + L, y0, color, alpha, 1);
+    pxLine(g, x0, y0, x0, y0 + L, color, alpha, 1);
+    pxLine(g, x1, y0, x1 - L, y0, color, alpha, 1);
+    pxLine(g, x1, y0, x1, y0 + L, color, alpha, 1);
+    pxLine(g, x0, y1, x0 + L, y1, color, alpha, 1);
+    pxLine(g, x0, y1, x0, y1 - L, color, alpha, 1);
+    pxLine(g, x1, y1, x1 - L, y1, color, alpha, 1);
+    pxLine(g, x1, y1, x1, y1 - L, color, alpha, 1);
+    pxRect(g, x0, y0, x1 - x0, y1 - y0, color, alpha * 0.045);
   }
 
   update(dtMs) {
     this.clock += dtMs;
     const g = this.g;
+    const sg = this.sg;
     const vg = this.vg;
     g.clear();
+    sg.clear();
     vg.clear();
+    // 世界坐标 -> 屏幕坐标：光迹目标端贴住世界区域，起点罗盘固定屏幕
+    const cam = this.scene.cameras.main;
+    const sx = (wx) => wx - cam.scrollX;
+    const sy = (wy) => wy - cam.scrollY;
 
     // 联组标签单独管理
     let comboActive = null;
@@ -118,35 +129,36 @@ export default class EffectsLayer {
 
       if (it.kind === 'trace') {
         const color = it.color ?? C.arcane;
+        const tx = sx(it.to.x); const ty = sy(it.to.y);
         // 格子上方 22px 的垂直光柱（2.5D 的第二根视觉支柱）
         pxRect(g, Math.round(it.from.x) - 1, Math.round(it.from.y) - 24, 3, 24, color, 0.28 * a);
         pxRect(g, Math.round(it.from.x), Math.round(it.from.y) - 28, 1, 6, color, 0.55 * a);
         // 主光迹：从格指向战场方位。空区也画，只是终点是区域中心。
-        pxLine(g, it.from.x, it.from.y, it.to.x, it.to.y, color, 0.42 * a, 1);
+        pxLine(sg, it.from.x, it.from.y, tx, ty, color, 0.42 * a, 1);
         // 流动亮段：让「哪一格在打」有明确的指向感
         const flow = (this.clock / 420) % 1;
         for (let s = 0; s < 5; s++) {
           const u = (flow + s * 0.035) % 1;
-          const px = it.from.x + (it.to.x - it.from.x) * u;
-          const py = it.from.y + (it.to.y - it.from.y) * u;
-          pxRect(g, Math.round(px) - 1, Math.round(py) - 1, 3, 3, color, 0.7 * a);
+          const px = it.from.x + (tx - it.from.x) * u;
+          const py = it.from.y + (ty - it.from.y) * u;
+          pxRect(sg, Math.round(px) - 1, Math.round(py) - 1, 3, 3, color, 0.7 * a);
         }
         // 终点标记：命中目标为实心菱形，空射为空心加十字
-        pxDiamond(g, it.to.x, it.to.y, 5, color, 0.95 * a, false);
+        pxDiamond(sg, tx, ty, 5, color, 0.95 * a, false);
         if (it.empty) {
-          pxLine(g, it.to.x - 2, it.to.y - 2, it.to.x + 2, it.to.y + 2, C.mute, 0.6 * a, 1);
-          pxLine(g, it.to.x + 2, it.to.y - 2, it.to.x - 2, it.to.y + 2, C.mute, 0.6 * a, 1);
+          pxLine(sg, tx - 2, ty - 2, tx + 2, ty + 2, C.mute, 0.6 * a, 1);
+          pxLine(sg, tx + 2, ty - 2, tx - 2, ty + 2, C.mute, 0.6 * a, 1);
         } else {
-          pxDiamond(g, it.to.x, it.to.y, 2, color, 0.9 * a, true);
+          pxDiamond(sg, tx, ty, 2, color, 0.9 * a, true);
         }
-        // 所在方位扇区的四角括号
-        this.drawSectorBrackets(g, it.sector, color, 0.7 * a);
+        // 所在方位扇区的四角括号（世界矩形按镜头换算到屏幕）
+        this.drawSectorBrackets(sg, it.sector, color, 0.7 * a, sx, sy);
       } else if (it.kind === 'reroute') {
         // 冷却改道：短折线，青绿色属于「运行层」，不和伤害/联组抢色
-        pxLine(g, it.from.x, it.from.y, it.mid.x, it.mid.y, C.teal, 0.75 * a, 1);
-        pxLine(g, it.mid.x, it.mid.y, it.to.x, it.to.y, C.teal, 0.75 * a, 1);
-        pxRect(g, Math.round(it.mid.x) - 1, Math.round(it.mid.y) - 1, 2, 2, C.teal, a);
-        pxDiamond(g, it.to.x, it.to.y, 3, C.teal, a, false);
+        pxLine(sg, it.from.x, it.from.y, it.mid.x, it.mid.y, C.teal, 0.75 * a, 1);
+        pxLine(sg, it.mid.x, it.mid.y, it.to.x, it.to.y, C.teal, 0.75 * a, 1);
+        pxRect(sg, Math.round(it.mid.x) - 1, Math.round(it.mid.y) - 1, 2, 2, C.teal, a);
+        pxDiamond(sg, it.to.x, it.to.y, 3, C.teal, a, false);
       } else if (it.kind === 'fallback') {
         // 探索保底传送：断续的虚线弧
         const steps = 12;
@@ -157,19 +169,19 @@ export default class EffectsLayer {
           const y0 = it.from.y + (it.to.y - it.from.y) * u0 - Math.sin(u0 * Math.PI) * 16;
           const x1 = it.from.x + (it.to.x - it.from.x) * u1;
           const y1 = it.from.y + (it.to.y - it.from.y) * u1 - Math.sin(u1 * Math.PI) * 16;
-          pxLine(g, x0, y0, x1, y1, C.teal, 0.8 * a, 1);
+          pxLine(sg, x0, y0, x1, y1, C.teal, 0.8 * a, 1);
         }
-        pxDiamond(g, it.to.x, it.to.y, 4, C.teal, a, false);
+        pxDiamond(sg, it.to.x, it.to.y, 4, C.teal, a, false);
       } else if (it.kind === 'dissipate') {
         for (let ring = 0; ring < 3; ring++) {
           const rk = Math.max(0, Math.min(1, k - ring * 0.12));
           if (rk <= 0) continue;
-          pxDiamond(g, it.x, it.y, 3 + rk * (12 + ring * 3), it.color, (1 - rk) * 0.85, false);
+          pxDiamond(sg, it.x, it.y, 3 + rk * (12 + ring * 3), it.color, (1 - rk) * 0.85, false);
         }
         for (let s = 0; s < 6; s++) {
           const ang = (s / 6) * Math.PI * 2;
           const dist = 6 + k * 18;
-          pxRect(g, Math.round(it.x + Math.cos(ang) * dist), Math.round(it.y + Math.sin(ang) * dist) - Math.round(k * 10), 1, 1, it.color, a * 0.7);
+          pxRect(sg, Math.round(it.x + Math.cos(ang) * dist), Math.round(it.y + Math.sin(ang) * dist) - Math.round(k * 10), 1, 1, it.color, a * 0.7);
         }
       } else if (it.kind === 'combo') {
         comboActive = it;
@@ -177,12 +189,12 @@ export default class EffectsLayer {
         for (let s = 0; s < it.centers.length - 1; s++) {
           const p0 = it.centers[s];
           const p1 = it.centers[s + 1];
-          pxLine(g, p0.x, p0.y, p1.x, p1.y, C.brass, 0.9 * a, 3);
-          if (bright) pxLine(g, p0.x, p0.y, p1.x, p1.y, C.white, 0.95, 2);
+          pxLine(sg, p0.x, p0.y, p1.x, p1.y, C.brass, 0.9 * a, 3);
+          if (bright) pxLine(sg, p0.x, p0.y, p1.x, p1.y, C.white, 0.95, 2);
         }
         for (const p of it.centers) {
-          pxDiamond(g, p.x, p.y, 4, C.brass, a, false);
-          pxDiamond(g, p.x, p.y, 1, bright ? C.white : C.arcaneLight, a, true);
+          pxDiamond(sg, p.x, p.y, 4, C.brass, a, false);
+          pxDiamond(sg, p.x, p.y, 1, bright ? C.white : C.arcaneLight, a, true);
         }
         if (bright) {
           // 暗角收缩：四边硬边黑框，不用渐变

@@ -98,7 +98,7 @@ describe('构筑提交与回读', () => {
     expect(second.ok).toBe(true);
     expect(second.snapshot).toEqual(first.snapshot);
     expect(restored.oath).toBe('martyr');
-    expect(restored.cells[5].effIntervalMs).toBe(1275);
+    expect(restored.cells[5].effIntervalMs).toBe(900);
   });
   it('快照深冻结，后续草稿修改不影响现有法阵', () => {
     const grid = createGrid(); const draft = fixture();

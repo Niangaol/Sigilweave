@@ -1,13 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
   createBrain, stepBrain, DEFAULT_BATTLE,
-  BAT_RULE, CULTIST_RULE, KNIGHT_RULE,
+  BAT_RULE, CULTIST_RULE, KNIGHT_RULE, STITCH_RULE, OATH_RULE,
 } from '../src/logic/enemy-ai.js';
 import { ENEMY_TYPES, ACT_ENEMY_WEIGHTS, pickEnemyType } from '../src/data/roster.js';
 import Enemy from '../src/entities/Enemy.js';
 
 const PLAYER = Object.freeze({ x: 240, y: 220 });
 const OPTS = { BATTLE: DEFAULT_BATTLE, damage: 8 };
+const ALL_DEFS = [
+  'skeleton', 'bat', 'corpse', 'cultist', 'knight',
+  'stitch_abomination', 'oath_bishop',
+];
 
 // 按固定步长连续推进，喂回上一帧坐标（和 BattleScene / Enemy 的用法一致）
 function simulate(brain, start, player = PLAYER, dtMs = 100, steps = 1, opts = OPTS) {
@@ -30,7 +34,7 @@ function simulate(brain, start, player = PLAYER, dtMs = 100, steps = 1, opts = O
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 describe('确定性：同 seed 同轨迹', () => {
-  it.each(['skeleton', 'bat', 'corpse', 'cultist', 'knight'])('%s 两次同 seed 模拟逐帧完全一致', (defId) => {
+  it.each(ALL_DEFS)('%s 两次同 seed 模拟逐帧完全一致', (defId) => {
     const run = (seed) => {
       const brain = createBrain(defId, { now: 0, seed });
       let self = { x: 220, y: 190, speed: 50, radius: 6 };
@@ -60,11 +64,12 @@ describe('确定性：同 seed 同轨迹', () => {
     }
   });
 
-  it.each(['skeleton', 'bat', 'corpse', 'cultist', 'knight'])('%s 的返回结构固定为 { x, y, shots, charging, windup }', (defId) => {
+  it.each(ALL_DEFS)('%s 的返回结构固定为 { x, y, shots, stomp, charging, windup }', (defId) => {
     const r = stepBrain(createBrain(defId, { seed: 1 }), {
       dtMs: 16, self: { x: 200, y: 200, speed: 30, radius: 6 }, player: PLAYER, opts: OPTS,
     });
-    expect(Object.keys(r).sort()).toEqual(['charging', 'shots', 'windup', 'x', 'y']);
+    expect(Object.keys(r).sort()).toEqual(['charging', 'shots', 'stomp', 'windup', 'x', 'y']);
+    expect(r.stomp).toBeNull();
     expect(Array.isArray(r.shots)).toBe(true);
     expect(typeof r.charging).toBe('boolean');
     expect(typeof r.windup).toBe('boolean');
@@ -285,6 +290,178 @@ describe('亡灵骑士：预警 → 冲锋 → 复位', () => {
   });
 });
 
+describe('缝合尸魁：贴身践踏事件', () => {
+  const STOMP_OPTS = { BATTLE: DEFAULT_BATTLE, damage: 14 };
+
+  it('贴身 26px 时每 0.8s 产出一个 stomp 事件，站位固定且伤害来自 opts', () => {
+    const brain = createBrain('stitch_abomination', { seed: 'stitch' });
+    const player = { x: 240, y: 150 };
+    let self = { x: 240, y: 160, speed: 20, radius: 14 }; // 距离 10 ≤ 26
+    const frames = [];
+    for (let i = 1; i <= 24; i++) {
+      const r = stepBrain(brain, {
+        dtMs: 100, now: i * 100, self: { ...self }, player, opts: STOMP_OPTS,
+      });
+      frames.push({ t: i * 100, ...r });
+      self = { x: r.x, y: r.y };
+    }
+
+    const stompFrames = frames.filter(item => item.stomp);
+    expect(stompFrames.map(item => item.t)).toEqual([800, 1600, 2400]);
+    expect(brain.stomps).toBe(3);
+    expect(stompFrames[0].stomp).toMatchObject({
+      x: 240, y: 160, radius: STITCH_RULE.stompDist, damage: STOMP_OPTS.damage,
+    });
+    expect(frames.every(item => item.x === 240 && item.y === 160)).toBe(true); // 贴身站定
+    expect(frames.filter(item => !item.stomp).every(item => item.stomp === null)).toBe(true);
+  });
+
+  it('远处只接近不践踏，进入范围后第 800ms 才第一次践踏', () => {
+    const brain = createBrain('stitch_abomination', { seed: 'stitch2' });
+    let self = { x: 240, y: 160, speed: 20, radius: 14 };
+    let player = { x: 240, y: 400 };
+
+    let r = stepBrain(brain, { dtMs: 100, now: 100, self: { ...self }, player, opts: STOMP_OPTS });
+    expect(r.stomp).toBeNull();
+    expect(r.y).toBeGreaterThan(160);                     // 慢速接近
+    self = { x: r.x, y: r.y };
+
+    player = { x: self.x, y: self.y - 10 };               // 贴身
+    const stamps = [];
+    for (let i = 1; i <= 8; i++) {
+      r = stepBrain(brain, { dtMs: 100, now: 100 + i * 100, self: { ...self }, player, opts: STOMP_OPTS });
+      self = { x: r.x, y: r.y };
+      if (r.stomp) stamps.push(100 + i * 100);
+    }
+    expect(stamps).toEqual([900]);
+  });
+
+  it('蓄力不足 0.8s 就离开范围，再贴身需重新蓄满', () => {
+    const brain = createBrain('stitch_abomination', { seed: 'stitch3' });
+    let self = { x: 240, y: 160, speed: 20, radius: 14 };
+    let player = { x: 240, y: 150 };
+    let early = false;
+    for (let i = 0; i < 5; i++) {                          // 贴身 500ms，不满 0.8s
+      const r = stepBrain(brain, { dtMs: 100, now: i * 100, self: { ...self }, player, opts: STOMP_OPTS });
+      self = { x: r.x, y: r.y };
+      if (r.stomp) early = true;
+    }
+    expect(early).toBe(false);
+
+    let r = stepBrain(brain, { dtMs: 100, now: 600, self: { ...self }, player: { x: 240, y: 400 }, opts: STOMP_OPTS });
+    expect(r.stomp).toBeNull();                            // 离开范围，蓄力重置
+    self = { x: r.x, y: r.y };
+
+    player = { x: self.x, y: self.y - 5 };
+    let hitAt = null;
+    for (let i = 1; i <= 8; i++) {
+      r = stepBrain(brain, { dtMs: 100, now: 600 + i * 100, self: { ...self }, player, opts: STOMP_OPTS });
+      self = { x: r.x, y: r.y };
+      if (r.stomp) { hitAt = 600 + i * 100; break; }
+    }
+    expect(hitAt).toBe(1400);                              // 重新蓄满 800ms 才践踏
+  });
+
+  it('非法 dt 不推进践踏计时', () => {
+    const brain = createBrain('stitch_abomination', { seed: 1 });
+    const before = structuredClone(brain);
+    const r = stepBrain(brain, {
+      dtMs: NaN, self: { x: 240, y: 160, speed: 20, radius: 14 }, player: { x: 240, y: 150 }, opts: STOMP_OPTS,
+    });
+    expect(r.stomp).toBeNull();
+    expect(brain).toEqual(before);
+  });
+});
+
+describe('咒誓主教：侧翼瞬移与三连弹', () => {
+  const BISHOP_OPTS = { BATTLE: DEFAULT_BATTLE, damage: 10 };
+
+  it('4.2s 瞬移到玩家侧翼约 110px，停顿 0.5s 后按 0.15s 间隔三连弹', () => {
+    const brain = createBrain('oath_bishop', { seed: 'bishop' });
+    const player = { x: 240, y: 240 };
+    let self = { x: 240, y: 150, speed: 40, radius: 12 };
+    const frames = [];
+    for (let i = 1; i <= 110; i++) {                       // 5500ms，覆盖一次完整连弹
+      const before = { ...self };
+      const r = stepBrain(brain, {
+        dtMs: 50, now: i * 50,
+        self: { x: self.x, y: self.y, speed: self.speed, radius: self.radius },
+        player, opts: BISHOP_OPTS,
+      });
+      frames.push({
+        t: i * 50, x: r.x, y: r.y,
+        jump: Math.hypot(r.x - before.x, r.y - before.y),
+        windup: r.windup, shot: r.shots[0] ?? null,
+      });
+      self = { x: r.x, y: r.y };
+    }
+
+    const blink = frames.find(item => item.jump > 50);
+    expect(blink.t).toBe(OATH_RULE.blinkMs);                          // 4200ms
+    expect(Math.hypot(blink.x - player.x, blink.y - player.y)).toBeCloseTo(OATH_RULE.holdDist, 6);
+    expect(brain.blinks).toBe(1);
+
+    const windupFrames = frames.filter(item => item.t >= blink.t && item.windup);
+    expect(windupFrames.map(item => item.t)).toEqual([4200, 4250, 4300, 4350, 4400, 4450, 4500, 4550, 4600, 4650]);
+
+    const shotFrames = frames.filter(item => item.shot);
+    expect(shotFrames.map(item => item.t)).toEqual([4700, 4850, 5000]);
+    for (let i = 1; i < shotFrames.length; i++) {
+      expect(shotFrames[i].t - shotFrames[i - 1].t).toBe(OATH_RULE.burstGapMs);
+    }
+    expect(shotFrames.every(item => item.shot.damage === BISHOP_OPTS.damage)).toBe(true);
+    expect(shotFrames.every(item => item.shot.lifeMs === OATH_RULE.shotLifeMs)).toBe(true);
+    expect(Math.hypot(shotFrames[0].shot.vx, shotFrames[0].shot.vy)).toBeCloseTo(OATH_RULE.shotSpeed, 5);
+
+    // 第一发朝瞬移后站定的位置指向玩家
+    const aimAngle = Math.atan2(player.y - blink.y, player.x - blink.x);
+    expect(Math.atan2(shotFrames[0].shot.vy, shotFrames[0].shot.vx)).toBeCloseTo(aimAngle, 5);
+
+    // 停顿与三连弹期间完全站定
+    const stopped = frames.filter(item => item.t >= blink.t && item.t <= 5000);
+    expect(stopped.every(item => item.x === blink.x && item.y === blink.y)).toBe(true);
+  });
+
+  it('瞬移左右由 seed 确定性决定：同 seed 同轨迹（含瞬移点）', () => {
+    const run = (seed) => {
+      const brain = createBrain('oath_bishop', { seed });
+      const player = { x: 240, y: 240 };
+      let self = { x: 240, y: 150, speed: 40, radius: 12 };
+      const out = [];
+      for (let i = 0; i < 100; i++) {
+        const r = stepBrain(brain, {
+          dtMs: 50, now: i * 50,
+          self: { x: self.x, y: self.y, speed: self.speed, radius: self.radius },
+          player, opts: BISHOP_OPTS,
+        });
+        self = { x: r.x, y: r.y };
+        out.push([r.x, r.y]);
+      }
+      return out;
+    };
+    expect(run('alpha')).toEqual(run('alpha'));
+  });
+
+  it('空闲时维持约 110px：过远会靠近，过近会退开', () => {
+    const player = { x: 240, y: 240 };
+    const far = simulate(createBrain('oath_bishop', { seed: 7 }), { x: 240, y: 60, speed: 40, radius: 12 }, player, 100, 10);
+    expect(distance(far.pos, player)).toBeLessThan(180);
+    const near = simulate(createBrain('oath_bishop', { seed: 8 }), { x: 240, y: 180, speed: 40, radius: 12 }, player, 100, 10);
+    expect(distance(near.pos, player)).toBeGreaterThan(60);
+  });
+
+  it('非法 dt 不推进瞬移/连弹状态', () => {
+    const brain = createBrain('oath_bishop', { seed: 1 });
+    const before = structuredClone(brain);
+    const r = stepBrain(brain, {
+      dtMs: NaN, self: { x: 240, y: 150, speed: 40, radius: 12 }, player: { x: 240, y: 240 }, opts: BISHOP_OPTS,
+    });
+    expect(r.shots).toEqual([]);
+    expect(r.stomp).toBeNull();
+    expect(brain).toEqual(before);
+  });
+});
+
 describe('非法输入与超界：不崩、不产生非有限坐标', () => {
   it.each([Number.NaN, -1, -0.5, Infinity, -Infinity, 'abc', undefined])('dt=%j 不推进状态也不抛错', (dt) => {
     const brain = createBrain('knight', { seed: 'bad' });
@@ -295,10 +472,11 @@ describe('非法输入与超界：不崩、不产生非有限坐标', () => {
     expect(result.x).toBe(200);
     expect(result.y).toBe(200);
     expect(result.shots).toEqual([]);
+    expect(result.stomp).toBeNull();
     expect(brain).toEqual(before);
   });
 
-  it.each(['skeleton', 'bat', 'corpse', 'cultist', 'knight'])('%s 面对 NaN / 无穷 / 超界坐标仍返回有限数', (defId) => {
+  it.each(ALL_DEFS)('%s 面对 NaN / 无穷 / 超界坐标仍返回有限数', (defId) => {
     const cases = [
       { x: NaN, y: NaN, speed: 30 },
       { x: Infinity, y: -Infinity, speed: 30 },
@@ -368,6 +546,14 @@ describe('Enemy 实体接线', () => {
     expect(scene.hostile[0].lifeMs).toBeGreaterThan(0);
   });
 
+  it('咒誓主教的瞬移三连弹经 Enemy 转发给 scene.addHostileShot', () => {
+    const scene = fakeScene({ x: 240, y: 200 });
+    const enemy = new Enemy(scene, ENEMY_TYPES.oath_bishop, 240, 120, { x: 240, y: 200 }, 35, 40, 10, 5);
+    for (let i = 0; i < 101; i++) enemy.update(50, (i + 1) * 50);
+    expect(scene.hostile).toHaveLength(3);
+    expect(scene.hostile.every(shot => shot.damage === 10)).toBe(true);
+  });
+
   it('场景没有 addHostileShot 时静默跳过', () => {
     const scene = fakeScene({ x: 240, y: 80 });
     delete scene.addHostileShot;
@@ -397,7 +583,7 @@ const weightOf = (act, id) => {
 };
 
 describe('roster：敌人数据与三幕权重', () => {
-  it.each(['bat', 'corpse', 'cultist', 'knight'])('%s 字段齐全且自洽', (id) => {
+  it.each(['bat', 'corpse', 'cultist', 'knight', 'stitch_abomination', 'oath_bishop'])('%s 字段齐全且自洽', (id) => {
     const def = ENEMY_TYPES[id];
     for (const key of ['id', 'name', 'radius', 'damage', 'shards', 'behavior', 'hpMul', 'speedMul', 'color']) {
       expect(def).toHaveProperty(key);
@@ -413,12 +599,28 @@ describe('roster：敌人数据与三幕权重', () => {
     expect(Number.isInteger(def.color)).toBe(true);
   });
 
-  it('五种敌人的行为标签与逻辑层一一对应', () => {
+  it('七种敌人的行为标签与逻辑层一一对应', () => {
     expect(ENEMY_TYPES.skeleton.behavior).toBe('march');
     expect(ENEMY_TYPES.bat.behavior).toBe('weave');
     expect(ENEMY_TYPES.corpse.behavior).toBe('march');
     expect(ENEMY_TYPES.cultist.behavior).toBe('orbit');
     expect(ENEMY_TYPES.knight.behavior).toBe('charge');
+    expect(ENEMY_TYPES.stitch_abomination.behavior).toBe('stomp');
+    expect(ENEMY_TYPES.oath_bishop.behavior).toBe('blink_caster');
+  });
+
+  it('两种精英的数值、体型与 elite 标记符合设定', () => {
+    expect(ENEMY_TYPES.stitch_abomination).toMatchObject({
+      id: 'stitch_abomination', name: '缝合尸魁', behavior: 'stomp',
+      hpMul: 4.5, speedMul: 0.5, damage: 14, shards: 5, radius: 14, elite: true,
+    });
+    expect(ENEMY_TYPES.oath_bishop).toMatchObject({
+      id: 'oath_bishop', name: '咒誓主教', behavior: 'blink_caster',
+      hpMul: 3.5, damage: 10, shards: 8, radius: 12, elite: true,
+    });
+    expect(ENEMY_TYPES.stitch_abomination.elite).toBe(true);
+    expect(ENEMY_TYPES.oath_bishop.elite).toBe(true);
+    expect(ENEMY_TYPES.skeleton.elite).toBeUndefined();  // 普通杂兵不带精英标记
   });
 
   it.each([1, 2, 3])('第 %i 幕权重和精确为 1', (act) => {
@@ -430,17 +632,25 @@ describe('roster：敌人数据与三幕权重', () => {
     expect(sum).toBe(1);
   });
 
-  it('幕次构成：一骷髅带蝠、二蝠/腐尸/骷髅、三五种齐全且骑士邪教徒过半', () => {
+  it('幕次构成：二幕缝合尸魁 8%、三幕咒誓主教 12%，其余权重相应缩减', () => {
     expect(weightOf(1, 'skeleton')).toBeGreaterThan(0.7);
     expect(weightOf(1, 'bat')).toBeGreaterThan(0);
-    expect(weightOf(1, 'corpse')).toBe(0);
-    expect(weightOf(1, 'cultist')).toBe(0);
-    expect(weightOf(1, 'knight')).toBe(0);
+    for (const id of ['corpse', 'cultist', 'knight', 'stitch_abomination', 'oath_bishop']) {
+      expect(weightOf(1, id)).toBe(0);
+    }
+
     for (const id of ['bat', 'corpse', 'skeleton']) expect(weightOf(2, id)).toBeGreaterThan(0);
+    expect(weightOf(2, 'stitch_abomination')).toBeCloseTo(0.08, 10);
+    expect(weightOf(2, 'skeleton')).toBeLessThan(0.25);            // 其余缩减
     expect(weightOf(2, 'cultist')).toBe(0);
     expect(weightOf(2, 'knight')).toBe(0);
+    expect(weightOf(2, 'oath_bishop')).toBe(0);
+
     for (const id of ['skeleton', 'bat', 'corpse', 'cultist', 'knight']) expect(weightOf(3, id)).toBeGreaterThan(0);
+    expect(weightOf(3, 'oath_bishop')).toBeCloseTo(0.12, 10);
+    expect(weightOf(3, 'knight')).toBeLessThan(0.25);              // 其余缩减
     expect(weightOf(3, 'knight') + weightOf(3, 'cultist')).toBeGreaterThanOrEqual(0.4);
+    expect(weightOf(3, 'stitch_abomination')).toBe(0);             // 二幕精英不在三幕出现
     expect(weightOf(3, 'knight')).toBeGreaterThan(weightOf(1, 'knight'));
     expect(weightOf(3, 'cultist')).toBeGreaterThan(weightOf(2, 'cultist'));
   });
@@ -453,12 +663,18 @@ describe('roster：敌人数据与三幕权重', () => {
     expect(pickEnemyType(1, 0.999999).id).toBe('bat');
     expect(pickEnemyType(2, 0.1).id).toBe('bat');
     expect(pickEnemyType(2, 0.5).id).toBe('corpse');
-    expect(pickEnemyType(2, 0.9).id).toBe('skeleton');
+    expect(pickEnemyType(2, 0.7).id).toBe('skeleton');
+    expect(pickEnemyType(2, 0.919999).id).toBe('skeleton');
+    expect(pickEnemyType(2, 0.92).id).toBe('stitch_abomination');
+    expect(pickEnemyType(2, 0.999999).id).toBe('stitch_abomination');
     expect(pickEnemyType(3, 0.1).id).toBe('skeleton');
     expect(pickEnemyType(3, 0.2).id).toBe('bat');
-    expect(pickEnemyType(3, 0.45).id).toBe('corpse');
-    expect(pickEnemyType(3, 0.6).id).toBe('cultist');
-    expect(pickEnemyType(3, 0.9).id).toBe('knight');
+    expect(pickEnemyType(3, 0.3).id).toBe('corpse');
+    expect(pickEnemyType(3, 0.5).id).toBe('cultist');
+    expect(pickEnemyType(3, 0.7).id).toBe('knight');
+    expect(pickEnemyType(3, 0.879999).id).toBe('knight');
+    expect(pickEnemyType(3, 0.88).id).toBe('oath_bishop');
+    expect(pickEnemyType(3, 0.999999).id).toBe('oath_bishop');
   });
 
   it('同 act/roll 永远返回同一种敌人对象', () => {
@@ -472,7 +688,7 @@ describe('roster：敌人数据与三幕权重', () => {
     }
   });
 
-  it('三幕遍历覆盖全部五种敌人，且从不返回表外敌人', () => {
+  it('三幕遍历覆盖全部七种敌人，且从不返回表外敌人', () => {
     const appeared = new Set();
     for (const act of [1, 2, 3]) {
       for (let i = 0; i < 200; i++) {
@@ -481,7 +697,9 @@ describe('roster：敌人数据与三幕权重', () => {
         appeared.add(def.id);
       }
     }
-    expect([...appeared].sort()).toEqual(['bat', 'corpse', 'cultist', 'knight', 'skeleton']);
+    expect([...appeared].sort()).toEqual([
+      'bat', 'corpse', 'cultist', 'knight', 'oath_bishop', 'skeleton', 'stitch_abomination',
+    ]);
   });
 
   it.each([

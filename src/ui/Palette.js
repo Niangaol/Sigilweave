@@ -23,6 +23,33 @@ export const C = {
   white: 0xfff6e0,
   ink: 0x171226,
   mute: 0x8a7aa8,
+
+  // —— 三幕大地图主题色（Background 世界化专用）——
+  // 一幕「荒废墓园」：灰紫石板 + 雾
+  graveTile: 0x2c2745,
+  graveTileLit: 0x383157,
+  graveTileDark: 0x221d38,
+  fog: 0xbfb8d9,
+  // 二幕「腐沼教堂」：绿苔 + 沼水 + 彩窗 + 鬼火
+  mossTile: 0x25321e,
+  mossTileLit: 0x334528,
+  mossTileDark: 0x1b2616,
+  swampWater: 0x2f4f45,
+  swampGlint: 0x7cc9a8,
+  glassRed: 0x8e2f3c,
+  glassBlue: 0x2f5a8e,
+  ruinStone: 0x474c40,
+  wisp: 0x8fe89a,
+  wispCore: 0xdcffd4,
+  // 三幕「星陨王庭」：蓝黑星纹 + 冷色符文
+  starTile: 0x151833,
+  starTileLit: 0x1d2347,
+  starTileDark: 0x0f1226,
+  runeCold: 0x7fd7ff,
+  runeDim: 0x44639c,
+  shardStone: 0x39406a,
+  coldFlame: 0x9fe8ff,
+  coldFlameCore: 0xeafcff,
 };
 
 // 文本用十六进制字符串
