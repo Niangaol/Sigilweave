@@ -2,6 +2,8 @@
 
 H5 单页游戏：类幸存者 × 牌组构筑 × 空间编程。西幻像素风，480x270 逻辑画布。
 
+**在线试玩**：<https://niangaol.github.io/Sigilweave/> ｜ **源码**：<https://github.com/Niangaol/Sigilweave>
+
 ## 快速开始
 
     npm install
