@@ -4,6 +4,12 @@ import { C, pxRect, pxDiamond } from '../ui/Palette.js';
 export default class Projectile {
   constructor(scene, fromX, fromY, aimX, aimY, def, targetEnemy) {
     this.scene = scene;
+    this.g = scene.add.graphics().setDepth(850);
+    this.revive(fromX, fromY, aimX, aimY, def, targetEnemy);
+  }
+
+  // 池化复用：重置所有运行时字段并重新显示
+  revive(fromX, fromY, aimX, aimY, def, targetEnemy) {
     this.x = fromX;
     this.y = fromY;
     this.sx = fromX;
@@ -17,8 +23,7 @@ export default class Projectile {
     this.duration = Math.max(160, (this.distance / def.speed) * 1000);
     this.alive = true;
     this.trail = [];
-    this.g = scene.add.graphics().setDepth(850);
-    this.draw();
+    if (this.g) { this.g.setVisible(true); this.draw(); }
   }
 
   // 返回 true 表示已经抵达落点
@@ -57,7 +62,14 @@ export default class Projectile {
     pxRect(g, x - 1, y - 1, 1, 1, C.white, 1);
   }
 
+  deactivate() {
+    this.alive = false;
+    this.g.clear();
+    this.g.setVisible(false);
+  }
+
   destroy() {
+    this.deactivate();
     this.g.destroy();
   }
 }

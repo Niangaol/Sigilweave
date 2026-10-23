@@ -11,6 +11,7 @@ import { applyDraft, snapshotBuild } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, resolveSigilTrigger, resolveComboBonus } from '../logic/effects.js';
 import { createRun, recordAct } from '../logic/run.js';
 import { Rng } from '../logic/rng.js';
+import { Pool } from '../logic/pool.js';
 import { getEncounterForAct } from '../data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../logic/encounters.js';
 import { resolveBossOnce } from '../logic/boss.js';
@@ -85,6 +86,18 @@ export default class BattleScene extends Phaser.Scene {
 
     // ---------- 玩家 ----------
     this.player = new Player(this, 240, 132);
+
+    // 对象池：弹丸与碎片高频创建，复用图形对象；饱和时拒绝新建而不是抢占活动对象
+    this.projectilePool = new Pool({
+      name: 'projectile', capacity: 300,
+      create: (x, y, tx, ty, def, target) => new Projectile(this, x, y, tx, ty, def, target),
+      revive: (p, x, y, tx, ty, def, target) => p.revive(x, y, tx, ty, def, target),
+    });
+    this.shardPool = new Pool({
+      name: 'shard', capacity: 200,
+      create: (x, y) => new Shard(this, x, y),
+      revive: (s, x, y) => s.revive(x, y),
+    });
 
     // 从上一幕确认的构筑快照恢复；战斗里不暴露任何编辑入口。
     this.grid = createGrid();
@@ -274,9 +287,8 @@ export default class BattleScene extends Phaser.Scene {
         if (SIGIL_DEFS[def.id]?.kind === 'ward') {
           this.applySigil(cellId, def.id);
         } else {
-          const projectile = new Projectile(this, center.x, center.y, result.aim.x, result.aim.y, def, result.target);
-          projectile.cellId = cellId;
-          this.projectiles.push(projectile);
+          const projectile = this.fireProjectile(center.x, center.y, result.aim.x, result.aim.y, def, result.target);
+          if (projectile) projectile.cellId = cellId;
         }
         break;
       }
@@ -536,13 +548,34 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
+  // 池化生成：池满返回 null，调用方不需要处理“被抢占”的对象
+  fireProjectile(x, y, tx, ty, def, target) {
+    const projectile = this.projectilePool.acquire(x, y, tx, ty, def, target);
+    if (!projectile) return null;
+    this.projectiles.push(projectile);
+    return projectile;
+  }
+
+  spawnShard(x, y) {
+    const shard = this.shardPool.acquire(x, y);
+    if (!shard) return null;
+    this.shards.push(shard);
+    return shard;
+  }
+
+  releaseProjectiles() {
+    for (const p of this.projectiles) { p.deactivate(); this.projectilePool.release(p); }
+    this.projectiles = [];
+  }
+
   updateProjectiles(dt) {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       const arrived = p.update(dt);
       if (arrived) {
         this.resolveProjectile(p);
-        p.destroy();
+        p.deactivate();
+        this.projectilePool.release(p);
         this.projectiles.splice(i, 1);
       }
     }
@@ -608,8 +641,8 @@ export default class BattleScene extends Phaser.Scene {
     this.kills++;
     this.effects.burst(e.x, e.y, C.bone, 10);
     this.effects.dissipate(e.x, e.y, C.groove);
-    this.shards.push(new Shard(this, e.x, e.y));
-    if (this.combatRng.next() < 0.18) this.shards.push(new Shard(this, e.x + 5, e.y - 3));
+    this.spawnShard(e.x, e.y);
+    if (this.combatRng.next() < 0.18) this.spawnShard(e.x + 5, e.y - 3);
     e.alive = false;
     e.destroy();
     const idx = this.enemies.indexOf(e);
@@ -627,7 +660,8 @@ export default class BattleScene extends Phaser.Scene {
         this.shardCount++;
         sfx.pick();
         this.effects.text(s.x, s.y - 6, '+1', HEX.teal);
-        s.destroy();
+        s.deactivate();
+        this.shardPool.release(s);
         this.shards.splice(i, 1);
       }
     }
@@ -702,8 +736,7 @@ export default class BattleScene extends Phaser.Scene {
     if (response.result.action === 'bossBattle') {
       for (const enemy of this.enemies) if (!enemy.isBoss) enemy.destroy();
       this.enemies = this.enemies.filter(enemy => enemy.isBoss);
-      for (const shot of this.projectiles) shot.destroy();
-      this.projectiles = [];
+      this.releaseProjectiles();
     }
     this.phase = 'play'; this.paused = false; this.engine.paused = false;
     this.player.invulnUntil = this.engine.now + 800;
@@ -731,7 +764,7 @@ export default class BattleScene extends Phaser.Scene {
     this.phase = 'bossDefeated'; this.paused = true; this.engine.paused = true; this.transitionLeft = 800;
     this.hostileShots = []; this.hostileG.clear();
     for (const enemy of this.enemies) enemy.destroy(); this.enemies = [];
-    for (const shot of this.projectiles) shot.destroy(); this.projectiles = [];
+    this.releaseProjectiles();
     this.effects.text(240, 115, '契约解除 · Boss 已击败', HEX.arcaneLight);
   }
 
@@ -803,11 +836,10 @@ export default class BattleScene extends Phaser.Scene {
     const spawnWave = () => {
       if (this.phase !== 'play') return;
       for (let i = 0; i < 25 && this.enemies.length < 150; i++) this.spawnEnemy({ hp: 10, speed: 30, damage: 8, maxAlive: 999 });
-      while (this.shards.length < 200) this.shards.push(new Shard(this, 20 + this.combatRng.next() * 440, 40 + this.combatRng.next() * 210));
+      while (this.shards.length < 200) this.spawnShard(20 + this.combatRng.next() * 440, 40 + this.combatRng.next() * 210);
       while (this.projectiles.length < 300) {
         const def = cardVisual({ kind: 'sigil', defId: 'arcane_bolt' });
-        this.projectiles.push(new Projectile(this, 240, 200,
-          20 + this.combatRng.next() * 440, 40 + this.combatRng.next() * 210, def, null));
+        if (!this.fireProjectile(240, 200, 20 + this.combatRng.next() * 440, 40 + this.combatRng.next() * 210, def, null)) break;
       }
     };
     for (let i = 0; i < 6; i++) spawnWave();
@@ -828,6 +860,7 @@ export default class BattleScene extends Phaser.Scene {
         max: +(sorted[sorted.length - 1] ?? 0).toFixed(2),
         enemies: this.enemies.length, projectiles: this.projectiles.length, shards: this.shards.length,
         objects: this.children.list.length,
+        pools: { projectile: this.projectilePool.stats(), shard: this.shardPool.stats() },
         errors: [],
       };
     };
@@ -848,6 +881,8 @@ export default class BattleScene extends Phaser.Scene {
     for (const e of this.enemies) e.destroy();
     for (const p of this.projectiles) p.destroy();
     for (const s of this.shards) s.destroy();
+    for (const p of this.projectilePool?.free ?? []) p.destroy();
+    for (const s of this.shardPool?.free ?? []) s.destroy();
     this.enemies = [];
     this.projectiles = [];
     this.shards = [];

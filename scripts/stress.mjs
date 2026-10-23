@@ -15,6 +15,11 @@ try {
   assert.equal(errors.length, 0, errors.join('; '));
   assert.equal(stress.frames > 600, true, 'should sample >600 frames');
   assert(stress.max < 250, 'no freeze over 250ms, max=' + stress.max);
+  // 池化：不得超出容量，压测期间应有复用；饱和允许出现但需记录
+  assert(stress.pools.projectile.created <= 300, 'projectile pool cap');
+  assert(stress.pools.shard.created <= 200, 'shard pool cap');
+  assert(stress.pools.projectile.reused + stress.pools.shard.reused > 0, 'pools should reuse objects');
+  console.log('POOLS', JSON.stringify(stress.pools));
   // 生命周期：连续重开 5 次，实体与显示对象回到基线附近
   const runs = [];
   for (let i = 0; i < 5; i++) {

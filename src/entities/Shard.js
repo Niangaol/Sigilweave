@@ -4,12 +4,18 @@ import { C, pxRect, pxDiamond } from '../ui/Palette.js';
 export default class Shard {
   constructor(scene, x, y) {
     this.scene = scene;
+    this.g = scene.add.graphics();
+    this.revive(x, y);
+  }
+
+  // 池化复用：重置位置与动画相位，重新显示
+  revive(x, y) {
     this.x = x;
     this.y = y;
     this.alive = true;
     this.phase = (x * 17 + y * 31) % 100;
-    this.g = scene.add.graphics().setDepth(Math.floor(y));
     this.time = 0;
+    if (this.g) { this.g.setDepth(Math.floor(y)); this.g.setVisible(true); }
   }
 
   // 返回 true 表示被拾取
@@ -50,7 +56,14 @@ export default class Shard {
     pxRect(g, x - 1, y - 4, 1, 1, C.white, 0.9);
   }
 
+  deactivate() {
+    this.alive = false;
+    this.g.clear();
+    this.g.setVisible(false);
+  }
+
   destroy() {
+    this.deactivate();
     this.g.destroy();
   }
 }
