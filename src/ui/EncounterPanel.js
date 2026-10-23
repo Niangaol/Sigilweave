@@ -1,10 +1,13 @@
-// 问答覆盖层：没有自己的战斗计时器，只通过按钮回调状态机。
+// 问答覆盖层：视觉放容器（scrollFactor 0），交互 Zone 直接挂场景（容器内 Zone 在镜头滚动下命中会偏移）。
 import { C, HEX, addText, pxRect, pxFrame, pxDiamond } from './Palette.js';
 
 export default class EncounterPanel {
   constructor(scene, onSelect, onConfirm, onContinue) {
     this.scene = scene; this.onSelect = onSelect; this.onConfirm = onConfirm; this.onContinue = onContinue;
-    this.view = scene.add.container(0, 0).setDepth(3000).setVisible(false).setScrollFactor(0);
+    // 面板挂世界坐标并对齐当前镜头：遭遇期间镜头冻结，视觉稳定且输入命中正确
+    // （Phaser 的输入命中不支持 scrollFactor(0) 物体，镜头滚动后必须用世界坐标）
+    this.view = scene.add.container(0, 0).setDepth(3000).setVisible(false);
+    this.zones = [];
     this.current = null;
   }
   text(x, y, message, size = 9, color = HEX.parchment, extra = {}) {
@@ -14,16 +17,22 @@ export default class EncounterPanel {
     const g = this.scene.add.graphics(); this.view.add(g);
     pxRect(g, x, y, w, h, selected ? C.stone : C.nightDeep); pxFrame(g, x, y, w, h, selected ? C.teal : C.brassDark);
     this.text(x + 8, y + h / 2, message, 9).setOrigin(0, 0.5);
-    const zone = this.scene.add.zone(x, y, w, h).setOrigin(0).setInteractive({ useHandCursor: true }); this.view.add(zone);
+    const cam = this.scene.cameras.main;
+    const zone = this.scene.add.zone(cam.scrollX + x, cam.scrollY + y, w, h).setOrigin(0)
+      .setInteractive({ useHandCursor: true });
     zone.on('pointerdown', callback);
+    this.zones.push(zone);
   }
   show(active, note = '') {
-    this.current = active; this.view.removeAll(true); this.view.setVisible(true);
+    this.current = active; this.view.removeAll(true); this.clearZones(); this.view.setVisible(true);
+    const cam = this.scene.cameras.main;
+    this.view.setPosition(cam.scrollX, cam.scrollY);
     const g = this.scene.add.graphics(); this.view.add(g);
     pxRect(g, 0, 0, 480, 270, C.void, 0.76);
-    // 覆盖层阻止点击穿透，右下罗盘仍保留于背景而不是重新切成分屏。
-    const blocker = this.scene.add.zone(0, 0, 480, 270).setOrigin(0).setInteractive(); this.view.add(blocker);
-    pxRect(g, 18, 22, 444, 234, C.ink); pxFrame(g, 18, 22, 444, 234, C.brass, 1);
+    // 覆盖层阻止点击穿透到世界；右下罗盘仍在背景层
+    const blocker = this.scene.add.zone(cam.scrollX, cam.scrollY, 480, 270).setOrigin(0).setInteractive();
+    this.view.add(blocker);
+    pxRect(g, 18, 22, 444, 234, C.ink); pxFrame(g, 18, 22, 444, 234, C.brass, 1, 1);
     pxDiamond(g, 40, 43, 8, active.type === 'boss' ? C.blood : C.teal, 1, false);
     this.text(58, 32, active.name + ' · ' + active.title, 12, HEX.brassLight, { wordWrap: { width: 388 } });
     if (active.phase === 'question') {
@@ -42,6 +51,7 @@ export default class EncounterPanel {
       this.button(288, 225, 162, 22, result.action === 'bossBattle' ? '准备战斗' : '继续前进', () => this.onContinue(), true);
     }
   }
-  hide() { this.current = null; this.view.removeAll(true); this.view.setVisible(false); }
-  destroy() { this.view.destroy(true); }
+  clearZones() { for (const z of this.zones) z.destroy(); this.zones = []; }
+  hide() { this.current = null; this.view.removeAll(true); this.clearZones(); this.view.setVisible(false); }
+  destroy() { this.clearZones(); this.view.destroy(true); }
 }

@@ -76,7 +76,8 @@ export function computeWindowMs(order, grid) {
 
 // 联组运行时：每个脉流独立维护进度，互不拼接
 export class ComboTracker {
-  constructor(instances) {
+  constructor(instances, windowMul = 1) {
+    this.windowMul = Number.isFinite(windowMul) && windowMul > 0 ? windowMul : 1;
     this.instances = instances;
     this.byFirst = new Map();   // 首格 -> 实例索引
     this.byCell = new Map();    // 任意格 -> 实例索引（用于快速断链判定）
@@ -149,7 +150,7 @@ export class ComboTracker {
       for (const idx of firsts) {
         if (m.has(idx)) continue;
         const inst = this.instances[idx];
-        const windowMs = computeWindowMs(inst.order, grid);
+        const windowMs = computeWindowMs(inst.order, grid) * this.windowMul;
         m.set(idx, { progress: 1, windowEnd: now + windowMs, startedAt: now });
       }
     }

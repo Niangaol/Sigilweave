@@ -21,7 +21,8 @@ export const FAIL_REASON = {
 export class SigilEngine {
   constructor(opts) {
     this.grid = opts.grid;
-    this.combos = opts.combos ? new ComboTracker(opts.combos) : null;
+    this.comboWindowMul = Number.isFinite(opts.comboWindowMul) && opts.comboWindowMul > 0 ? opts.comboWindowMul : 1;
+    this.combos = opts.combos ? new ComboTracker(opts.combos, this.comboWindowMul) : null;
     this.startCells = (opts.startCells || [5]).slice();
     this.rng = new Rng(opts.seed ?? 1);
     this.queue = new EventQueue();
@@ -61,6 +62,11 @@ export class SigilEngine {
   #emit(type, data) {
     this.#mix({ type, payload: data });
     if (this.onEvent) this.onEvent(type, data);
+  }
+
+  // 暂停改阵后重算联组目录（进行中的联组进度作废——暂停中清空无感）
+  setCombos(catalog) {
+    this.combos = catalog ? new ComboTracker(catalog, this.comboWindowMul) : null;
   }
 
   setParams({ grid, startCells, seed } = {}) {

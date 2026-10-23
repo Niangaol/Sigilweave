@@ -10,7 +10,12 @@ import { ACTS, WORLD_SIZES } from '../logic/constants.js';
 import { applyDraft, snapshotBuild } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, resolveSigilTrigger, resolveComboBonus } from '../logic/effects.js';
 import { createRun, recordAct } from '../logic/run.js';
+import { createProgression, grantExp, levelStats, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuff } from '../logic/progression.js';
+import { getEventPoints, findTriggeredPoint } from '../data/map-events.js';
+import { getEncounterById, getMinibossEncounters } from '../data/encounters.js';
 import { Rng } from '../logic/rng.js';
+import { CARD_POOL } from '../logic/workshop.js';
+import { expNeeded } from '../logic/progression.js';
 import { Pool } from '../logic/pool.js';
 import { getEncounterForAct } from '../data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../logic/encounters.js';
@@ -30,7 +35,7 @@ import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
 import Projectile from '../entities/Projectile.js';
 import Shard from '../entities/Shard.js';
-import { C, HEX, addText } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame } from '../ui/Palette.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
@@ -45,7 +50,14 @@ export default class BattleScene extends Phaser.Scene {
     const params = new URLSearchParams(window.location.search);
     this.run = data.run ?? createRun(params.get('seed') ?? ('sigil-' + Date.now()));
     this.act = this.run.act;
-    this.durationMs = params.get('quick') === '1' ? 15000 : [180000, 240000, 180000][this.act - 1];
+    this.quickMode = params.get('quick') === '1';
+    // 成长状态：跨幕持久在 run 上
+    this.run.progression ??= createProgression();
+    this.run.compassBuffs ??= { damageMul: 1, intervalMul: 1, cooldownMul: 1, hitBonus: 0, comboWindowMul: 1, expMul: 1 };
+    this.run.hand ??= {};
+    this.run.completedEvents ??= {};
+    this.run.majorBossActs ??= {};
+    this.durationMs = this.quickMode ? 15000 : [180000, 240000, 180000][this.act - 1];
     this.combatRng = new Rng(this.run.seed + ':combat:' + this.act);
     this.debugParams = params;
     this.phase = 'play';
@@ -75,6 +87,9 @@ export default class BattleScene extends Phaser.Scene {
     this.sampleTimer = 2000;
     this.enemySeq = 1;
     this.hintUntil = 13000;
+    // 事件点与宝箱
+    this.eventPoints = getEventPoints(this.act, this.world).map(p => ({ ...p, done: !!this.run.completedEvents[p.id], icon: null, label: null }));
+    this.chests = [];
 
     // ---------- 视觉层 ----------
     this.background = new Background(this, this.act, this.world);
@@ -112,6 +127,9 @@ export default class BattleScene extends Phaser.Scene {
     this.grid = createGrid();
     const committed = applyDraft(this.grid, this.run.draft, { phase: 'intermission' });
     if (!committed.ok) throw new Error('战斗构筑快照无效');
+    // 罗盘增益：间隔/冷却乘算在此生效（伤害/命中/窗口走 combatState/引擎）
+    const buffs = this.run.compassBuffs;
+    rebuildDerived(this.grid, ACTS[this.act - 1].baseIntervalMs * buffs.intervalMul, { cooldownMul: buffs.cooldownMul });
     // 平衡对照开关：只在 URL 显式给参时生效，默认玩法完全不变。
     this.tuning = this.readTuning(params);
     if (this.tuning.intervalMs) rebuildDerived(this.grid, this.tuning.intervalMs);
@@ -126,6 +144,7 @@ export default class BattleScene extends Phaser.Scene {
       seed: this.run.seed + ':signal:' + this.act,
       grid: this.grid,
       startCells: this.pickStartCells(),
+      comboWindowMul: this.run.compassBuffs.comboWindowMul,
       combos: buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4'])
         .map(inst => (inst.defId === 'duo' && this.tuning.duoBonus !== null
           ? { ...inst, bonus: this.tuning.duoBonus } : inst))
@@ -442,11 +461,35 @@ export default class BattleScene extends Phaser.Scene {
       this.updateHint();
       this.checkDeath();
       if (this.phase === 'play' && this.bossDefeated) this.startBossClearTransition();
-      else if (this.phase === 'play') this.checkEncounterSchedule();
+      else if (this.phase === 'play') {
+        this.checkProgressEvents();
+        this.updateEventPointVisuals();
+        this.updateChests(dt);
+        this.timeExpTimer = (this.timeExpTimer ?? 0) + dt;
+        if (this.timeExpTimer >= 20000) {
+          this.timeExpTimer -= 20000;
+          const gained = grantExp(this.run.progression, 1, this.run.compassBuffs.expMul * (this.quickMode ? 4 : 1));
+          if (gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
+        }
+      }
     } else if (this.phase === 'bossDefeated') {
       this.effects.update(dt);
       this.transitionLeft -= dt;
       if (this.transitionLeft <= 0) this.completeAct();
+    } else if (this.phase === 'levelup') {
+      this.effects.update(0);
+    } else if (this.phase === 'intro') {
+      this.effects.update(dt);
+      this.introLeft -= dt;
+      if (this.boss) {
+        const k = Math.min(1, 1 - Math.max(0, this.introLeft) / this.introDur);
+        this.boss.y = this.introFromY + (this.introToY - this.introFromY) * (1 - Math.pow(1 - Math.min(1, k * 1.6), 2));
+        this.boss.draw(this.engine.now);
+      }
+      if (this.introLeft <= 0) {
+        this.phase = 'play'; this.paused = false; this.engine.paused = false;
+        this.player.invulnUntil = this.engine.now + 900;
+      }
     } else if (this.phase === 'dying') {
       this.effects.update(dt);
     } else {
@@ -458,7 +501,10 @@ export default class BattleScene extends Phaser.Scene {
     this.board.updateDynamic(this.engine, this.engine.now, this.phase !== 'play' || this.paused);
     this.hud.update({
       hp: this.player.hp,
-      maxHp: PLAYER.hp,
+      maxHp: this.player.maxHp,
+      lv: this.run.progression.level,
+      exp: this.run.progression.exp,
+      expNeed: expNeeded(this.run.progression.level + 1),
       shield: this.player.shield,
       shards: this.shardCount,
       rate: this.recentRate,
@@ -542,7 +588,7 @@ export default class BattleScene extends Phaser.Scene {
       const e = this.enemies[i];
       if (!e.alive) {
         // 任何来源造成的Boss死亡都必须汇到统一通幕结算，不能直接跳过
-        if (e.isBoss && !this.bossDefeated) this.defeatBoss('combat', e.definition.bossId);
+        if (e.isBoss && !this.bossDefeated) this.defeatBoss('combat', e.definition.bossId, e.definition.tier === 'mini' ? 'mini' : 'major');
         if (!this.enemies.includes(e)) continue; // defeatBoss 已将其移出并销毁
         e.destroy();
         this.enemies.splice(i, 1);
@@ -610,7 +656,12 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
-  combatState() { return { player: this.player, oath: this.grid.oath, now: this.engine.now }; }
+  combatState() {
+    return {
+      player: this.player, oath: this.grid.oath, now: this.engine.now,
+      buffMul: this.run.compassBuffs.damageMul, hitBonus: this.run.compassBuffs.hitBonus,
+    };
+  }
 
   applySigil(cellId, defId, aimPoint) {
     const result = resolveSigilTrigger({ grid: this.grid, cellId, defId, state: this.combatState(), enemies: this.enemies, half: SECTOR.half, aimPoint });
@@ -650,6 +701,122 @@ export default class BattleScene extends Phaser.Scene {
     if (!result.hits) this.effects.impact(p.x, p.y, p.def.color, true);
   }
 
+  // Boss 进场演出：压降 + 震屏 + 名字条 + 时停无敌（答错进入实战前播放）
+  playBossIntro(bossId) {
+    const def = getEncounterById(bossId);
+    const mini = def?.tier === 'mini';
+    const dur = mini ? 900 : 1600;
+    this.phase = 'intro'; this.paused = true; this.engine.paused = true;
+    this.introDur = dur; this.introLeft = dur;
+    if (this.boss) {
+      this.introToY = this.boss.y;
+      this.introFromY = Math.max(60, this.boss.y - 140);
+      this.boss.y = this.introFromY;
+    }
+    sfx.bossRoar();
+    this.cameras.main.shake(mini ? 150 : 320, 0.005);
+    this.effects.text(240, 92, (def ? def.name + ' · ' + def.title : '未知的威胁'), 12, HEX.brassLight, true);
+    this.effects.text(240, 112, mini ? '小 Boss 拦路' : '大 Boss 降临', 9, HEX.blood, true);
+    this.effects.text(240, 128, mini ? '它挡住了去路' : '它的眼神锁定了你', 8, HEX.mute, true);
+  }
+
+  // 升级三选一：时停抽卡，卡片进手牌（配合暂停改阵自行放置）
+  queueLevelPicks(count) {
+    this.pendingPicks = (this.pendingPicks ?? 0) + count;
+    if (this.phase === 'play') this.openLevelupPick();
+  }
+
+  openLevelupPick() {
+    if (!this.pendingPicks) return;
+    this.phase = 'levelup'; this.paused = true; this.engine.paused = true;
+    this.input.keyboard.resetKeys();
+    const pool = [...CARD_POOL];
+    const picks = [];
+    while (picks.length < 3 && pool.length) picks.push(pool.splice(Math.floor(this.combatRng.next() * pool.length), 1)[0]);
+    const names = { ...SIGIL_DEFS, ...AUX_DEFS };
+    this.levelupUI = this.add.container(0, 0).setDepth(2600).setScrollFactor(0);
+    const g = this.add.graphics();
+    pxRect(g, 60, 70, 360, 130, C.ink, 0.97); pxFrame(g, 60, 70, 360, 130, C.brass, 1, 1);
+    this.levelupUI.add(g);
+    this.levelupUI.add(addText(this, 240, 80, '升 级 ！ 选 择 一 张 法 术 （ 入 手 牌 ）', 10, HEX.brassLight).setOrigin(0.5, 0));
+    picks.forEach((card, i) => {
+      const x = 78 + i * 118;
+      const bg = this.add.graphics();
+      pxRect(bg, x, 102, 108, 66, C.stoneDark); pxFrame(bg, x, 102, 108, 66, this.combatRng.next() < 0.5 ? C.brass : C.teal, 1, 1);
+      this.levelupUI.add(bg);
+      this.levelupUI.add(addText(this, x + 54, 108, names[card.defId]?.name ?? card.defId, 9, card.kind === 'auxiliary' ? HEX.teal : HEX.parchment).setOrigin(0.5, 0));
+      this.levelupUI.add(addText(this, x + 54, 126, card.kind === 'auxiliary' ? '辅助' : '符印', 7, HEX.mute).setOrigin(0.5, 0));
+      this.levelupUI.add(addText(this, x + 54, 156, '点击或按 ' + (i + 1), 7, HEX.brass).setOrigin(0.5, 0));
+    });
+    this.levelupRects = picks.map((card, i) => ({ card, x: 78 + i * 118, y: 102, w: 108, h: 66 }));
+    this.levelupHandler = (pointer) => {
+      for (const r of this.levelupRects ?? []) {
+        if (pointer.x >= r.x && pointer.x <= r.x + r.w && pointer.y >= r.y && pointer.y <= r.y + r.h) { this.pickLevelupCard(r.card); return; }
+      }
+    };
+    this.levelupKeys = ['ONE', 'TWO', 'THREE'].map((code, i) => {
+      const key = this.input.keyboard.on('keydown-' + code, () => this.pickLevelupCard(this.levelupRects[i]?.card));
+      return key;
+    });
+    this.input.on('pointerdown', this.levelupHandler);
+    this.levelupUI.add(addText(this, 240, 182, '点击卡片或按 1/2/3 选择；卡片进手牌，暂停菜单→编辑法阵 可放置', 7, HEX.mute).setOrigin(0.5, 0));
+  }
+
+  pickLevelupCard(card) {
+    if (this.phase !== 'levelup' || !card) return;
+    const key = card.kind + ':' + card.defId;
+    this.run.hand[key] = (this.run.hand[key] ?? 0) + 1;
+    if (this.levelupHandler) { this.input.off('pointerdown', this.levelupHandler); this.levelupHandler = null; }
+    for (const key of ['ONE', 'TWO', 'THREE']) this.input.keyboard?.off('keydown-' + key);
+    this.levelupUI?.destroy(true); this.levelupUI = null;
+    this.levelupRects = null;
+    this.pendingPicks--;
+    sfx.correct();
+    this.effects.text(240, 150, '已入手 ' + key.split(':')[1], HEX.teal, true);
+    if (this.pendingPicks > 0) this.openLevelupPick();
+    else { this.phase = 'play'; this.paused = false; this.engine.paused = false; }
+  }
+
+  spawnChest(x, y) {
+    this.chests.push({ x, y, g: null, opened: false });
+  }
+
+  updateChests(dt) {
+    for (let i = this.chests.length - 1; i >= 0; i--) {
+      const chest = this.chests[i];
+      if (!chest.g) {
+        chest.g = this.add.graphics().setDepth(Math.floor(chest.y));
+        pxRect(chest.g, chest.x - 4, chest.y - 3, 9, 7, C.brassDark, 1);
+        pxFrame(chest.g, chest.x - 4, chest.y - 3, 9, 7, C.brass, 1, 1);
+        pxRect(chest.g, chest.x - 1, chest.y - 1, 2, 2, C.brassLight, 1);
+      }
+      if (Math.hypot(this.player.x - chest.x, this.player.y - chest.y) < 16) {
+        const buff = rollBuff(CHARACTER_BUFFS, () => this.combatRng.next());
+        if (buff) {
+          const adapter = {
+            maxHp: this.player.maxHp + (this.player.maxHpBonus ?? 0),
+            hp: this.player.hp,
+            speed: PLAYER.speed * (this.player.speedMult ?? 1),
+            pickupRadius: 38 + (this.player.pickupBonus ?? 0),
+            iframeBonus: this.player.iframesBonus ?? 0,
+            shieldCap: 40,
+          };
+          buff.apply(adapter);
+          this.player.maxHpBonus = adapter.maxHp - PLAYER.hp;
+          this.player.maxHp = adapter.maxHp;
+          this.player.hp = Math.min(adapter.maxHp, adapter.hp);
+          this.player.speedMult = adapter.speed / PLAYER.speed;
+          this.player.pickupBonus = adapter.pickupRadius - 38;
+          this.player.iframesBonus = adapter.iframeBonus;
+          this.effects.text(this.player.x, this.player.y - 14, '宝箱 · ' + buff.name + '：' + buff.desc, HEX.brassLight, true);
+        }
+        sfx.pick();
+        chest.g.destroy();
+        this.chests.splice(i, 1);
+      }
+    }
+  }
+
   // Boss被解决后才通幕；计时结束仅开启前置问答。
   completeAct() {
     if (this.phase !== 'bossDefeated' || !this.bossDefeated) return;
@@ -678,11 +845,16 @@ export default class BattleScene extends Phaser.Scene {
     if (e.rewarded) return;
     if (e.isBoss) {
       e.rewarded = true;
-      this.defeatBoss('combat', e.definition.bossId);
+      this.defeatBoss('combat', e.definition.bossId, e.definition.tier === 'mini' ? 'mini' : 'major');
       return;
     }
     e.rewarded = true;
     this.kills++;
+    // 经验：普通+1、精英+6；4% 掉宝箱（人物本体增益）
+    const expMul = this.run.compassBuffs.expMul * (this.quickMode ? 4 : 1);
+    const gained = grantExp(this.run.progression, e.def?.elite ? 6 : 1, expMul);
+    if (gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
+    if (this.combatRng.next() < 0.04 && this.chests.length < 6) this.spawnChest(e.x, e.y);
     this.effects.burst(e.x, e.y, C.bone, 10);
     this.effects.dissipate(e.x, e.y, C.groove);
     // 按敌种掉落：腐尸/邪教徒/骑士更值钱；18% 额外一颗保持稀有惊喜
@@ -729,12 +901,42 @@ export default class BattleScene extends Phaser.Scene {
     if (this.recentRate > this.peakRate) this.peakRate = this.recentRate;
   }
 
-  checkEncounterSchedule() {
-    const npc = getEncounterForAct(this.act, 'npc');
-    if (this.engine.now >= this.durationMs * 0.5 && !Object.hasOwn(this.run.encounters.completed, npc.id)) {
-      this.beginEncounter(npc); return;
+  // 进度事件：地图事件点走近触发 + 大Boss等级触发（取代旧的纯计时遭遇）
+  checkProgressEvents() {
+    // 1) 大Boss：等级达标（时间保底经验推着等级走，磨蹭也会触发）
+    if (!this.bossStarted && shouldTriggerMajorBoss(this.act, this.run.progression.level)) {
+      const def = getEncounterForAct(this.act, 'boss');
+      if (def) { this.beginEncounter(def); return; }
     }
-    if (this.engine.now >= this.durationMs && !this.bossStarted) this.beginEncounter(getEncounterForAct(this.act, 'boss'));
+    // 2) 地图事件点：NPC 问答 / 小Boss 门
+    for (const point of this.eventPoints) {
+      if (point.done) continue;
+      if (Math.hypot(this.player.x - point.x, this.player.y - point.y) <= point.radius) {
+        const def = getEncounterById(point.id);
+        if (def) { this.beginEncounter(def); return; }
+      }
+    }
+  }
+
+  // 绘制事件点图标与接近提示（每帧轻量）
+  updateEventPointVisuals() {
+    for (const point of this.eventPoints) {
+      if (point.done) { if (point.icon) { point.icon.destroy(); point.icon = null; } if (point.label) { point.label.destroy(); point.label = null; } continue; }
+      const d = Math.hypot(this.player.x - point.x, this.player.y - point.y);
+      if (!point.icon) {
+        point.icon = this.add.graphics().setDepth(Math.floor(point.y));
+        const g = point.icon;
+        const col = point.type === 'npc' ? C.teal : C.blood;
+        pxRect(g, point.x - 5, point.y - 9, 10, 12, C.nightDeep, 1);
+        pxFrame(g, point.x - 5, point.y - 9, 10, 12, col, 1);
+        pxRect(g, point.x - 2, point.y + 3, 4, 2, C.stoneDark, 1);
+        if (point.type === 'miniboss') pxDiamond(g, point.x, point.y - 3, 2, C.blood, 1, true);
+        else pxRect(g, point.x - 1, point.y - 7, 2, 4, C.teal, 1);
+      }
+      const near = d < 130;
+      if (near && !point.label) point.label = addText(this, point.x, point.y - 24, point.name + '（' + point.hint + '）', 7, point.type === 'npc' ? HEX.teal : HEX.blood, { wordWrap: { width: 160 } }).setOrigin(0.5, 1).setDepth(300);
+      if (!near && point.label) { point.label.destroy(); point.label = null; }
+    }
   }
 
   beginEncounter(definition) {
@@ -748,6 +950,8 @@ export default class BattleScene extends Phaser.Scene {
     if (definition.type === 'boss') {
       this.bossStarted = true;
       this.boss = new Boss(this, definition, this.act, this.enemySeq++);
+      this.boss.x = this.player.x;
+      this.boss.y = Math.max(60, this.player.y - 110);
       this.enemies.push(this.boss);
     }
     this.encounterPanel.show(this.run.encounters.active);
@@ -769,7 +973,7 @@ export default class BattleScene extends Phaser.Scene {
     this.player.hp = Math.min(this.player.maxHp, this.player.hp + (result.reward.heal ?? 0));
     if (result.correct) sfx.correct(); else sfx.wrong();
     if (!result.correct && result.penalty.slowMs) this.playerSlowUntil = this.engine.now + result.penalty.slowMs;
-    if (result.action === 'bossDefeated') this.defeatBoss('quiz', result.bossId);
+    if (result.action === 'bossDefeated') this.defeatBoss('quiz', result.bossId, this.run.encounters.active?.tier === 'mini' ? 'mini' : 'major');
     this.encounterPanel.show(this.run.encounters.active);
   }
 
@@ -778,11 +982,17 @@ export default class BattleScene extends Phaser.Scene {
     const response = finishEncounter(this.run.encounters);
     if (!response.ok) return;
     this.encounterPanel.hide(); this.input.keyboard.resetKeys();
+    // 标记事件点完成（小Boss门/NPC点），罗盘小地图不再显示
+    const finishedId = response.result.encounterId;
+    for (const point of this.eventPoints) if (point.id === finishedId) point.done = true;
+    this.run.completedEvents[finishedId] = true;
     if (this.bossDefeated) { this.startBossClearTransition(); return; }
     if (response.result.action === 'bossBattle') {
       for (const enemy of this.enemies) if (!enemy.isBoss) enemy.destroy();
       this.enemies = this.enemies.filter(enemy => enemy.isBoss);
       this.releaseProjectiles();
+      this.playBossIntro(this.run.encounters.history.at(-1)?.bossId);
+      return;
     }
     this.phase = 'play'; this.paused = false; this.engine.paused = false;
     this.player.invulnUntil = this.engine.now + 800;
@@ -790,11 +1000,22 @@ export default class BattleScene extends Phaser.Scene {
     if (!document.hasFocus()) { this.focusPaused = true; this.openPause('focus'); }
   }
 
-  defeatBoss(method, bossId) {
-    const receipt = resolveBossOnce(this.run, this.act, bossId, method);
+  defeatBoss(method, bossId, tier = 'major') {
+    const receipt = resolveBossOnce(this.run, this.act, bossId, method, tier);
     if (!receipt.ok) return;
     this.shardCount += receipt.reward; this.kills++;
-    this.bossDefeated = true;
+    // Boss 战利品：问答定义给出法术卡进手牌 + 随机一个罗盘本体增益
+    const def = getEncounterById(bossId);
+    if (def?.reward?.cardKey) this.run.hand[def.reward.cardKey] = (this.run.hand[def.reward.cardKey] ?? 0) + 1;
+    const buff = rollBuff(COMPASS_BUFFS, () => this.combatRng.next());
+    if (buff) {
+      buff.apply(this.run.compassBuffs);
+      rebuildDerived(this.grid, ACTS[this.act - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
+      this.effects.text(240, 96, '罗盘增益 · ' + buff.name + '：' + buff.desc, HEX.teal, true);
+    }
+    this.cameras.main.flash(140, 255, 246, 224);
+    sfx.bossShatter();
+    if (tier !== 'mini') this.bossDefeated = true;
     this.hostileShots = []; this.hostileG.clear();
     if (this.boss) {
       const x = this.boss.x, y = this.boss.y;
