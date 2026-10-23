@@ -41,6 +41,7 @@ export class SigilEngine {
       dissipations: 0,
       fallbacks: 0,
       comboBreaksByReason: {},
+      comboBreaksByShape: {},
       combos: 0,
       combosByShape: {},
       blockedByShape: {},
@@ -235,9 +236,13 @@ export class SigilEngine {
   // 断链诊断：只在确实断掉进行中的联组时记录原因，供界面与统计使用
   #breakCombos(signalId, reason) {
     if (!this.combos) return;
-    if (!this.combos.breakAll(signalId)) return;
-    this.stats.comboBreaksByReason[reason] = (this.stats.comboBreaksByReason[reason] || 0) + 1;
-    this.#emit('combo:break', { signalId, reason, t: this.now });
+    const broken = this.combos.breakAll(signalId);
+    if (!broken || broken.count === 0) return;
+    this.stats.comboBreaksByReason[reason] = (this.stats.comboBreaksByReason[reason] || 0) + broken.count;
+    for (const shape of broken.shapes) {
+      this.stats.comboBreaksByShape[shape] = (this.stats.comboBreaksByShape[shape] || 0) + 1;
+    }
+    this.#emit('combo:break', { signalId, reason, count: broken.count, shapes: broken.shapes, t: this.now });
   }
 
   #dissipate(sig, reason) {
@@ -297,6 +302,7 @@ export class SigilEngine {
       fallbacks: this.stats.fallbacks,
       combos: this.stats.combos,
       comboBreaks: { ...this.stats.comboBreaksByReason },
+      comboBreaksByShape: { ...this.stats.comboBreaksByShape },
       idleCells: idle,
       hash: this.stats.hash >>> 0,
     };

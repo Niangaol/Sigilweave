@@ -252,7 +252,8 @@ export default class BattleScene extends Phaser.Scene {
       }
       case 'combo:break': {
         const labels = { cooldown: '冷却受阻', fallback: '保底改道', dissipate: '脉流消散' };
-        this.effects.text(402, 168, '联组断 · ' + (labels[data.reason] ?? data.reason), HEX.blood);
+        const shapes = (data.shapes ?? []).map(s => COMBO_NAMES[s] ?? s).join('、');
+        this.effects.text(402, 168, '联组断 · ' + (labels[data.reason] ?? data.reason) + (shapes ? '（' + shapes + '）' : ''), HEX.blood);
         this.comboBreakCount = (this.comboBreakCount ?? 0) + 1;
         sfx.comboBreak();
         break;

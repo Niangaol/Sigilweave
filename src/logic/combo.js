@@ -102,13 +102,18 @@ export class ComboTracker {
     return m;
   }
 
+  // 断链时回报断掉了哪些形状，便于界面解释“断的是哪个联组”
   breakAll(signalId) {
     const m = this.state.get(signalId);
-    if (m && m.size > 0) {
-      m.clear();
-      return true;
+    if (!m || m.size === 0) return { count: 0, shapes: [] };
+    const shapes = [];
+    for (const idx of m.keys()) {
+      const defId = this.instances[idx]?.defId;
+      if (defId && !shapes.includes(defId)) shapes.push(defId);
     }
-    return false;
+    const count = m.size;
+    m.clear();
+    return { count, shapes };
   }
 
   breakSignal(signalId, reason) {
