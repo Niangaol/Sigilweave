@@ -1,11 +1,13 @@
-import { chromium } from 'playwright';
+import { chromium, firefox } from 'playwright';
 import assert from 'node:assert/strict';
-const browser = await chromium.launch({ channel: 'msedge' });
+const browser = process.env.BROWSER === 'firefox'
+  ? await firefox.launch()
+  : await chromium.launch({ channel: 'msedge' });
 try {
   const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto('http://127.0.0.1:5173/?seed=layout-check');
+  await page.goto((process.env.BASE_URL ?? 'http://127.0.0.1:5173') + '/?seed=layout-check');
   await page.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('TitleScene'));
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.player);

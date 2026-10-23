@@ -1,7 +1,9 @@
 // 三幕完整回归：6/12/16格、1/1/2脉流、沿途NPC问答、每幕Boss前置问答（答对直接消灭）、两次幕间构筑、最终胜利。
-import { chromium } from 'playwright';
+import { chromium, firefox } from 'playwright';
 import assert from 'node:assert/strict';
-const browser = await chromium.launch({ channel: 'msedge' });
+const browser = process.env.BROWSER === 'firefox'
+  ? await firefox.launch()
+  : await chromium.launch({ channel: 'msedge' });
 try {
  const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
  const errors = [];
