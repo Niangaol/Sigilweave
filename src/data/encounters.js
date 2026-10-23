@@ -78,9 +78,105 @@ export const ENCOUNTERS = {
     failureText: '空名无法终止契约。织王展开夜幕，正式战斗开始。',
     reward: { shards: 4 }, penalty: {},
   },
+
+  // ---- 小 Boss 前置问答（事件点触发，答对处决 / 答错实战，不通幕） ----
+  'miniboss-1a': {
+    id: 'miniboss-1a', type: 'boss', tier: 'mini', name: '守墓傀儡·东', title: '墓园东门的石卫',
+    bossId: 'miniboss-1a',
+    clues: [
+      { id: 'rune', text: '石卫胸口刻着：「奉上与我眼中同色的供物，卫兵让路。」' },
+      { id: 'eye', text: '它的双眼镶着两枚绿石。' },
+    ],
+    question: '应奉上什么供物让石卫让路？',
+    choices: [{ id: 'green', label: '绿石' }, { id: 'red', label: '红石' }, { id: 'bone', label: '兽骨' }],
+    correctChoiceId: 'green', explanation: '石卫眼中镶绿石，同色供物即是它认的奉纳。',
+    successText: '供物吻合，石卫单膝跪地让路，崩解为碎石，无需战斗。',
+    failureText: '石卫眼中绿光爆闪，抡起了石拳！',
+    reward: { shards: 6 }, penalty: {},
+  },
+  'miniboss-1b': {
+    id: 'miniboss-1b', type: 'boss', tier: 'mini', name: '守墓傀儡·西', title: '墓园西门的石卫',
+    bossId: 'miniboss-1b',
+    clues: [
+      { id: 'tally', text: '石卫手臂上刻着三道旧痕，旁边写着：「欠一还三。」' },
+      { id: 'ask', text: '它摊开手掌，似乎在等足够的偿付。' },
+    ],
+    question: '它还在等几道痕的偿付？',
+    choices: [{ id: 'one', label: '一道' }, { id: 'two', label: '两道' }, { id: 'three', label: '三道' }],
+    correctChoiceId: 'three', explanation: '刻着三道旧痕且「欠一还三」，说明三道都未偿清。',
+    successText: '旧账两讫，石卫散成一方方碎石，让出西门，无需战斗。',
+    failureText: '偿付错了数目，石卫的 eye 孔亮起红光，挥拳砸来！',
+    reward: { shards: 6 }, penalty: {},
+  },
+  'miniboss-2a': {
+    id: 'miniboss-2a', type: 'boss', tier: 'mini', name: '腐沼巨尸·钟楼', title: '钟楼下的浮尸',
+    bossId: 'miniboss-2a',
+    clues: [
+      { id: 'bell', text: '钟楼铜钟停在「差一刻」的位置，尸体的喉咙里卡着钟锤。' },
+      { id: 'rule', text: '碑文：敲响正点，浮尸沉底；敲错点位，浮尸起身。' },
+    ],
+    question: '要让浮尸沉底，应把钟拨到哪个位置敲响？',
+    choices: [{ id: 'quarter', label: '差一刻处' }, { id: 'full', label: '正点处' }, { id: 'half', label: '半点处' }],
+    correctChoiceId: 'full', explanation: '碑文写明敲响正点浮尸才沉底，铜钟卡锤只是干扰描述。',
+    successText: '正点钟声落下，浮尸缓缓沉入沼底，无需战斗。',
+    failureText: '钟声错位，浮尸猛然从沼里立起！',
+    reward: { shards: 6 }, penalty: {},
+  },
+  'miniboss-2b': {
+    id: 'miniboss-2b', type: 'boss', tier: 'mini', name: '腐沼巨尸·祭池', title: '祭池里的沉棺',
+    bossId: 'miniboss-2b',
+    clues: [
+      { id: 'coffin', text: '祭池中央的沉棺钉着七枚沼钉，已拔出三枚。' },
+      { id: 'rule', text: '棺盖手书：钉尽则开，开棺者友。' },
+    ],
+    question: '还剩几枚沼钉需要拔出？',
+    choices: [{ id: 'three', label: '三枚' }, { id: 'four', label: '四枚' }, { id: 'five', label: '五枚' }],
+    correctChoiceId: 'four', explanation: '七枚钉已拔三枚，还剩四枚。',
+    successText: '最后四枚沼钉弹落，沉棺浮起，尸身向你颔首后沉回，无需战斗。',
+    failureText: '数目错了，沉棺里的东西抓住了池沿！',
+    reward: { shards: 6 }, penalty: {},
+  },
+  'miniboss-3a': {
+    id: 'miniboss-3a', type: 'boss', tier: 'mini', name: '裂瞳主教·东席', title: '王庭东席的独眼者',
+    bossId: 'miniboss-3a',
+    clues: [
+      { id: 'eye', text: '主教的独眼流着星光，他说：「我的眼只认得倒影里的真名。」' },
+      { id: 'note', text: '他递给你一面小镜。' },
+    ],
+    question: '要向主教证明身份，应呈上什么？',
+    choices: [{ id: 'mirror', label: '举起小镜' }, { id: 'name', label: '报出自己的名字' }, { id: 'bow', label: '深深鞠躬' }],
+    correctChoiceId: 'mirror', explanation: '他的眼只认倒影里的真名，镜子里的你即是证明。',
+    successText: '镜中真名闪过，主教遮眼退入阴影，让出东席，无需战斗。',
+    failureText: '独眼里的星光凝聚成刺，主教起身迎战！',
+    reward: { shards: 6 }, penalty: {},
+  },
+  'miniboss-3b': {
+    id: 'miniboss-3b', type: 'boss', tier: 'mini', name: '裂瞳主教·西席', title: '王庭西席的独眼者',
+    bossId: 'miniboss-3b',
+    clues: [
+      { id: 'chain', text: '西席主教的双腕锁着断链，链上挂着三把钥匙，其中两把已经锈死。' },
+      { id: 'want', text: '他说：「用能用的那把，开我脚下的枷。」' },
+    ],
+    question: '应使用哪把钥匙？',
+    choices: [{ id: 'rusty', label: '任意一把锈死的' }, { id: 'good', label: '没锈的那把' }, { id: 'all', label: '三把一起用' }],
+    correctChoiceId: 'good', explanation: '两把已锈死，能用的只有没锈的那把。',
+    successText: '枷锁弹开，主教卸下断链，自行沉入暗影，无需战斗。',
+    failureText: '锈钥匙应声而断，主教被激怒了！',
+    reward: { shards: 6 }, penalty: {},
+  },
 };
 
 export function getEncounterForAct(act, kind) {
   if (!Number.isInteger(act) || act < 1 || act > 3 || (kind !== 'npc' && kind !== 'boss')) return null;
   return ENCOUNTERS[kind + '-' + act];
+}
+
+export function getEncounterById(id) {
+  return typeof id === 'string' && Object.hasOwn(ENCOUNTERS, id) ? ENCOUNTERS[id] : null;
+}
+
+// 每幕的两个小 Boss 事件点定义（供地图事件系统取用）
+export function getMinibossEncounters(act) {
+  if (!Number.isInteger(act) || act < 1 || act > 3) return [];
+  return [ENCOUNTERS['miniboss-' + act + '-a'], ENCOUNTERS['miniboss-' + act + '-b']];
 }

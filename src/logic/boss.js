@@ -42,13 +42,22 @@ export function stepBoss(model, dtMs, position, target) {
 }
 
 // 通关收据独立于普通伤害/掉落链，一幕只奖励一次。
-export function resolveBossOnce(run, act, bossId, method) {
+export function resolveBossOnce(run, act, bossId, method, tier = 'major') {
   if (!run || typeof run !== 'object' || Array.isArray(run) || (run.act !== undefined && run.act !== act) || !Number.isInteger(act) || act < 1 || act > 3 || typeof bossId !== 'string' || !bossId
-    || !['quiz', 'combat'].includes(method)) return { ok: false, reward: 0 };
+    || !['quiz', 'combat'].includes(method) || !['major', 'mini'].includes(tier)) return { ok: false, reward: 0 };
   if (run.bossResolutions !== undefined && (run.bossResolutions === null || typeof run.bossResolutions !== 'object' || Array.isArray(run.bossResolutions))) return { ok: false, reward: 0 };
   run.bossResolutions ??= {};
-  if (Object.hasOwn(run.bossResolutions, act)) return { ok: false, reward: 0 };
-  const receipt = { act, bossId, method, reward: 12 };
-  run.bossResolutions[act] = receipt;
-  return { ok: true, reward: receipt.reward, receipt: { ...receipt } };
+  run.miniBossResolutions ??= {};
+  // 大Boss按幕记账（通幕依据）；小Boss按bossId记账（每局每只一次）
+  const reward = tier === 'mini' ? 6 : 12;
+  if (tier === 'major') {
+    if (Object.hasOwn(run.bossResolutions, act)) return { ok: false, reward: 0 };
+    const receipt = { act, bossId, method, tier, reward };
+    run.bossResolutions[act] = receipt;
+    return { ok: true, reward, receipt: { ...receipt } };
+  }
+  if (Object.hasOwn(run.miniBossResolutions, bossId)) return { ok: false, reward: 0 };
+  const receipt = { act, bossId, method, tier, reward };
+  run.miniBossResolutions[bossId] = receipt;
+  return { ok: true, reward, receipt: { ...receipt } };
 }

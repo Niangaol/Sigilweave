@@ -40,6 +40,8 @@ export function isSoundEnabled() { return enabled; }
 export function toggleSound() { enabled = !enabled; if (enabled) tone({ freq: 720, dur: 0.06 }); return enabled; }
 
 export const sfx = {
+  bossRoar: () => { tone({ freq: 130, dur: 0.5, type: 'sawtooth', gain: 0.028, to: 55 }); setTimeout(() => tone({ freq: 90, dur: 0.4, type: 'square', gain: 0.02, to: 50 }), 180); },
+  bossShatter: () => { tone({ freq: 520, dur: 0.28, type: 'triangle', gain: 0.02, to: 90 }); setTimeout(() => tone({ freq: 140, dur: 0.35, type: 'sine', gain: 0.018, to: 60 }), 120); },
   trigger: () => tone({ freq: 520, dur: 0.05, gain: 0.014 }),
   blocked: () => tone({ freq: 190, dur: 0.07, type: 'triangle', gain: 0.018 }),
   reroute: () => tone({ freq: 360, dur: 0.05, type: 'triangle', gain: 0.012 }),

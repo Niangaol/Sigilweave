@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ENCOUNTERS, getEncounterForAct } from '../src/data/encounters.js';
+import { ENCOUNTERS, getEncounterForAct, getEncounterById } from '../src/data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../src/logic/encounters.js';
 
 const clone = (value) => structuredClone(value);
@@ -19,10 +19,19 @@ const unchangedFailure = (state, fn) => {
 };
 
 describe('遭遇定义', () => {
-  it('包含三幕各一个 NPC 和一个 Boss，名字和题目均不重复', () => {
-    expect(Object.keys(ENCOUNTERS).sort()).toEqual(['boss-1', 'boss-2', 'boss-3', 'npc-1', 'npc-2', 'npc-3']);
-    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.name)).size).toBe(6);
-    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.question)).size).toBe(6);
+  it('包含三幕各一个 NPC、一个大 Boss、两个小 Boss，名字和题目均不重复', () => {
+    expect(Object.keys(ENCOUNTERS).sort()).toEqual([
+      'boss-1', 'boss-2', 'boss-3',
+      'miniboss-1a', 'miniboss-1b', 'miniboss-2a', 'miniboss-2b', 'miniboss-3a', 'miniboss-3b',
+      'npc-1', 'npc-2', 'npc-3',
+    ]);
+    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.name)).size).toBe(12);
+    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.question)).size).toBe(12);
+    // 大 Boss 无 tier，小 Boss 必须 tier=mini
+    for (const d of Object.values(ENCOUNTERS)) {
+      if (d.id.startsWith('miniboss-')) expect(d.tier).toBe('mini');
+      else if (d.type === 'boss') expect(d.tier ?? 'major').toBe('major');
+    }
   });
   for (const definition of Object.values(ENCOUNTERS)) {
     it(definition.id + ' 具有完整的公开线索和唯一答案', () => {
@@ -31,7 +40,10 @@ describe('遭遇定义', () => {
       expect(definition.choices).toHaveLength(3);
       expect(new Set(definition.choices.map((c) => c.id)).size).toBe(3);
       expect(definition.choices.filter((c) => c.id === definition.correctChoiceId)).toHaveLength(1);
-      expect(getEncounterForAct(Number(definition.id.at(-1)), definition.type)).toBe(definition);
+      expect(getEncounterById(definition.id)).toBe(definition);
+      if ((definition.tier ?? 'major') === 'major') {
+        expect(getEncounterForAct(Number(definition.id.at(-1)), definition.type)).toBe(definition);
+      }
       expect(openEncounter(createEncounterState(), definition).ok).toBe(true);
       if (definition.type === 'npc') {
         expect(definition).not.toHaveProperty('bossId');
@@ -39,9 +51,10 @@ describe('遭遇定义', () => {
         expect(definition.penalty).toEqual({ slowMs: 8000 });
       } else {
         expect(definition.bossId).toBe(definition.id);
-        expect(definition.reward).toEqual({ shards: 4 });
         expect(definition.penalty).toEqual({});
         expect(definition.successText).toContain('无需战斗');
+        if (definition.tier === 'mini') expect(definition.reward).toEqual({ shards: 6 });
+        else expect(definition.reward).toEqual({ shards: 4 });
       }
     });
   }
