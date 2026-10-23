@@ -17,7 +17,10 @@ export default class PauseMenu {
       addText(scene, 240, 124, 'R　　　重开本局', 9, HEX.parchment).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
       addText(scene, 240, 140, 'T　　　返回标题', 9, HEX.parchment).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
     ];
-    this.footer = addText(scene, 240, 164, '按住空格可随时观察法阵细目', 7, HEX.brass)
+    this.footer = addText(scene, 240, 168, '按住空格可随时观察法阵细目', 7, HEX.brass)
+      .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
+    // 实时诊断：联组次数、断链原因分布、冷却受阻次数
+    this.diag = addText(scene, 240, 154, '', 7, HEX.mute)
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
     this.draw();
   }
@@ -41,7 +44,7 @@ export default class PauseMenu {
     pxDiamond(g, 240, 170, 2, C.brass, 0.6, false);
   }
 
-  show(mode = 'menu') {
+  show(mode = 'menu', info = null) {
     this.visible = true;
     this.mode = mode;
     const notes = {
@@ -55,6 +58,15 @@ export default class PauseMenu {
     this.title.setVisible(true);
     this.note.setVisible(true);
     this.footer.setVisible(true);
+    if (info) {
+      const b = info.breaks ?? {};
+      this.diag.setText('联组 ' + (info.combos ?? 0) + '　断链：冷却 ' + (b.cooldown ?? 0)
+        + ' · 改道 ' + (b.fallback ?? 0) + ' · 消散 ' + (b.dissipate ?? 0)
+        + '　受阻 ' + (info.blocked ?? 0));
+      this.diag.setVisible(true);
+    } else {
+      this.diag.setVisible(false);
+    }
     for (const line of this.lines) line.setVisible(true);
   }
 
@@ -64,6 +76,7 @@ export default class PauseMenu {
     this.title.setVisible(false);
     this.note.setVisible(false);
     this.footer.setVisible(false);
+    this.diag.setVisible(false);
     for (const line of this.lines) line.setVisible(false);
   }
 }

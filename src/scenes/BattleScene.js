@@ -392,7 +392,11 @@ export default class BattleScene extends Phaser.Scene {
     this.menuOpen = true;
     this.paused = true;
     this.engine.paused = true;
-    this.pauseMenu.show(mode);
+    this.pauseMenu.show(mode, {
+      combos: this.engine.stats.combos,
+      breaks: this.engine.summary(this.engine.now).comboBreaks,
+      blocked: this.engine.stats.blocked,
+    });
     this.board.setDetailVisible(true);
     this.hint.setVisible(false);
     this.pauseHint.setVisible(false);

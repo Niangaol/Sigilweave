@@ -57,8 +57,9 @@ export default class TitleScene extends Phaser.Scene {
       .setOrigin(0.5, 0).setDepth(10);
     addText(this, 240, 220, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 暂停菜单', 8, HEX.mute)
       .setOrigin(0.5, 0).setDepth(10);
-    addText(this, 240, 248, '沿途问答 · 幕间构筑 · 识破契约，或迎战首领', 7, HEX.brassDark)
+    addText(this, 240, 236, 'H 查看玩法说明　·　沿途问答 · 幕间构筑 · 识破契约', 7, HEX.brassDark)
       .setOrigin(0.5, 0).setDepth(10);
+    this.buildHelp();
 
     // 输入：三种方式都能开始
     this.input.keyboard.on('keydown-ENTER', this.begin, this);
@@ -71,6 +72,40 @@ export default class TitleScene extends Phaser.Scene {
     });
 
     this.drawRing(0);
+  }
+
+  // 玩法说明：常驻可查，不打断标题
+  buildHelp() {
+    this.helpOpen = false;
+    const W = 440, H = 190, X = 20, Y = 44;
+    this.helpG = this.add.graphics().setDepth(30).setVisible(false);
+    pxRect(this.helpG, X, Y, W, H, C.ink, 0.98);
+    pxFrame(this.helpG, X, Y, W, H, C.brass, 1, 1);
+    pxFrame(this.helpG, X + 3, Y + 3, W - 6, H - 6, C.brassDark, 0.5, 1);
+    const lines = [
+      ['玩法说明', 12, HEX.brassLight, 12],
+      ['右下角罗盘 = 你周围的 4×4 方位。格子在左 = 你左侧区域，踩中即向该区域出手。', 9, HEX.parchment, 40],
+      ['共鸣石：让正交相邻格的间隔与冷却 -25%。放在中心格，能同时加速四邻。', 9, HEX.teal, 58],
+      ['脉流：金线在格间跳跃，踩到就触发该格符印；冷却没好会被吞跳（受阻）。', 9, HEX.parchment, 76],
+      ['联组：同一条脉流连续踩中指定形状（对偶／直线／折线／环封）追加伤害。', 9, HEX.teal, 102],
+      ['断链：吞跳、保底改道、脉流消散都会打断进行中的联组；战斗中会提示断因。', 9, HEX.blood, 120],
+      ['问答：线索都在当次对白与碑文里。答对可直接消灭 Boss，答错则进入实战。', 9, HEX.parchment, 146],
+      ['再按 H 关闭', 7, HEX.brass, 172],
+    ];
+    this.helpTexts = lines.map(([text, size, color, offsetY]) => addText(this, X + 12, Y + offsetY, text, size, color, {
+      wordWrap: { width: W - 24 }, lineSpacing: 3,
+    }).setDepth(31).setVisible(false));
+    this.helpKey = this.input.keyboard.addKey('H');
+    this.helpKey.on('down', () => this.toggleHelp());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.helpKey?.removeAllListeners());
+  }
+
+  toggleHelp() {
+    this.helpOpen = !this.helpOpen;
+    this.helpG.setVisible(this.helpOpen);
+    for (const t of this.helpTexts) t.setVisible(this.helpOpen);
+    this.prompt.setVisible(!this.helpOpen);
+    window.__SIGILWEAVE_TITLE_HELP__ = this.helpOpen;
   }
 
   begin() {
