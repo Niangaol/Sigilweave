@@ -38,7 +38,60 @@ try {
   const hpBuffed = await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.player.maxHpBonus >= 20 || window.__SIGILWEAVE_BATTLE__.player.speedMult > 1 || window.__SIGILWEAVE_BATTLE__.player.pickupBonus > 0 || window.__SIGILWEAVE_BATTLE__.player.iframesBonus > 0);
   assert.equal(hpBuffed, true, '宝箱应给人物本体增益');
 
-  // 3) 大Boss等级触发：直接把等级拉到阈值
+  // 3) 小Boss门：走近触发，答错进入实战，实战击败后不通幕
+  await page.evaluate(() => {
+    const s = window.__SIGILWEAVE_BATTLE__;
+    const gate = s.eventPoints.find(p => p.type === 'miniboss' && !p.done);
+    s.player.x = gate.x; s.player.y = gate.y + 12;
+  });
+  try {
+    await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.phase === 'encounter', null, { timeout: 8000 });
+  } catch {
+    console.log('GATE_DEBUG', JSON.stringify(await page.evaluate(() => {
+      const s = window.__SIGILWEAVE_BATTLE__;
+      return { phase: s.phase, px: Math.round(s.player.x), py: Math.round(s.player.y), lv: s.run.progression.level,
+        points: s.eventPoints.map(p => ({ id: p.id, done: p.done, type: p.type })),
+        pending: s.pendingPicks ?? 0, chests: s.chests.length, errors: [] };
+    })), JSON.stringify(errors));
+    throw new Error('gate not triggered');
+  }
+  const miniId = await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.run.encounters.active.id);
+  assert(miniId.startsWith('miniboss-'), miniId);
+  await page.screenshot({ path: 'docs/p6-小Boss门.png' });
+  const wrongIdx = await page.evaluate(() => {
+    const a = window.__SIGILWEAVE_BATTLE__.run.encounters.active;
+    return a.choices.findIndex(c => c.id !== a.correctChoiceId);
+  });
+  await click(240, 156 + wrongIdx * 23);
+  await click(396, 238);
+  await click(369, 236);       // 准备战斗 → 进场演出
+  try {
+    await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.phase === 'intro', null, { timeout: 8000 });
+  } catch {
+    console.log('INTRO_DEBUG', JSON.stringify(await page.evaluate(() => {
+      const s = window.__SIGILWEAVE_BATTLE__;
+      return { phase: s.phase, boss: s.boss ? { alive: s.boss.alive, y: Math.round(s.boss.y) } : null,
+        history: s.run.encounters.history.map(h => ({ id: h.encounterId, action: h.action })),
+        completed: Object.keys(s.run.encounters.completed), errors: [] };
+    })), JSON.stringify(errors));
+    throw new Error('intro not played');
+  }
+  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.phase === 'play', null, { timeout: 8000 });
+  const miniFight = await page.evaluate(() => {
+    const s = window.__SIGILWEAVE_BATTLE__;
+    return { bossAlive: s.boss?.alive, tier: s.boss?.definition?.tier, enemies: s.enemies.length };
+  });
+  assert.equal(miniFight.bossAlive, true);
+  assert.equal(miniFight.tier, 'mini');
+  // 实战击败：清血后由下一发命中/收敛完成处决
+  await page.evaluate(() => { const s = window.__SIGILWEAVE_BATTLE__; s.boss.hp = 0; s.boss.alive = false; });
+  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.phase === 'play' && window.__SIGILWEAVE_BATTLE__.run.miniBossResolutions && Object.keys(window.__SIGILWEAVE_BATTLE__.run.miniBossResolutions).length === 1, null, { timeout: 8000 });
+  const stillPlay = await page.evaluate(() => ({ phase: window.__SIGILWEAVE_BATTLE__.phase, mini: Object.values(window.__SIGILWEAVE_BATTLE__.run.miniBossResolutions)[0] }));
+  assert.equal(stillPlay.phase, 'play', '小Boss击败不通幕');
+  assert.equal(stillPlay.mini.tier, 'mini');
+  assert.equal(stillPlay.mini.method, 'combat');
+
+  // 4) 大Boss等级触发：直接把等级拉到阈值
   await page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
     const need = { 1: 5, 2: 8, 3: 11 }[s.act];

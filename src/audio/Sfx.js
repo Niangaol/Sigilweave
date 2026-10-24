@@ -51,6 +51,8 @@ export const sfx = {
   enemyShot: () => tone({ freq: 210, dur: 0.14, type: 'sawtooth', gain: 0.012, to: 140 }),
   hurt: () => tone({ freq: 150, dur: 0.12, gain: 0.022, to: 90 }),
   pick: () => tone({ freq: 900, dur: 0.04, gain: 0.01 }),
+  tick: () => tone({ freq: 1100, dur: 0.025, gain: 0.008 }),
+  tick: () => tone({ freq: 1100, dur: 0.025, gain: 0.008 }),
   quiz: () => tone({ freq: 460, dur: 0.16, type: 'triangle', gain: 0.018 }),
   correct: () => { tone({ freq: 620, dur: 0.1, gain: 0.018 }); setTimeout(() => tone({ freq: 930, dur: 0.16, gain: 0.016 }), 80); },
   wrong: () => tone({ freq: 220, dur: 0.2, type: 'sawtooth', gain: 0.016, to: 120 }),

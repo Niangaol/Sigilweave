@@ -8,7 +8,23 @@ try {
   await page.goto((process.env.BASE_URL ?? 'http://127.0.0.1:5173') + '/?scene=battle&quick=1&seed=p2-smoke');
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.phase === 'play');
   // 先答对沿途NPC与Boss前置问答（答对直接消灭Boss），才能进入幕间。
+  const triggerEncounter = async (n) => {
+    if (n === 0) {
+      await page.evaluate(() => {
+        const s = window.__SIGILWEAVE_BATTLE__;
+        const p = s.eventPoints.find(p => p.type === 'npc' && !p.done);
+        s.player.x = p.x; s.player.y = p.y + 12;
+      });
+    } else {
+      await page.evaluate(() => {
+        const s = window.__SIGILWEAVE_BATTLE__;
+        const need = { 1: 5, 2: 8, 3: 11 }[s.act];
+        while (s.run.progression.level < need) s.run.progression.level++;
+      });
+    }
+  };
   for (let n = 0; n < 2; n++) {
+    await triggerEncounter(n);
     await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.phase === 'encounter', null, { timeout: 25000 });
     const idx = await page.evaluate(() => {
       const a = window.__SIGILWEAVE_BATTLE__.run.encounters.active;

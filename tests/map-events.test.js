@@ -39,7 +39,7 @@ describe('getEventPoints · 结构与命名', () => {
     it(act + ' 幕：恰好 1 个 NPC + 2 个小 Boss，id/类型/名字/半径/提示齐全', () => {
       const points = getEventPoints(act, WORLD_SIZES[act]);
       expect(points).toHaveLength(3);
-      expect(points.map((p) => p.id)).toEqual(['npc-' + act, 'miniboss-' + act + '-a', 'miniboss-' + act + '-b']);
+      expect(points.map((p) => p.id)).toEqual(['npc-' + act, 'miniboss-' + act + 'a', 'miniboss-' + act + 'b']);
       expect(points.map((p) => p.type)).toEqual(['npc', 'miniboss', 'miniboss']);
       expect(points.filter((p) => p.type === 'npc')).toHaveLength(1);
       expect(points.every((p) => p.radius === RADIUS)).toBe(true);

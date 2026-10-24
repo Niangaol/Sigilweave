@@ -35,7 +35,7 @@ import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
 import Projectile from '../entities/Projectile.js';
 import Shard from '../entities/Shard.js';
-import { C, HEX, addText, pxRect, pxFrame } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxDiamond } from '../ui/Palette.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
@@ -87,8 +87,6 @@ export default class BattleScene extends Phaser.Scene {
     this.sampleTimer = 2000;
     this.enemySeq = 1;
     this.hintUntil = 13000;
-    // 事件点与宝箱
-    this.eventPoints = getEventPoints(this.act, this.world).map(p => ({ ...p, done: !!this.run.completedEvents[p.id], icon: null, label: null }));
     this.chests = [];
 
     // ---------- 视觉层 ----------
@@ -98,6 +96,19 @@ export default class BattleScene extends Phaser.Scene {
     this.pauseMenu = new PauseMenu(this);
     this.hostileG = this.add.graphics().setDepth(450);
     this.encounterPanel = new EncounterPanel(this, id => this.selectEncounterAnswer(id), () => this.confirmEncounterAnswer(), () => this.continueEncounter());
+    // 面板交互：场景级命中测试（画布坐标，不受镜头滚动影响）
+    // 面板交互挂 DOM window 事件：绕开 Phaser 输入插件在镜头滚动后的投递丢失
+    this.panelPointerHandler = (ev) => {
+      if (this.phase !== 'encounter' || !this.encounterPanel.view.visible) return;
+      const rect = this.game.canvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const px = (ev.clientX - rect.left) / rect.width * 480;
+      const py = (ev.clientY - rect.top) / rect.height * 270;
+      const action = this.encounterPanel.hitTest(px, py);
+      if (action) { sfx.tick(); action(); }
+    };
+    window.addEventListener('pointerdown', this.panelPointerHandler);
+    this.input.on('pointerdown', this.panelPointerHandler);
 
     // ---------- 世界与摄像机（每幕一张大地图） ----------
     const world = WORLD_SIZES[this.act] ?? WORLD_SIZES[1];
@@ -110,6 +121,8 @@ export default class BattleScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, world.w, world.h);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setDeadzone(60, 40);
+    // 事件点（依赖世界尺寸，必须在 world 赋值之后）
+    this.eventPoints = getEventPoints(this.act, this.world).map(p => ({ ...p, done: !!this.run.completedEvents[p.id], icon: null, label: null }));
 
     // 对象池：弹丸与碎片高频创建，复用图形对象；饱和时拒绝新建而不是抢占活动对象
     this.projectilePool = new Pool({
@@ -489,6 +502,7 @@ export default class BattleScene extends Phaser.Scene {
       if (this.introLeft <= 0) {
         this.phase = 'play'; this.paused = false; this.engine.paused = false;
         this.player.invulnUntil = this.engine.now + 900;
+        this.resumeFollow();
       }
     } else if (this.phase === 'dying') {
       this.effects.update(dt);
@@ -570,15 +584,17 @@ export default class BattleScene extends Phaser.Scene {
       }
     }
     // 按幕权重抽敌人类型；腐尸更厚更慢、蝠更快更脆，伤害取各自定义
+    // 按幕权重抽敌人类型；属性 = 难度基准 × 等级成长 × 敌种倍率
     const def = pickEnemyType(this.act, this.combatRng.next());
+    const lv = levelStats(this.run.progression.level);
     this.enemies.push(new Enemy(
       this,
       def,
       x, y,
       { x: this.player.x, y: this.player.y }, // 出生瞬间锁定，之后直线推进
-      Math.max(1, Math.round(dif.hp * (def.hpMul ?? 1))),
-      dif.speed * (def.speedMul ?? 1),
-      def.damage ?? dif.damage,
+      Math.max(1, Math.round(dif.hp * (def.hpMul ?? 1) * lv.hpMul)),
+      dif.speed * (def.speedMul ?? 1) * lv.speedMul,
+      Math.round((def.damage ?? dif.damage) * lv.damageMul),
       this.enemySeq++,
     ));
   }
@@ -904,7 +920,7 @@ export default class BattleScene extends Phaser.Scene {
   // 进度事件：地图事件点走近触发 + 大Boss等级触发（取代旧的纯计时遭遇）
   checkProgressEvents() {
     // 1) 大Boss：等级达标（时间保底经验推着等级走，磨蹭也会触发）
-    if (!this.bossStarted && shouldTriggerMajorBoss(this.act, this.run.progression.level)) {
+    if (!this.bossStarted && !this.run.majorBossActs[this.act] && shouldTriggerMajorBoss(this.act, this.run.progression.level)) {
       const def = getEncounterForAct(this.act, 'boss');
       if (def) { this.beginEncounter(def); return; }
     }
@@ -943,6 +959,10 @@ export default class BattleScene extends Phaser.Scene {
     if (this.phase !== 'play') return;
     const opened = openEncounter(this.run.encounters, definition, { seed: this.run.seed + ':' + definition.id });
     if (!opened.ok) return;
+    // 大Boss一旦触发过（无论答对处决/答错开战）就不再重复触发，防止等级条件恒真导致无限开问答
+    if (definition.type === 'boss' && definition.tier !== 'mini') this.run.majorBossActs[this.act] = true;
+    // 冻结镜头跟随：问答面板挂世界坐标，镜头再动面板就会漂移、点击全偏
+    this.cameras.main.stopFollow();
     this.phase = 'encounter'; this.paused = true; this.engine.paused = true;
     this.menuOpen = false; this.spaceHeld = false; this.focusPaused = false;
     this.pauseMenu.hide(); this.hint.setVisible(false); this.pauseHint.setVisible(false);
@@ -961,6 +981,7 @@ export default class BattleScene extends Phaser.Scene {
   selectEncounterAnswer(choiceId) {
     if (this.phase !== 'encounter') return;
     const response = selectChoice(this.run.encounters, choiceId);
+    window.__LAST_SELECT__ = { choiceId, ok: response.ok, message: response.message };
     this.encounterPanel.show(this.run.encounters.active, response.ok ? '' : response.message);
   }
 
@@ -995,6 +1016,7 @@ export default class BattleScene extends Phaser.Scene {
       return;
     }
     this.phase = 'play'; this.paused = false; this.engine.paused = false;
+    this.resumeFollow();
     this.player.invulnUntil = this.engine.now + 800;
     // 若浏览器在读题阶段失焦，关闭对话也不能悄悄恢复战斗。
     if (!document.hasFocus()) { this.focusPaused = true; this.openPause('focus'); }
@@ -1016,6 +1038,7 @@ export default class BattleScene extends Phaser.Scene {
     this.cameras.main.flash(140, 255, 246, 224);
     sfx.bossShatter();
     if (tier !== 'mini') this.bossDefeated = true;
+    this.bossStarted = false; // 复位：小Boss解决后，大Boss等级触发仍可生效
     this.hostileShots = []; this.hostileG.clear();
     if (this.boss) {
       const x = this.boss.x, y = this.boss.y;
@@ -1026,9 +1049,15 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
+  resumeFollow() {
+    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
+    this.cameras.main.setDeadzone(60, 40);
+  }
+
   startBossClearTransition() {
     if (this.phase === 'bossDefeated' || this.phase === 'intermission') return;
     this.phase = 'bossDefeated'; this.paused = true; this.engine.paused = true; this.transitionLeft = 800;
+    this.resumeFollow();
     this.hostileShots = []; this.hostileG.clear();
     for (const enemy of this.enemies) enemy.destroy(); this.enemies = [];
     this.releaseProjectiles();
@@ -1142,6 +1171,7 @@ export default class BattleScene extends Phaser.Scene {
     this.input.keyboard.off('keydown-R', this.onRestart);
     this.input.keyboard.off('keydown-T', this.onTitle);
     this.input.keyboard.off('keydown-M', this.onMute);
+    window.removeEventListener('pointerdown', this.panelPointerHandler);
     this.time.removeAllEvents();
     this.encounterPanel.destroy();
     this.hostileG.destroy();

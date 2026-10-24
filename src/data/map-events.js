@@ -90,7 +90,7 @@ export function getEventPoints(act, world) {
       hint: theme.hints.npc,
     },
     {
-      id: 'miniboss-' + act + '-a',
+      id: 'miniboss-' + act + 'a',
       type: 'miniboss',
       name: theme.minibossName,
       x: Math.round(layout.minibossA[0] * dims.w),
@@ -99,7 +99,7 @@ export function getEventPoints(act, world) {
       hint: theme.hints.minibossA,
     },
     {
-      id: 'miniboss-' + act + '-b',
+      id: 'miniboss-' + act + 'b',
       type: 'miniboss',
       name: theme.minibossName,
       x: Math.round(layout.minibossB[0] * dims.w),
