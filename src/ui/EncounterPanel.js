@@ -10,7 +10,7 @@ export default class EncounterPanel {
     this.rects = [];   // 画布坐标命中区（每次 show 重建）
     this.current = null;
     // 悬停/按下画在独立图层：只在键位变化时重画，不动整页文字
-    this.hoverG = scene.add.graphics().setDepth(3001).setVisible(false).setScrollFactor(0);
+    this.hoverG = scene.add.graphics().setDepth(3001).setScrollFactor(0);
     this.hoverKey = null;
     this.moveHandler = (ev) => this.onPointerMove(ev);
     window.addEventListener('pointermove', this.moveHandler);
@@ -65,8 +65,9 @@ export default class EncounterPanel {
     g.clear();
     if (!r) return;
     const disabled = this.isDisabled(r);
-    pxRect(g, r.x, r.y, r.w, r.h, disabled ? C.stoneLight : C.stone, disabled ? 0.14 : 0.38);
-    pxFrame(g, r.x, r.y, r.w, r.h, disabled ? C.stoneLight : C.brassLight, 1, 0.85);
+    pxRect(g, r.x, r.y, r.w, r.h, disabled ? C.stoneLight : C.stone, disabled ? 0.16 : 0.5);
+    pxFrame(g, r.x, r.y, r.w, r.h, disabled ? C.stoneLight : C.brassLight, 1, 0.9);
+    if (!disabled) pxRect(g, r.x, r.y, 2, r.h, C.arcaneLight, 0.9); // 左侧青金竖条，悬停目标一眼可见
   }
 
   // 按下瞬间的高亮：确认/继续会立刻翻页，选中会重绘，这层主要是给“点了没反应”的分支反馈

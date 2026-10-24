@@ -38,11 +38,16 @@ try {
   assert.equal(before.phase, 'question', '禁用态确认不应推进');
   done.disabledConfirm = 'not-allowed + no-op';
 
-  // 2) 悬停选项：指针变手型
+  // 2) 悬停选项：指针变手型，且悬停高亮层真的可见（防 setVisible(false) 这类静默失效）
   await move(240, 156 + 10);
   await page.waitForTimeout(120);
   assert.equal(await cursor(), 'pointer', '选项悬停应为手型');
-  done.hoverChoice = 'pointer';
+  const hoverVisible = await page.evaluate(() => {
+    const h = window.__SIGILWEAVE_BATTLE__.encounterPanel.hoverG;
+    return { visible: h.visible, alpha: h.alpha, default: h.defaultEmptyCheck ?? null };
+  });
+  assert.equal(hoverVisible.visible, true, '悬停高亮层必须可见');
+  done.hoverChoice = 'pointer + overlay visible';
 
   // 3) 点选答案后确认变可用
   const idx = await page.evaluate(() => {
