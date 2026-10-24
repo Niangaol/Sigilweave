@@ -1,7 +1,7 @@
 // 问答覆盖层：纯视觉（graphics+text）。交互由场景级 pointerdown 命中测试处理，
 // 避免 Phaser 容器/scrollFactor/镜头滚动下的输入命中怪癖。
 // 按钮有完整鼠标状态：普通 / 悬停 / 按下 / 已选中 / 禁用，指针移到可点上会变手型。
-import { C, HEX, addText, pxRect, pxFrame, pxDiamond } from './Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxDiamond, isPortrait, CANVAS_H_PORTRAIT } from './Palette.js';
 
 export default class EncounterPanel {
   constructor(scene, onSelect, onConfirm, onContinue) {
@@ -105,7 +105,9 @@ export default class EncounterPanel {
       pxDiamond(g, x + 10, y + h / 2, 3, C.teal, 1, true);
     }
     const color = state === 'selected' ? HEX.white : state === 'disabled' ? HEX.mute : HEX.parchment;
-    this.text(x + (state === 'selected' ? 18 : 8), y + h / 2, message, 9, color).setOrigin(0, 0.5);
+    const size = opts.size ?? 9;
+    const pad = state === 'selected' ? 18 : 8;
+    this.text(x + pad, y + h / 2, message, size, color, opts.textExtra ?? {}).setOrigin(0, 0.5);
     if (rect) this.rects.push({ ...rect, x, y, w, h, disabled: state === 'disabled' });
   }
 
@@ -113,27 +115,47 @@ export default class EncounterPanel {
     this.current = active; this.rects = []; this.view.removeAll(true); this.view.setVisible(true);
     this.clearOverlay(); this.setCursor('');
     const g = this.scene.add.graphics(); this.view.add(g);
-    pxRect(g, 0, 0, 480, 270, C.void, 0.76);
-    pxRect(g, 18, 22, 444, 234, C.ink); pxFrame(g, 18, 22, 444, 234, C.brass, 1, 1);
-    pxFrame(g, 21, 25, 438, 228, C.brassDark, 1, 0.4);
-    pxDiamond(g, 40, 43, 8, active.type === 'boss' ? C.blood : C.teal, 1, false);
-    this.text(58, 32, active.name + ' · ' + active.title, 12, HEX.brassLight, { wordWrap: { width: 388 } });
+    // 竖屏用整块加高画布：选项按钮 432×76，拇指点得动；横屏维持原版式
+    const P = isPortrait();
+    if (P) {
+      pxRect(g, 0, 0, 480, CANVAS_H_PORTRAIT, C.void, 0.92);
+      pxRect(g, 10, 24, 460, 712, C.ink); pxFrame(g, 10, 24, 460, 712, C.brass, 1, 1);
+      pxFrame(g, 13, 27, 454, 706, C.brassDark, 1, 0.4);
+    } else {
+      pxRect(g, 0, 0, 480, 270, C.void, 0.76);
+      pxRect(g, 18, 22, 444, 234, C.ink); pxFrame(g, 18, 22, 444, 234, C.brass, 1, 1);
+      pxFrame(g, 21, 25, 438, 228, C.brassDark, 1, 0.4);
+    }
+    pxDiamond(g, P ? 44 : 40, P ? 61 : 43, P ? 9 : 8, active.type === 'boss' ? C.blood : C.teal, 1, false);
+    this.text(P ? 62 : 58, P ? 50 : 32, active.name + ' · ' + active.title, P ? 14 : 12, HEX.brassLight, { wordWrap: { width: P ? 396 : 388 } });
     if (active.phase === 'question') {
-      this.text(30, 55, active.type === 'boss' ? '答对：直接消灭Boss＋奖励  /  答错：进入Boss战' : '答对：碎片＋治疗  /  答错：短时迟滞诅咒', 8, HEX.mute);
-      this.text(30, 74, '线索：' + active.clues.map(c => c.text).join(' '), 9, HEX.teal, { wordWrap: { width: 416 }, lineSpacing: 2 });
-      this.text(30, 119, active.question, 10, HEX.parchment, { wordWrap: { width: 416 } });
-      active.choices.forEach((choice, i) => this.drawButton(30, 146 + i * 23, 420, 20,
-        (i + 1) + '. ' + choice.label, { kind: 'choice', id: choice.id },
-        { state: choice.id === active.selectedChoiceId ? 'selected' : 'normal' }));
-      this.text(30, 232, note || '先选答案，再确认；读题不限时，战斗已冻结。', 8, HEX.mute, { wordWrap: { width: 292 } });
-      this.drawButton(342, 228, 108, 20, '确认作答', { kind: 'confirm' },
-        { state: active.selectedChoiceId ? 'normal' : 'disabled' });
+      this.text(30, P ? 82 : 55, active.type === 'boss' ? '答对：直接消灭Boss＋奖励  /  答错：进入Boss战' : '答对：碎片＋治疗  /  答错：短时迟滞诅咒', P ? 10 : 8, HEX.mute);
+      this.text(30, P ? 104 : 74, '线索：' + active.clues.map(c => c.text).join(' '), P ? 12 : 9, HEX.teal, { wordWrap: { width: P ? 420 : 416 }, lineSpacing: 3 });
+      this.text(30, P ? 168 : 119, active.question, P ? 14 : 10, HEX.parchment, { wordWrap: { width: P ? 420 : 416 } });
+      if (P) {
+        // 竖屏：四个大按钮排开，长选项自动换行
+        active.choices.forEach((choice, i) => this.drawButton(24, 232 + i * 88, 432, 76,
+          (i + 1) + '. ' + choice.label, { kind: 'choice', id: choice.id },
+          { state: choice.id === active.selectedChoiceId ? 'selected' : 'normal', size: 13, textExtra: { wordWrap: { width: 396 }, lineSpacing: 3 } }));
+        this.text(24, 596, note || '先选答案，再确认；读题不限时，战斗已冻结。', 9, HEX.mute, { wordWrap: { width: 280 } });
+        this.drawButton(312, 620, 144, 60, '确认作答', { kind: 'confirm' },
+          { state: active.selectedChoiceId ? 'normal' : 'disabled', size: 13 });
+      } else {
+        active.choices.forEach((choice, i) => this.drawButton(30, 146 + i * 23, 420, 20,
+          (i + 1) + '. ' + choice.label, { kind: 'choice', id: choice.id },
+          { state: choice.id === active.selectedChoiceId ? 'selected' : 'normal' }));
+        this.text(30, 232, note || '先选答案，再确认；读题不限时，战斗已冻结。', 8, HEX.mute, { wordWrap: { width: 292 } });
+        this.drawButton(342, 228, 108, 20, '确认作答', { kind: 'confirm' },
+          { state: active.selectedChoiceId ? 'normal' : 'disabled' });
+      }
     } else {
       const result = active.result;
-      this.text(32, 78, result.correct ? '破局成功' : '破局失败', 18, result.correct ? HEX.teal : HEX.blood);
-      this.text(32, 111, result.text, 11, HEX.parchment, { wordWrap: { width: 412 }, lineSpacing: 4 });
-      this.text(32, 155, '解析：' + result.explanation, 9, HEX.mute, { wordWrap: { width: 412 }, lineSpacing: 3 });
-      this.drawButton(288, 225, 162, 22, result.action === 'bossBattle' ? '准备战斗' : '继续前进', { kind: 'continue' }, { state: 'normal' });
+      this.text(32, P ? 120 : 78, result.correct ? '破局成功' : '破局失败', P ? 24 : 18, result.correct ? HEX.teal : HEX.blood);
+      this.text(32, P ? 176 : 111, result.text, P ? 13 : 11, HEX.parchment, { wordWrap: { width: P ? 416 : 412 }, lineSpacing: 5 });
+      this.text(32, P ? 330 : 155, '解析：' + result.explanation, P ? 11 : 9, HEX.mute, { wordWrap: { width: P ? 416 : 412 }, lineSpacing: 4 });
+      this.drawButton(P ? 120 : 288, P ? 640 : 225, P ? 240 : 162, P ? 64 : 22,
+        result.action === 'bossBattle' ? '准备战斗' : '继续前进', { kind: 'continue' },
+        { state: 'normal', size: P ? 13 : 9 });
     }
   }
 

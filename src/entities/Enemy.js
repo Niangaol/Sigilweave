@@ -1,5 +1,6 @@
 // 敌人实体：移动与开火全部交给纯逻辑 src/logic/enemy-ai.js。
-// 本文件只负责场景接线（Graphics、敌方弹丸转发）、受击与分型像素外观。
+// 本文件只负责场景接线：身体用素材（骨架/腐尸为 12 帧精灵表，其余为单帧图），
+// 预警线、血条、精英描边走 Graphics 覆盖层。素材缺失时整体降级为程序化像素绘制。
 import { C, pxRect, pxLine, pxRing, pxDiamond } from '../ui/Palette.js';
 import { createBrain, stepBrain } from '../logic/enemy-ai.js';
 
@@ -8,6 +9,30 @@ import { createBrain, stepBrain } from '../logic/enemy-ai.js';
 const ENEMY_BOUNDS = { left: 10, right: 470, top: 26, bottom: 262 };
 // 冲锋中的骑士撞到玩家算“高伤害”，由接触伤害的实时倍率体现。
 const CHARGE_DAMAGE_MUL = 2.5;
+
+// defId → 素材 key（《美术素材交付规范 v1.0》参数总表）。
+// stitch_abomination 用 ghoul（尸骸体量贴合缝合尸魁）；oath_bishop 用 cultist 放大提色（同属robed施法者）。
+const ENEMY_TEXTURE = {
+  skeleton: 'skeleton',
+  corpse: 'corpse',
+  bat: 'undead_bat',
+  cultist: 'cultist',
+  knight: 'death_knight',
+  stitch_abomination: 'ghoul',
+  oath_bishop: 'cultist',
+};
+// 精灵脚底相对逻辑坐标 y 的偏移（对齐各旧程序化美术的脚底）
+const ENEMY_FEET = {
+  skeleton: 7, corpse: 7, bat: 4, cultist: 6, knight: 7,
+  stitch_abomination: 9, oath_bishop: 8,
+};
+// 走/攻动画前缀（只有两张表有动画；单帧图只做朝向翻转）
+const ENEMY_ANIM = { skeleton: 'skeleton', corpse: 'corpse' };
+// 精英放大/提色，让大体积敌人撑住半径
+const ENEMY_STYLE = {
+  stitch_abomination: { scale: 1.15 },
+  oath_bishop: { scale: 1.2, tint: 0x9a86d8 },
+};
 
 export default class Enemy {
   constructor(scene, def, x, y, target, hp, speed, damage, id) {
@@ -30,9 +55,24 @@ export default class Enemy {
     this.walkPhase = 0;
     this.charging = false;
     this.windup = false;
+    this.prevX = this.x;
+    this.face = 1;
     // 允许战斗场景覆盖可活动区域；不提供时用与 BattleScene.BATTLE 相同的默认值
     this.bounds = scene.battleBounds ?? ENEMY_BOUNDS;
-    this.g = scene.add.graphics().setDepth(Math.floor(this.y));
+    this.g = scene.add.graphics().setDepth(Math.floor(this.y) + 0.5);
+    // 素材精灵：key 不存在（素材未就位/该型无素材）时保持 null，走程序化绘制
+    const texKey = ENEMY_TEXTURE[this.defId];
+    this.sprite = texKey && scene.textures?.exists(texKey) && typeof scene.add?.sprite === 'function'
+      ? scene.add.sprite(Math.round(this.x), Math.round(this.y) + (ENEMY_FEET[this.defId] ?? 7), texKey).setOrigin(0.5, 1)
+      : null;
+    if (this.sprite) {
+      const style = ENEMY_STYLE[this.defId];
+      if (style?.scale) this.sprite.setScale(style.scale);
+      if (style?.tint) this.sprite.setTint(style.tint);
+      this.sprite.setDepth(Math.floor(this.y));
+      const prefix = ENEMY_ANIM[this.defId];
+      if (prefix && scene.anims?.exists(prefix + '-idle')) this.sprite.play(prefix + '-idle');
+    }
     this.brain = createBrain(this.defId, {
       now: scene.engine?.now ?? 0,
       seed: this.defId + ':' + this.id,
@@ -60,7 +100,7 @@ export default class Enemy {
     });
     this.applyResult(result, dtMs);
     this.draw(now);
-    this.g.setDepth(Math.floor(this.y));
+    this.g.setDepth(Math.floor(this.y) + 0.5);
     // 大地图世界边界由 enemy-ai 的 bounds 约束；离玩家过远的回收在战斗层处理
   }
 
@@ -116,17 +156,90 @@ export default class Enemy {
     return false;
   }
 
-  // ---------- 像素外观 ----------
   draw(now) {
-    const g = this.g;
-    g.clear();
     const x = Math.round(this.x);
     const y = Math.round(this.y);
     const flash = Number.isFinite(now) && now - this.hitAt < 90;
+    const moving = Math.abs(this.x - this.prevX) > 0.02;
+    if (moving) this.face = this.x < this.prevX ? -1 : 1;
+    if (this.sprite) {
+      this.drawSpriteBody(now, x, y, flash, moving);
+    } else {
+      this.drawProcedural(x, y, flash);
+    }
+    this.drawOverlay(x, y);
+    this.prevX = this.x;
+  }
+
+  // ---------- 素材表现 ----------
+  drawSpriteBody(now, x, y, flash, moving) {
+    const s = this.sprite;
+    // 蝙蝠没有飞行动画，用旧节奏做 1px 上下浮动，读作振翅
+    const bob = this.defId === 'bat' && Math.floor((this.walkPhase + this.phase * 10) / 90) % 2 === 0 ? -1 : 0;
+    s.setPosition(x, y + (ENEMY_FEET[this.defId] ?? 7) + bob);
+    s.setDepth(Math.floor(y));
+    s.setFlipX(this.face < 0);
+    s.setVisible(this.alive);
+    if (flash) {
+      s.setTintFill(0xffffff);
+    } else {
+      s.clearTint();
+      const style = ENEMY_STYLE[this.defId];
+      if (style?.tint) s.setTint(style.tint);
+    }
+    const prefix = ENEMY_ANIM[this.defId];
+    if (!this.alive || !prefix || !this.scene.anims?.exists(prefix + '-idle')) return;
+    let want = 'idle';
+    if (this.windup) want = 'attack';
+    else if (this.speed > 0 && moving) want = 'walk';
+    const key = prefix + '-' + want;
+    if (this.scene.anims.exists(key) && s.anims.currentAnim?.key !== key) s.play(key, true);
+  }
+
+  // 预警线 / 血条 / 精英描边：覆盖层，压在精灵上一层。
+  // 素材路径按精灵实际外框定位，避免大体积精灵把标记画进身体里。
+  drawOverlay(x, y) {
+    const g = this.g;
+    g.clear();
+    this.drawTelegraph(g, x, y);
+    if (this.sprite) {
+      const s = this.sprite;
+      const hw = Math.round((s.displayWidth ?? 2 * this.radius) / 2) + 2;
+      const top = Math.round(y + (ENEMY_FEET[this.defId] ?? 7) - (s.displayHeight ?? 2 * this.radius));
+      if (this.def?.elite) {
+        pxRect(g, x - hw, top, hw * 2, 1, C.brass, 0.9);
+        pxRect(g, x - hw, y + this.radius + 1, hw * 2, 1, C.brass, 0.9);
+        pxRect(g, x - hw, top, 1, y + this.radius + 2 - top, C.brass, 0.9);
+        pxRect(g, x + hw - 1, top, 1, y + this.radius + 2 - top, C.brass, 0.9);
+        pxRect(g, x - 8, top - 6, 16, 2, C.void, 0.8);
+        pxRect(g, x - 8, top - 6, Math.max(1, Math.round(16 * this.hp / this.maxHp)), 2, C.brassLight, 1);
+      }
+      if (this.hp < this.maxHp) {
+        const ratio = Math.max(0, Math.min(1, this.hp / this.maxHp));
+        const barY = top - 4;
+        pxRect(g, x - 6, barY, 13, 2, C.void, 0.8);
+        pxRect(g, x - 5, barY + 1, Math.max(1, Math.round(11 * ratio)), 1, C.blood, 1);
+      }
+      return;
+    }
+    this.drawHealth(g, x, y);
+    if (this.def?.elite) {
+      pxRect(g, x - this.radius - 2, y - this.radius - 2, this.radius * 2 + 4, 1, C.brass, 0.9);
+      pxRect(g, x - this.radius - 2, y + this.radius + 1, this.radius * 2 + 4, 1, C.brass, 0.9);
+      pxRect(g, x - this.radius - 2, y - this.radius - 2, 1, this.radius * 2 + 4, C.brass, 0.9);
+      pxRect(g, x + this.radius + 1, y - this.radius - 2, 1, this.radius * 2 + 4, C.brass, 0.9);
+      pxRect(g, x - 8, y - this.radius - 8, 16, 2, C.void, 0.8);
+      pxRect(g, x - 8, y - this.radius - 8, Math.max(1, Math.round(16 * this.hp / this.maxHp)), 2, C.brassLight, 1);
+    }
+  }
+
+  // ---------- 程序化回退（素材缺失时，行为与旧版一致） ----------
+  drawProcedural(x, y, flash) {
+    const g = this.g;
+    g.clear();
     const step = Math.floor((this.walkPhase + this.phase * 10) / 160) % 2;
     const bob = step;
     const color = this.def?.color ?? C.bone;
-
     this.drawTelegraph(g, x, y);
     switch (this.defId) {
       case 'bat': this.drawBat(g, x, y, color, flash); break;
@@ -136,7 +249,6 @@ export default class Enemy {
       default: this.drawSkeleton(g, x, y, bob, color, flash); break;
     }
     this.drawHealth(g, x, y);
-    // 精英标识：金描边＋顶部血条（普通怪血条在 drawHealth 内部按需显示）
     if (this.def?.elite) {
       pxRect(g, x - this.radius - 2, y - this.radius - 2, this.radius * 2 + 4, 1, C.brass, 0.9);
       pxRect(g, x - this.radius - 2, y + this.radius + 1, this.radius * 2 + 4, 1, C.brass, 0.9);
@@ -349,7 +461,9 @@ export default class Enemy {
     pxRect(g, x - 5, barY + 1, Math.max(1, Math.round(11 * ratio)), 1, C.blood, 1);
   }
 
+
   destroy() {
+    this.sprite?.destroy();
     this.g.destroy();
   }
 }

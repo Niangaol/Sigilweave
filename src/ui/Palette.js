@@ -84,12 +84,29 @@ export const FONT_DISPLAY = '"SimSun", "Songti SC", "STSong", "Noto Serif SC", s
 // 旧版固定 480×270 再交给浏览器拉伸，玩家屏幕越大糊得越厉害；现在渲染分辨率跟着窗口走，文字纹理也按同一倍率生成。
 let RENDER_SCALE = 2;
 export function getRenderScale() { return RENDER_SCALE; }
+// 允许分数倍率：桌面仍传整数（1080p→4），手机放不下 480 宽时传 0.5~3 的分数值，
+// 由 main.js 乘设备像素比出图，避免浏览器拉伸糊屏。
 export function setRenderScale(scale) {
-  RENDER_SCALE = Math.max(1, Math.min(8, Math.round(scale) || 1));
+  const v = Number(scale);
+  RENDER_SCALE = Number.isFinite(v) && v > 0 ? Math.max(0.5, Math.min(8, v)) : 1;
   return RENDER_SCALE;
 }
 export const BASE_W = 480;
 export const BASE_H = 270;
+
+// ---------- 竖屏布局：地图 + 触控台 ----------
+// 竖屏时画布加高到 760（上 270 仍是地图视口，下 490 是放大的罗盘与触控台）；
+// 横屏维持 480×270，桌面行为完全不变。
+export const CONSOLE_TOP = 270;
+export const CONSOLE_H = 490;
+export const CANVAS_H_PORTRAIT = CONSOLE_TOP + CONSOLE_H;
+let PORTRAIT = false;
+export function isPortrait() { return PORTRAIT; }
+export function setPortrait(v) { PORTRAIT = !!v; return PORTRAIT; }
+// 触屏设备（手机/平板）才画虚拟按键；桌面鼠标用户永远看不到
+let TOUCH_UI = false;
+export function isTouchUI() { return TOUCH_UI; }
+export function setTouchUI(v) { TOUCH_UI = !!v; return TOUCH_UI; }
 
 // 摄像机 zoom = 倍率：可见世界区域恒为 480×270，只是每个逻辑像素占更多设备像素。
 // zoom 是以摄像机中心展开的，静态场景必须把视野对齐到逻辑画布，否则画面会跑到屏幕外。

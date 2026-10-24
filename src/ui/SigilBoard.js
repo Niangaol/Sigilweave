@@ -1,12 +1,13 @@
 // 4×4 法阵盘面：斜置压缩台面、封印/解封格、冷却角标、起点标记与暂停细目
 // 方位映射由 src/logic/sector.js 决定；这里只负责让玩家看懂盘面。
-import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxPolyLine, pxDiamond, pxRing } from './Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxPolyLine, pxDiamond, pxRing, isPortrait } from './Palette.js';
 import { toRC } from '../logic/grid.js';
 import { cardVisual, sectorLabel } from '../data/roster.js';
 import { decoratePlan } from './board-decor.js';
 
 // 用户修订：地图为主画面，法术罗盘固定右下角，保留紧凑斜置盘面。
-export const BOARD = {
+// 竖屏（手机）时罗盘放大搬到触控台：面板 448 宽、格子 100×30，点得动看得清。
+const BOARD_LANDSCAPE = {
   // 右下角固定小窗：整屏地图是主画面，法阵只作为罗盘常驻
   panel: { x: 326, y: 174, w: 152, h: 86 },
   left: 346,
@@ -19,6 +20,27 @@ export const BOARD = {
   hullBottom: 247,
   wallBottom: 251,
 };
+
+const BOARD_PORTRAIT = {
+  // 触控台大罗盘：面板 16..464 × 284..460，格子 100×30
+  panel: { x: 16, y: 284, w: 448, h: 176 },
+  left: 36,
+  top: 310,
+  cellW: 100,
+  cellH: 30,
+  stepX: 106,
+  stepY: 34,
+  shear: 6,
+  hullBottom: 450,
+  wallBottom: 458,
+};
+
+// 布局模式每次进场景按 isPortrait() 选定；模块函数读这个活绑定
+export let BOARD = { ...BOARD_LANDSCAPE };
+export function applyBoardLayout(portrait) {
+  BOARD = portrait ? { ...BOARD_PORTRAIT } : { ...BOARD_LANDSCAPE };
+  return BOARD;
+}
 
 export function cellQuad(id) {
   const { r, c } = toRC(id);
@@ -51,6 +73,7 @@ export function hullPoints() {
 
 export default class SigilBoard {
   constructor(scene, grid) {
+    applyBoardLayout(isPortrait());
     this.scene = scene;
     this.grid = grid;
     this.baseG = scene.add.graphics().setDepth(500).setScrollFactor(0);
@@ -120,10 +143,15 @@ export default class SigilBoard {
       pxRect(g, Math.round(x), Math.round(tl.y - 4), 2, 2, C.brassDark, 1);
       pxRect(g, Math.round(x), Math.round(tl.y - 4), 1, 1, C.brassLight, 0.7);
     }
-    // 盘面标题
-    addText(this.scene, 402, 180, '法术罗盘', 8, HEX.brass).setOrigin(0.5, 0).setDepth(515).setScrollFactor(0);
+    // 盘面标题：横屏在面板上方，竖屏居中在触控台顶部
+    if (isPortrait()) {
+      addText(this.scene, 240, 288, '法 术 罗 盘', 10, HEX.brass).setOrigin(0.5, 0).setDepth(515).setScrollFactor(0);
+    } else {
+      addText(this.scene, 402, 180, '法术罗盘', 8, HEX.brass).setOrigin(0.5, 0).setDepth(515).setScrollFactor(0);
+    }
 
     // 16 格
+    const gs = isPortrait() ? 2 : 1; // 竖屏格子 100×30，图标/角钉/方位小图同比放大
     for (let id = 0; id < 16; id++) {
       const cell = this.grid.cells[id];
       const quad = cellQuad(id);
@@ -138,9 +166,9 @@ export default class SigilBoard {
         pxLine(g, quad[0].x, quad[0].y, quad[1].x, quad[1].y, C.groove, 0.85, 1);
         pxLine(g, quad[3].x, quad[3].y, quad[2].x, quad[2].y, C.stoneDark, 1, 1);
         pxPolyLine(g, quad, C.nightDeep, 1, 1, true);
-        // 黄铜角钉
-        pxRect(g, Math.round(x0 + BOARD.shear + 2), y0 + 2, 1, 1, C.brassLight, 0.9);
-        pxRect(g, Math.round(x0 + BOARD.cellW - 3), y0 + BOARD.cellH - 3, 1, 1, C.brass, 0.7);
+        // 黄铜角钉（竖屏同比放大）
+        pxRect(g, Math.round(x0 + BOARD.shear + 2), y0 + 2, gs, gs, C.brassLight, 0.9);
+        pxRect(g, Math.round(x0 + BOARD.cellW - 2 - gs), y0 + BOARD.cellH - 2 - gs, gs, gs, C.brass, 0.7);
         // 区位装饰：角落护角 / 边上围栏 / 中心符文
         this.paintDecor(g, id, quad, 1);
 
@@ -148,27 +176,27 @@ export default class SigilBoard {
         const sigil = cardVisual(cell.slot);
         const cx = Math.round(cellCenter(id).x);
         const cy = Math.round(cellCenter(id).y);
-        const gx = cx - 4;
-        const gy = cy - 4;
+        const gx = cx - 4 * gs;
+        const gy = cy - 4 * gs;
         if (cell.slot) {
           g.fillStyle(C.void, 0.75);
-          g.fillRect(gx - 1, gy - 1, 10, 10);
+          g.fillRect(gx - gs, gy - gs, 10 * gs, 10 * gs);
         }
         g.fillStyle(sigil.color, 1);
         for (let rr = 0; rr < 8; rr++) {
           const row = sigil.glyph[rr] || '';
           for (let cc = 0; cc < 8; cc++) {
-            if (row[cc] === '#') g.fillRect(gx + cc, gy + rr, 1, 1);
+            if (row[cc] === '#') g.fillRect(gx + cc * gs, gy + rr * gs, gs, gs);
           }
         }
 
         // 右上角 4×4 方位小图：点亮本格对应的扇区，教玩家「格=方位」
-        const mx = Math.round(x0 + BOARD.shear + BOARD.cellW - 11);
+        const mx = Math.round(x0 + BOARD.shear + BOARD.cellW - (5 * gs + 1));
         const my = y0 + 3;
         for (let sr = 0; sr < 4; sr++) {
           for (let sc = 0; sc < 4; sc++) {
             const lit = sr === r && sc === c;
-            pxRect(g, mx + sc * 2, my + sr * 2, 1, 1, lit ? C.arcane : C.groove, lit ? 1 : 0.35);
+            pxRect(g, mx + sc * 2 * gs, my + sr * 2 * gs, gs, gs, lit ? C.arcane : C.groove, lit ? 1 : 0.35);
           }
         }
       } else {
@@ -177,9 +205,9 @@ export default class SigilBoard {
         pxPolyLine(g, quad, C.stoneDark, 0.9, 1, true);
         const cx = Math.round(cellCenter(id).x);
         const cy = Math.round(cellCenter(id).y);
-        pxRect(g, cx - 3, cy, 7, 1, C.stoneDark, 0.9);
-        pxRect(g, cx, cy - 3, 1, 7, C.stoneDark, 0.9);
-        pxDiamond(g, cx, cy, 3, C.stoneDark, 0.75, false);
+        pxRect(g, cx - 3 * gs, cy, 7 * gs, gs, C.stoneDark, 0.9);
+        pxRect(g, cx, cy - 3 * gs, gs, 7 * gs, C.stoneDark, 0.9);
+        pxDiamond(g, cx, cy, 3 * gs, C.stoneDark, 0.75, false);
         // 封印格也标出区位，只是压暗，让玩家解封前就能看懂盘面结构
         this.paintDecor(g, id, quad, 0.5);
       }

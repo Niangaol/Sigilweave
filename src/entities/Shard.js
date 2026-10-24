@@ -1,4 +1,5 @@
-// 符文碎片：击杀掉落，玩家靠近轻微吸附，碰到自动拾取
+// 符文碎片：击杀掉落，玩家靠近轻微吸附，碰到自动拾取。
+// 本体用素材 rune_shard.png（10px，秘能青菱形碎片），地面微光与高光仍走 Graphics。
 import { C, pxRect, pxDiamond } from '../ui/Palette.js';
 
 // 吸附参数（纯函数，便于单测）：
@@ -24,6 +25,10 @@ export default class Shard {
   constructor(scene, x, y) {
     this.scene = scene;
     this.g = scene.add.graphics();
+    // 素材碎片：未就位时走程序化菱形（接口不变）
+    this.sprite = scene.textures?.exists('rune_shard') && typeof scene.add?.image === 'function'
+      ? scene.add.image(Math.round(x), Math.round(y), 'rune_shard').setOrigin(0.5, 0.5)
+      : null;
     this.revive(x, y);
   }
 
@@ -35,6 +40,11 @@ export default class Shard {
     this.phase = (x * 17 + y * 31) % 100;
     this.time = 0;
     if (this.g) { this.g.setDepth(Math.floor(y)); this.g.setVisible(true); }
+    if (this.sprite) {
+      this.sprite.setDepth(Math.floor(y) + 0.5);
+      this.sprite.setVisible(true);
+      this.sprite.setPosition(Math.round(x), Math.round(y));
+    }
   }
 
   // 返回 true 表示被拾取
@@ -58,17 +68,23 @@ export default class Shard {
     }
     this.draw();
     this.g.setDepth(Math.floor(this.y));
+    if (this.sprite) this.sprite.setDepth(Math.floor(this.y) + 0.5);
     return false;
   }
 
   draw() {
-    const g = this.g;
-    g.clear();
     const bob = Math.floor(this.time / 180 + this.phase) % 2;
     const x = Math.round(this.x);
     const y = Math.round(this.y) + bob;
-    // 地面微光与碎片本体：秘能青属于增益色，只用在资源上
+    const g = this.g;
+    g.clear();
+    // 地面微光：秘能青属于增益色，只用在资源上
     pxRect(g, x - 3, y + 3, 7, 1, C.teal, 0.18);
+    if (this.sprite) {
+      this.sprite.setPosition(x, y);
+      return;
+    }
+    // 程序化回退：菱形本体 + 高光
     pxDiamond(g, x, y, 3, C.teal, 0.9, false);
     pxDiamond(g, x, y, 1, C.teal, 1, true);
     pxRect(g, x - 1, y - 4, 1, 1, C.white, 0.9);
@@ -78,10 +94,12 @@ export default class Shard {
     this.alive = false;
     this.g.clear();
     this.g.setVisible(false);
+    if (this.sprite) this.sprite.setVisible(false);
   }
 
   destroy() {
     this.deactivate();
     this.g.destroy();
+    this.sprite?.destroy();
   }
 }

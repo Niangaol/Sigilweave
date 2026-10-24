@@ -1,0 +1,46 @@
+# 《共振法阵》美术素材交付 v1.0
+适配环境：Phaser3 + Vite | 画布480×270 | pixelArt:true | 正交2.5D斜俯视（isometric）
+美术风格对标：Loop Hero 循环勇士像素，硬色块、无平滑渐变、透明背景PNG
+✅ 重要统一规则（所有角色必须遵守！）
+1. 精灵原点：全部角色 `setOrigin(0.5,1)`  X居中，Y=1对齐脚底，防止角色悬浮
+2. 渲染深度：战场单位update每帧执行 `sprite.setDepth(sprite.y)`，按Y坐标排序，解决遮挡
+3. 项目配置确认：main.js config里面 `pixelArt: true, roundPixels: true`，防止像素模糊
+
+## 📋素材参数总表（直接照着写代码）
+| key名称(代码内调用) | 文件路径 | 角色像素高度 | 建议碰撞框 setSize(w,h) | 素材类型 | 帧说明 |
+|---|---|---|---|---|---|
+| player | assets/sprites/player_sheet.png | 32px | (24,28) | spritesheet | 横向12帧：待机、行走、冲刺、受击 |
+| skeleton | assets/sprites/skeleton_sheet.png |28px |(22,24)| spritesheet | 横向12帧：待机、行走、挥剑、倒地死亡 |
+| corpse | assets/sprites/corpse_sheet.png |30px|(24,26)| spritesheet | 横向12帧：待机、缓慢行走、攻击、腐化死亡 |
+| undead_bat | assets/sprites/undead_bat.png |16px|(12,12)| 单图 | 飞行小怪，静态，后续可补飞行帧 |
+| gargoyle | assets/sprites/gargoyle.png |32px|(26,28)| 单图 | 石像鬼精英 |
+| cultist | assets/sprites/cultist.png |30px|(24,26)| 单图 | 邪教徒，污染法阵机制怪 |
+| ghoul | assets/sprites/ghoul.png |26px|(22,24)| 单图 | 食尸鬼，死亡会分裂 |
+| death_knight | assets/sprites/death_knight.png |34px|(28,30)| 单图 | 亡灵骑士高护甲精英 |
+| lesser_demon | assets/sprites/lesser_demon.png |30px|(24,26)| 单图 | 下等恶魔高速突进怪 |
+| lich | assets/sprites/lich.png |36px|(30,32)| 单图 | 巫妖最终BOSS |
+| rune_shard | assets/effects/rune_shard.png |10px|(8,8)| 单图 | 拾取资源符文碎片 |
+| attack_warning | assets/effects/attack_warning.png | - | - | 单图 | 红色攻击预警特效线 |
+
+## 📌 preload 预加载代码（直接粘贴进Battle场景 preload()）
+```javascript
+preload() {
+    // 动画精灵表 spritesheet
+    this.load.spritesheet('player', 'assets/sprites/player_sheet.png', {frameWidth:32, frameHeight:32});
+    this.load.spritesheet('skeleton', 'assets/sprites/skeleton_sheet.png', {frameWidth:28, frameHeight:28});
+    this.load.spritesheet('corpse', 'assets/sprites/corpse_sheet.png', {frameWidth:30, frameHeight:30});
+
+    // 单帧静态怪物
+    this.load.image('undead_bat', 'assets/sprites/undead_bat.png');
+    this.load.image('gargoyle', 'assets/sprites/gargoyle.png');
+    this.load.image('cultist', 'assets/sprites/cultist.png');
+    this.load.image('ghoul', 'assets/sprites/ghoul.png');
+    this.load.image('death_knight', 'assets/sprites/death_knight.png');
+    this.load.image('lesser_demon', 'assets/sprites/lesser_demon.png');
+    this.load.image('lich', 'assets/sprites/lich.png');
+
+    // 特效拾取物
+    this.load.image('rune_shard','assets/effects/rune_shard.png');
+    this.load.image('attack_warning','assets/effects/attack_warning.png');
+}
+

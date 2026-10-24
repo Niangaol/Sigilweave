@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0d0a17" />
   <title>共振法阵 · 第一幕</title>
   <style>
@@ -10,6 +10,10 @@
     html, body {
       margin: 0; padding: 0; width: 100%; height: 100%;
       background: #0d0a17; overflow: hidden;
+      overscroll-behavior: none;
+      -webkit-user-select: none; user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: none;
     }
     #game-root {
       width: 100vw; height: 100vh;
@@ -30,6 +34,17 @@
 <body>
   <div id="game-root"></div>
   <noscript><p class="fallback">本作需要启用 JavaScript 才能运行。</p></noscript>
+  <script>
+    // 手机上长按画布会弹系统菜单/选中文本，拦截掉
+    document.addEventListener('contextmenu', function (e) {
+      if (e.target && e.target.tagName === 'CANVAS') e.preventDefault();
+    });
+    // 双指缩放/下拉刷新会让战斗误触，统一拦在捕获阶段
+    document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+    document.addEventListener('touchmove', function (e) {
+      if (e.target && e.target.tagName === 'CANVAS') e.preventDefault();
+    }, { passive: false });
+  </script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

@@ -1,6 +1,10 @@
 import { C, pxRect, pxLine, pxDiamond, pxRing } from '../ui/Palette.js';
 import { createBossModel, stepBoss } from '../logic/boss.js';
 
+// 小 Boss（守墓傀儡）用石像鬼素材，幕 Boss 用巫妖素材；脚底对齐旧程序化美术的 y+21
+const BOSS_TEXTURE = { mini: 'gargoyle', final: 'lich' };
+const BOSS_FEET = 21;
+
 export default class Boss {
   constructor(scene, definition, act, id) {
     this.scene = scene; this.definition = definition; this.id = id; this.isBoss = true;
@@ -9,6 +13,12 @@ export default class Boss {
     this.alive = true; this.rewarded = false; this.damage = 12; this.hitAt = -9999;
     this.model = createBossModel(act);
     this.g = scene.add.graphics().setDepth(200);
+    // 素材精灵：tier=mini 的石卫用石像鬼，其余幕 Boss 用巫妖
+    const texKey = BOSS_TEXTURE[definition?.tier === 'mini' ? 'mini' : 'final'];
+    this.sprite = scene.textures?.exists(texKey) && typeof scene.add?.sprite === 'function'
+      ? scene.add.sprite(Math.round(this.x), Math.round(this.y) + BOSS_FEET, texKey).setOrigin(0.5, 1)
+      : null;
+    if (this.sprite) this.sprite.setDepth(Math.floor(this.y));
     this.draw(0);
   }
   update(dtMs, now) {
@@ -27,16 +37,30 @@ export default class Boss {
     this.y = Math.max(42, Math.min(W.h - 28, this.y));
     for (const shot of stepBoss(this.model, dtMs, this, p)) this.scene.addHostileShot(shot);
     this.draw(now);
-    this.g.setDepth(Math.floor(this.y));
+    this.g.setDepth(Math.floor(this.y) + 0.5);
+    if (this.sprite) this.sprite.setDepth(Math.floor(this.y));
   }
   draw(now) {
-    const g = this.g; g.clear();
     const x = Math.round(this.x), y = Math.round(this.y), flash = now - this.hitAt < 100;
+    const g = this.g; g.clear();
+    // 预警：读条瞄准线 + 落点环（程序化，保持既有手感）
     if (this.model.windupLeft > 0 && this.model.aim) {
       const aim = this.model.aim;
       pxLine(g, x, y, aim.x, aim.y, C.blood, 0.65);
       pxRing(g, aim.x, aim.y, 14, C.blood, 0.9, 1);
     }
+    if (this.sprite) {
+      const s = this.sprite;
+      s.setPosition(x, y + BOSS_FEET);
+      s.setVisible(this.alive);
+      if (flash) s.setTintFill(0xffffff); else s.clearTint();
+      // 血条（旧版在头顶 -26 处，素材更高，改到精灵头顶上方）
+      const top = Math.round(y + BOSS_FEET - s.displayHeight);
+      pxRect(g, x - 17, top - 8, 34, 3, C.nightDeep);
+      pxRect(g, x - 17, top - 8, Math.max(0, Math.round(34 * this.hp / this.maxHp)), 2, C.blood);
+      return;
+    }
+    // ---------- 程序化回退（素材缺失时，行为与旧版一致） ----------
     pxRect(g, x - 14, y + 12, 28, 3, C.void, 0.6);
     pxRect(g, x - 11, y - 9, 22, 21, flash ? C.white : C.stoneLight);
     pxRect(g, x - 8, y - 15, 16, 8, flash ? C.white : C.bone);
@@ -48,5 +72,5 @@ export default class Boss {
     pxRect(g, x - 17, y - 26, 34, 3, C.nightDeep);
     pxRect(g, x - 17, y - 26, Math.max(0, Math.round(34 * this.hp / this.maxHp)), 2, C.blood);
   }
-  destroy() { this.g.destroy(); }
+  destroy() { this.sprite?.destroy(); this.g.destroy(); }
 }

@@ -36,8 +36,9 @@ import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
 import Projectile from '../entities/Projectile.js';
 import Shard from '../entities/Shard.js';
-import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxDiamond, drawGlyph, applyPixelZoom, getRenderScale, uiLayerOffset } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxDiamond, drawGlyph, applyPixelZoom, getRenderScale, uiLayerOffset, isPortrait, isTouchUI, CONSOLE_TOP, CANVAS_H_PORTRAIT } from '../ui/Palette.js';
 import { decoratePlan } from '../ui/board-decor.js';
+import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
@@ -109,6 +110,7 @@ export default class BattleScene extends Phaser.Scene {
       restart: () => { if (this.menuOpen || this.editOpen) this.scene.restart(); },
       title: () => { if (this.menuOpen) this.scene.start('TitleScene'); },
       edit: () => { if (this.menuOpen && !this.editOpen) this.openGridEdit(); },
+      mute: () => { if (this.menuOpen) this.onMute(); },
     });
     this.hostileG = this.add.graphics().setDepth(450);
     this.encounterPanel = new EncounterPanel(this, id => this.selectEncounterAnswer(id), () => this.confirmEncounterAnswer(), () => this.continueEncounter());
@@ -137,6 +139,8 @@ export default class BattleScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, world.w, world.h);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setDeadzone(60, 40);
+    // 竖屏：镜头中心压低，让人物落在地图区中上部，下方留给触控台
+    if (isPortrait()) this.cameras.main.setFollowOffset(0, 190);
     // 事件点（依赖世界尺寸，必须在 world 赋值之后）
     this.eventPoints = getEventPoints(this.act, this.world).map(p => ({ ...p, done: !!this.run.completedEvents[p.id], icon: null, label: null }));
 
@@ -163,6 +167,23 @@ export default class BattleScene extends Phaser.Scene {
     this.tuning = this.readTuning(params);
     if (this.tuning.intervalMs) rebuildDerived(this.grid, this.tuning.intervalMs);
     this.board = new SigilBoard(this, this.grid);
+    // 竖屏触控台背景：不透明压住地图 + 硬边竖纹 + 顶部金线（与幕间同一套语言）
+    if (isPortrait()) {
+      const cg = this.add.graphics().setDepth(499).setScrollFactor(0);
+      pxRect(cg, 0, CONSOLE_TOP, 480, CANVAS_H_PORTRAIT - CONSOLE_TOP, C.void);
+      for (let x = 0; x < 480; x += 24) pxRect(cg, x, CONSOLE_TOP, 12, CANVAS_H_PORTRAIT - CONSOLE_TOP, C.ink, 0.25);
+      pxRect(cg, 0, CONSOLE_TOP, 480, 2, C.brassDark, 0.9);
+      pxRect(cg, 0, CONSOLE_TOP + 2, 480, 1, C.brass, 0.35);
+      // 罗盘面板外框（与幕间分区面板同款：双线 + 四角铆钉）
+      const p = { x: 12, y: 280, w: 456, h: 184 };
+      pxRect(cg, p.x, p.y, p.w, p.h, C.ink, 0.9);
+      pxFrame(cg, p.x, p.y, p.w, p.h, C.brassDark);
+      pxFrame(cg, p.x + 2, p.y + 2, p.w - 4, p.h - 4, C.brass, 1, 0.2);
+      for (const [sx, sy] of [[p.x, p.y], [p.x + p.w - 3, p.y], [p.x, p.y + p.h - 3], [p.x + p.w - 3, p.y + p.h - 3]]) {
+        pxRect(cg, sx, sy, 3, 3, C.brass, 0.9);
+        pxRect(cg, sx + 1, sy + 1, 1, 1, C.brassLight, 1);
+      }
+    }
 
     // 起点：按玩家归一化位置映射到最近的已解封格
     this.startCell = this.sampleStartCell();
@@ -241,11 +262,18 @@ export default class BattleScene extends Phaser.Scene {
     this.game.events.on(Phaser.Core.Events.FOCUS, this.handleFocus);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
 
-    // 操作提示（12 秒后淡出）
-    this.hint = addText(this, 10, 250, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 菜单', 8, HEX.parchment).setScrollFactor(0)
+    // 操作提示（12 秒后淡出）；触屏设备换成摇杆文案
+    this.hint = addText(this, 10, 250, isTouchUI()
+      ? '方向键 走位　·　　按钮 打开菜单'
+      : 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 菜单', 8, HEX.parchment).setScrollFactor(0)
       .setOrigin(0, 0.5).setDepth(1005).setAlpha(0.9);
     this.pauseHint = addText(this, 10, 182, '观察中 · 松开空格继续　（Esc 打开菜单）', 8, HEX.arcaneLight).setScrollFactor(0)
       .setOrigin(0, 0.5).setDepth(1006).setVisible(false);
+
+    // 触屏设备：虚拟方向键 + 暂停按钮（桌面鼠标用户不创建）
+    if (isTouchUI()) {
+      this.touch = new TouchControls(this, { onPause: () => this.onEsc() });
+    }
 
     // UI 收进固定屏幕容器：世界由摄像机 zoom 放大，UI 靠容器补偿维持逻辑坐标。
     this.mountUiLayer();
@@ -441,6 +469,8 @@ export default class BattleScene extends Phaser.Scene {
     if (this.cursors.right.isDown || this.keys.right.isDown) dx += 1;
     if (this.cursors.up.isDown || this.keys.up.isDown) dy -= 1;
     if (this.cursors.down.isDown || this.keys.down.isDown) dy += 1;
+    // 触屏摇杆与键盘取或：手机上用方向键，桌面键盘照旧
+    if (this.touch) { dx += this.touch.axis.x; dy += this.touch.axis.y; }
     return { dx, dy };
   }
 
@@ -1451,6 +1481,8 @@ export default class BattleScene extends Phaser.Scene {
     this.editUI?.destroy(true);
     this.editUI = null;
     this.editOpen = false;
+    this.touch?.destroy();
+    this.touch = null;
     window.removeEventListener('pointerdown', this.panelPointerHandler);
     this.time.removeAllEvents();
     this.encounterPanel.destroy();

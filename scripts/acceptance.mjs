@@ -1,6 +1,6 @@
 // 构建完成、静态服务器启动后执行；一项失败即非零退出，不吞掉子进程错误。
 import { spawnSync } from 'node:child_process';
-const scripts = ['layout-smoke', 'workshop-smoke', 'encounter-smoke', 'encounter-states', 'three-act-smoke', 'progression-smoke', 'loadout-smoke', 'help-smoke', 'pause-edit-smoke', 'rewards-smoke', 'targeting-smoke', 'pointer-smoke', 'balance-acceptance', 'stress'];
+const scripts = ['layout-smoke', 'workshop-smoke', 'encounter-smoke', 'encounter-states', 'mobile-smoke', 'three-act-smoke', 'progression-smoke', 'loadout-smoke', 'help-smoke', 'pause-edit-smoke', 'rewards-smoke', 'targeting-smoke', 'pointer-smoke', 'balance-acceptance', 'stress'];
 for (const script of scripts) {
   console.log('\n=== ACCEPTANCE ' + script + ' ===');
   const result = spawnSync(process.execPath, ['scripts/' + script + '.mjs'], { stdio: 'inherit', env: { ...process.env, BASE_URL: process.env.BASE_URL ?? 'http://127.0.0.1:4173', LONG: '1' } });

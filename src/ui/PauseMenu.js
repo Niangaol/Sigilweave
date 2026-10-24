@@ -1,5 +1,6 @@
 // 暂停菜单：Esc 打开，失焦自动打开；每一项都可鼠标点击（键盘快捷键保留为等效操作）。
 import { C, HEX, addText, pxRect, pxFrame, pxDiamond, getRenderScale } from './Palette.js';
+import { isSoundEnabled } from '../audio/Sfx.js';
 
 // 每一行菜单项：显示用的键位提示 + 对应的动作，命中区由 y 与固定宽高推出。
 const ROW_W = 220;
@@ -31,16 +32,19 @@ export default class PauseMenu {
     }).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false).setScrollFactor(0);
     this.note = addText(scene, 240, 88, '战场与脉流已冻结', 8, HEX.mute)
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false).setScrollFactor(0);
-    // 四个菜单项：点一下即可，键位提示保留（键盘是等效操作，不再是唯一入口）
+    // 五个菜单项：点一下即可，键位提示保留（键盘是等效操作，不再是唯一入口）。
+    // 音盛行给手机用——手机上没有 M 键，静音必须能点。
     const rows = [
-      { y: 108, action: 'resume', label: 'Esc　　继续战斗', color: HEX.parchment },
-      { y: 124, action: 'restart', label: 'R　　　重开本局', color: HEX.parchment },
-      { y: 140, action: 'title', label: 'T　　　返回标题', color: HEX.parchment },
-      { y: 156, action: 'edit', label: 'E　　　编辑法阵', color: HEX.teal },
+      { y: 104, action: 'resume', label: 'Esc　　继续战斗', color: HEX.parchment },
+      { y: 120, action: 'restart', label: 'R　　　重开本局', color: HEX.parchment },
+      { y: 136, action: 'title', label: 'T　　　返回标题', color: HEX.parchment },
+      { y: 152, action: 'edit', label: 'E　　　编辑法阵', color: HEX.teal },
+      { y: 168, action: 'mute', label: '', color: HEX.mute },
     ];
     this.rowDefs = rows.map((r) => ({ ...r, x: 240 - ROW_W / 2, w: ROW_W, h: ROW_H }));
     this.lines = rows.map((r) => addText(scene, 240, r.y, r.label, 9, r.color)
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false));
+    this.muteLine = this.lines[this.rowDefs.findIndex((r) => r.action === 'mute')];
     this.footer = addText(scene, 240, 250, '点击选项，或按对应按键 · 按住空格观察法阵细目', 7, HEX.brass)
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
     // 实时诊断：联组次数、断链原因分布、冷却受阻次数
@@ -131,6 +135,12 @@ export default class PauseMenu {
       this.diag.setVisible(false);
     }
     for (const line of this.lines) line.setVisible(true);
+    // 音盛行标签随实时状态刷新
+    if (this.muteLine) {
+      const on = isSoundEnabled();
+      this.muteLine.setText('M　　音效 ' + (on ? '开' : '关'));
+      this.muteLine.setColor(on ? HEX.parchment : HEX.mute);
+    }
     this.installInput();
     this.draw();
   }
