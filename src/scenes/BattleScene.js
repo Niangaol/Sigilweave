@@ -115,15 +115,16 @@ export default class BattleScene extends Phaser.Scene {
     // 面板交互挂 DOM window 事件：绕开 Phaser 输入插件在镜头滚动后的投递丢失
     this.panelPointerHandler = (ev) => {
       if (this.phase !== 'encounter' || !this.encounterPanel.view.visible) return;
-      const rect = this.game.canvas.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      const px = (ev.clientX - rect.left) / rect.width * 480;
-      const py = (ev.clientY - rect.top) / rect.height * 270;
-      const action = this.encounterPanel.hitTest(px, py);
-      if (action) { sfx.tick(); action(); }
+      const pos = this.encounterPanel.toCanvas(ev);
+      if (!pos) return;
+      const action = this.encounterPanel.hitTest(pos.px, pos.py);
+      if (action) {
+        this.encounterPanel.pressAt(pos.px, pos.py); // 按下反馈；翻页类动作随后重绘会盖掉它
+        sfx.tick();
+        action();
+      }
     };
     window.addEventListener('pointerdown', this.panelPointerHandler);
-    this.input.on('pointerdown', this.panelPointerHandler);
 
     // ---------- 世界与摄像机（每幕一张大地图） ----------
     this.worldBounds = { left: 24, top: 40, right: world.w - 24, bottom: world.h - 24 };
