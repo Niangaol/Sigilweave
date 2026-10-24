@@ -17,6 +17,7 @@ import { Rng } from '../logic/rng.js';
 import { CARD_POOL } from '../logic/workshop.js';
 import { expNeeded } from '../logic/progression.js';
 import { Pool } from '../logic/pool.js';
+import { pickSpawnPoint, separateEnemies } from '../logic/spawn.js';
 import { getEncounterForAct } from '../data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../logic/encounters.js';
 import { resolveBossOnce } from '../logic/boss.js';
@@ -35,7 +36,7 @@ import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
 import Projectile from '../entities/Projectile.js';
 import Shard from '../entities/Shard.js';
-import { C, HEX, addText, pxRect, pxFrame, pxDiamond } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxDiamond, applyPixelZoom, getRenderScale, uiLayerOffset } from '../ui/Palette.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
@@ -47,6 +48,7 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   create(data = {}) {
+    applyPixelZoom(this);
     const params = new URLSearchParams(window.location.search);
     this.run = data.run ?? createRun(params.get('seed') ?? ('sigil-' + Date.now()));
     this.act = this.run.act;
@@ -237,6 +239,9 @@ export default class BattleScene extends Phaser.Scene {
     this.pauseHint = addText(this, 10, 182, '观察中 · 松开空格继续　（Esc 打开菜单）', 8, HEX.arcaneLight).setScrollFactor(0)
       .setOrigin(0, 0.5).setDepth(1006).setVisible(false);
 
+    // UI 收进固定屏幕容器：世界由摄像机 zoom 放大，UI 靠容器补偿维持逻辑坐标。
+    this.mountUiLayer();
+
     this.cameras.main.fadeIn(220, 0, 0, 0);
 
     // 调试：?pause=1 直接打开暂停菜单，便于截图验收
@@ -247,6 +252,18 @@ export default class BattleScene extends Phaser.Scene {
     // 暴露给验收脚本：只读查看引擎状态
     this.bootCount = (this.bootCount ?? 0) + 1;
     window.__SIGILWEAVE_BATTLE__ = this;
+  }
+
+  mountUiLayer() {
+    const offset = uiLayerOffset(this);
+    const root = this.add.container(offset.x, offset.y).setScrollFactor(0).setDepth(5000);
+    // 按既有 depth 排序后再入容器：容器按插入顺序渲染，排序才能保持面板层级。
+    const ui = this.children.list
+      .filter((o) => o !== root && o.scrollFactorX === 0 && o.scrollFactorY === 0)
+      .sort((a, b) => (a.depth ?? 0) - (b.depth ?? 0));
+    for (const obj of ui) root.add(obj);
+    this.uiRoot = root;
+    return root;
   }
 
   // 解析 URL 平衡对照参数：interval（秒）、starts（1-4）、duo（对偶倍率）
@@ -298,14 +315,16 @@ export default class BattleScene extends Phaser.Scene {
     return cardVisual(this.grid.cells[cellId].slot);
   }
 
+  // 条带矩形：内区是屏幕四分之一，外区画到屏幕外一屏多（只用于光迹的四角括号提示）
   sectorRect(cellId) {
     const { r, c } = toRC(cellId);
-    return {
-      x: this.player.x - SECTOR.half + c * SECTOR.span,
-      y: this.player.y - SECTOR.half + r * SECTOR.span,
-      w: SECTOR.span,
-      h: SECTOR.span,
-    };
+    const px = this.player.x, py = this.player.y;
+    const { halfW, halfH, farX, farY } = SECTOR;
+    const x = c === 0 ? px - farX : c === 1 ? px - halfW : c === 2 ? px : px + halfW;
+    const w = c === 0 || c === 3 ? farX - halfW : halfW;
+    const y = r === 0 ? py - farY : r === 1 ? py - halfH : r === 2 ? py : py + halfH;
+    const h = r === 0 || r === 3 ? farY - halfH : halfH;
+    return { x, y, w, h };
   }
 
   // ---------- 引擎事件 -> 表现 ----------
@@ -331,7 +350,6 @@ export default class BattleScene extends Phaser.Scene {
           cellId,
           { x: this.player.x, y: this.player.y },
           this.enemies,
-          SECTOR.half,
         );
         this.board.flashTrigger(cellId);
         // 设计稿 2.3 核心：从该格指向对应战场方位的高亮光迹（空区也画）
@@ -381,7 +399,7 @@ export default class BattleScene extends Phaser.Scene {
         for (const id of data.order) this.board.flashCombo(id);
         this.effects.combo(centers, COMBO_NAMES[data.defId] || data.defId);
         sfx.combo();
-        resolveComboBonus({ grid: this.grid, order: data.order, defId: data.defId, bonus: data.bonus, state: this.combatState(), enemies: this.enemies, half: SECTOR.half });
+        resolveComboBonus({ grid: this.grid, order: data.order, defId: data.defId, bonus: data.bonus, state: this.combatState(), enemies: this.enemies });
         this.collectDefeated();
         break;
       }
@@ -577,24 +595,15 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   spawnEnemy(dif) {
-    // 幸存者式：以玩家为中心、屏幕外环形生成；被世界边界 clamp 后若过近/过远则重采样
-    let x = 0, y = 0;
-    for (let attempt = 0; attempt < 7; attempt++) {
-      const angle = this.combatRng.next() * Math.PI * 2;
-      const dist = 260 + this.combatRng.next() * 60;
-      x = Math.max(28, Math.min(this.world.w - 28, this.player.x + Math.cos(angle) * dist));
-      y = Math.max(48, Math.min(this.world.h - 28, this.player.y + Math.sin(angle) * dist));
-      const d = Math.hypot(x - this.player.x, y - this.player.y);
-      if (d >= 140 && d <= 520) break;
-      if (attempt === 6) {
-        // 兜底：朝地图中心方向 280px（必在界内且离玩家足够远）
-        const cx = this.world.w / 2, cy = this.world.h / 2;
-        const dx = cx - this.player.x, dy = cy - this.player.y;
-        const len = Math.hypot(dx, dy) || 1;
-        x = Math.max(28, Math.min(this.world.w - 28, this.player.x + (dx / len) * 280 + (this.combatRng.next() - 0.5) * 120));
-        y = Math.max(48, Math.min(this.world.h - 28, this.player.y + (dy / len) * 280 + (this.combatRng.next() - 0.5) * 120));
-      }
-    }
+    // 幸存者式：以玩家为中心、屏幕外环形生成。
+    // 落点由纯逻辑 pickSpawnPoint 决定：环更宽（230..430）+ 与已有敌人保持最小间距，避免扎堆。
+    const { x, y } = pickSpawnPoint({
+      rng: () => this.combatRng.next(),
+      player: this.player,
+      world: this.world,
+      enemies: this.enemies,
+      minDist: 230, maxDist: 430, minGap: 36,
+    });
     // 按幕权重抽敌人类型；腐尸更厚更慢、蝠更快更脆，伤害取各自定义
     // 按幕权重抽敌人类型；属性 = 难度基准 × 等级成长 × 敌种倍率
     const def = pickEnemyType(this.act, this.combatRng.next());
@@ -612,6 +621,11 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   updateEnemies(dt) {
+    // 逐帧轻量分离：数量上限提高了，靠这个把挤在一起的杂兵推开，避免视觉上堆成一坨。
+    // 上限 26 时是 325 次配对；压测把数量灌到 150 时跳过，避免 O(n²) 拖累采样
+    if (this.enemies.length > 1 && this.enemies.length <= 48) {
+      separateEnemies(this.enemies, { gap: 24, player: this.player, contactDist: 30 });
+    }
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (!e.alive) {
@@ -692,7 +706,7 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   applySigil(cellId, defId, aimPoint) {
-    const result = resolveSigilTrigger({ grid: this.grid, cellId, defId, state: this.combatState(), enemies: this.enemies, half: SECTOR.half, aimPoint });
+    const result = resolveSigilTrigger({ grid: this.grid, cellId, defId, state: this.combatState(), enemies: this.enemies, aimPoint });
     if (result.sacrificeApplied) {
       const c = cellCenter(cellId);
       this.effects.text(c.x, c.y - 10, '献祭 -8盾 双倍', HEX.blood, true);
@@ -741,8 +755,12 @@ export default class BattleScene extends Phaser.Scene {
     this.editDraft = draftFromGrid(this.grid, { act: this.act });
     this.editHand = { ...this.run.hand };
     this.editUI = this.add.container(0, 0).setDepth(3500).setScrollFactor(0);
+    this.uiRoot?.add(this.editUI);
     this.editPointer = (pointer) => {
-      const hit = this.editRects?.find(r => pointer.x >= r.x && pointer.x <= r.x + r.w && pointer.y >= r.y && pointer.y <= r.y + r.h);
+      // 指针给的是游戏像素（= 逻辑坐标 × 倍率），命中区是逻辑坐标，必须先折算
+      const scale = getRenderScale();
+      const lx = pointer.x / scale, ly = pointer.y / scale;
+      const hit = this.editRects?.find(r => lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h);
       if (hit) hit.action();
     };
     this.input.on('pointerdown', this.editPointer);
@@ -754,6 +772,7 @@ export default class BattleScene extends Phaser.Scene {
   drawGridEdit() {
     if (this.editUI) { this.editUI.destroy(true); this.editUI = null; }
     const ui = this.add.container(0, 0).setDepth(3500).setScrollFactor(0);
+    this.uiRoot?.add(ui);
     this.editUI = ui;
     this.editRects = [];
     const g = this.add.graphics();
@@ -899,6 +918,7 @@ export default class BattleScene extends Phaser.Scene {
     while (picks.length < 3 && pool.length) picks.push(pool.splice(Math.floor(this.combatRng.next() * pool.length), 1)[0]);
     const names = { ...SIGIL_DEFS, ...AUX_DEFS };
     this.levelupUI = this.add.container(0, 0).setDepth(2600).setScrollFactor(0);
+    this.uiRoot?.add(this.levelupUI);
     const g = this.add.graphics();
     pxRect(g, 60, 70, 360, 130, C.ink, 0.97); pxFrame(g, 60, 70, 360, 130, C.brass, 1, 1);
     this.levelupUI.add(g);
@@ -914,8 +934,10 @@ export default class BattleScene extends Phaser.Scene {
     });
     this.levelupRects = picks.map((card, i) => ({ card, x: 78 + i * 118, y: 102, w: 108, h: 66 }));
     this.levelupHandler = (pointer) => {
+      const scale = getRenderScale();
+      const lx = pointer.x / scale, ly = pointer.y / scale;
       for (const r of this.levelupRects ?? []) {
-        if (pointer.x >= r.x && pointer.x <= r.x + r.w && pointer.y >= r.y && pointer.y <= r.y + r.h) { this.pickLevelupCard(r.card); return; }
+        if (lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h) { this.pickLevelupCard(r.card); return; }
       }
     };
     this.levelupKeys = ['ONE', 'TWO', 'THREE'].map((code, i) => {

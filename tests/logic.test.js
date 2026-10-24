@@ -244,45 +244,62 @@ describe('联组', () => {
   });
 });
 
-describe('方位索敌', () => {
-  it('区域映射覆盖 4x4 且边界正确', () => {
-    const half = 120;
-    const px = 0;
-    const py = 0;
-    expect(regionOf(-119, -119, px, py, half)).toBe(0);
-    expect(regionOf(119, 119, px, py, half)).toBe(15);
-    expect(regionOf(-121, 0, px, py, half)).toBe(null);
-    expect(regionCenter(0, px, py, half).x).toBeLessThan(px);
-    expect(regionCenter(15, px, py, half).x).toBeGreaterThan(px);
-  });
-  it('优先打本区域最近敌人，空区就近补射，无敌人时才空射', () => {
+describe('方位索敌（覆盖全图，不再只看屏幕内）', () => {
+  it('任何坐标都必落进一个区域，屏幕外的敌人也有归属', () => {
     const px = 0, py = 0;
-    const half = 120;
+    // 屏幕半宽 240、半高 135：内 2×2 是屏幕，外圈是屏幕外
+    // 屏幕左上象限（列 1、行 1）
+    expect(regionOf(-100, -100, px, py)).toBe(5);
+    expect(regionOf(100, 100, px, py)).toBe(10);
+    // 屏外：右侧 500px、屏幕下半（列 3、行 2）
+    expect(regionOf(500, 100, px, py)).toBe(11);
+    // 屏外：左上远角
+    expect(regionOf(-900, -700, px, py)).toBe(0);
+    // 屏外：右下远角
+    expect(regionOf(900, 700, px, py)).toBe(15);
+    // 旧版在这里会返回 null（敌人不在任何区域），现在必须仍在盘面内
+    for (const [x, y] of [[-121, 0], [0, -136], [240, 0], [0, 135], [-5000, 5000]]) {
+      const id = regionOf(x, y, px, py);
+      expect(id).toBeGreaterThanOrEqual(0);
+      expect(id).toBeLessThan(16);
+    }
+  });
+  it('外区参考点朝对应方向，供空区补射使用', () => {
+    const px = 0, py = 0;
+    expect(regionCenter(0, px, py).x).toBeLessThan(-240);
+    expect(regionCenter(0, px, py).y).toBeLessThan(-135);
+    expect(regionCenter(15, px, py).x).toBeGreaterThan(240);
+    expect(regionCenter(15, px, py).y).toBeGreaterThan(135);
+  });
+  it('屏幕外的敌人是本区的首要目标，不需要等本区空掉', () => {
+    const px = 0, py = 0;
     const enemies = [
-      { id: 1, alive: true, x: -100, y: -100 }, // 区域 0
-      { id: 2, alive: true, x: -110, y: -110 }, // 区域 0，更远
-      { id: 3, alive: true, x: 100, y: 100 },   // 区域 15
-      { id: 4, alive: true, x: -20, y: -20 },   // 区域 5（内圈左下）
+      { id: 1, alive: true, x: 600, y: 40 },    // 屏外右侧
+      { id: 2, alive: true, x: 120, y: 40 },    // 屏内右侧
     ];
-    expect(regionOf(-100, -100, px, py, half)).toBe(0);
-    expect(regionOf(-20, -20, px, py, half)).toBe(5);
-
-    const r0 = resolveTarget(0, { x: px, y: py }, enemies, half);
-    expect(r0.target.id).toBe(1);
-    const r15 = resolveTarget(15, { x: px, y: py }, enemies, half);
-    expect(r15.target.id).toBe(3);
-    const r5 = resolveTarget(5, { x: px, y: py }, enemies, half);
-    expect(r5.target.id).toBe(4);
-
-    // 空白区域（10 号）会就近补射离该区中心最近的敌人，并标记 assisted
-    const assisted = resolveTarget(10, { x: px, y: py }, [-100, -110].map((v, i) => ({ id: i + 1, alive: true, x: v, y: v })), half);
+    const far = resolveTarget(regionOf(600, 40, px, py), { x: px, y: py }, enemies);
+    expect(far.target.id).toBe(1);
+    expect(far.assisted).toBeUndefined();
+    const near = resolveTarget(regionOf(120, 40, px, py), { x: px, y: py }, enemies);
+    expect(near.target.id).toBe(2);
+    // 同区多个敌人取最近
+    const crowded = resolveTarget(regionOf(600, 40, px, py), { x: px, y: py }, [
+      { id: 3, alive: true, x: 400, y: 40 },
+      { id: 4, alive: true, x: 1200, y: 40 },
+    ]);
+    expect(crowded.target.id).toBe(3);
+  });
+  it('空区就近补射并标记 assisted，全空时朝区域参考点空射', () => {
+    const px = 0, py = 0;
+    const assisted = resolveTarget(10, { x: px, y: py }, [
+      { id: 1, alive: true, x: -100, y: -100 },
+    ]);
     expect(assisted.empty).toBe(false);
     expect(assisted.assisted).toBe(true);
     expect(assisted.target.id).toBe(1);
-    // 一个敌人都没有时，仍朝区域中心空射
-    const empty = resolveTarget(10, { x: px, y: py }, [], half);
+    const empty = resolveTarget(10, { x: px, y: py }, []);
     expect(empty.empty).toBe(true);
     expect(empty.target).toBeNull();
-    expect(empty.aim).toEqual(regionCenter(10, px, py, half));
+    expect(empty.aim).toEqual(regionCenter(10, px, py));
   });
 });

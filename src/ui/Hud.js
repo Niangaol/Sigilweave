@@ -9,10 +9,10 @@ export default class Hud {
     this.dyn = scene.add.graphics().setDepth(1001).setScrollFactor(0);
 
     this.hpText = addText(scene, 92, 4, '100', 9, HEX.parchment).setDepth(1002);
-    this.shardText = addText(scene, 128, 4, '碎片 0', 9, HEX.parchment).setDepth(1002);
-    this.freqText = addText(scene, 180, 3, '脉频5s 0.0/s', 9, HEX.arcaneLight).setDepth(1002);
+    this.shardText = addText(scene, 146, 4, '碎片 0', 9, HEX.parchment).setDepth(1002);
+    this.freqText = addText(scene, 208, 4, '脉频 0.0/s', 9, HEX.arcaneLight).setDepth(1002);
     this.actText = addText(scene, 300, 4, '第一幕 · 演武', 9, HEX.brassLight).setDepth(1002);
-    this.timeText = addText(scene, 474, 4, '00:00', 9, HEX.parchment).setDepth(1002).setOrigin(1, 0);
+    this.timeText = addText(scene, 468, 4, '00:00', 9, HEX.parchment).setDepth(1002).setOrigin(1, 0);
     // 成长信息单列第二行，延续黄铜刻度与青色经验。
     this.lvText = addText(scene, 8, 20, 'LV 1', 9, HEX.brassLight).setDepth(1002);
     this.expText = addText(scene, 170, 20, 'EXP 0/10', 9, HEX.teal).setDepth(1002);
@@ -78,7 +78,7 @@ export default class Hud {
     }
 
     // 碎片
-    pxShard(g, 119, 6, C.teal, 1);
+    pxShard(g, 137, 6, C.teal, 1);
 
     // 最近 5 秒频率：五根小柱，每根代表 1 秒内的触发次数
     for (let i = 0; i < 5; i++) {
@@ -100,7 +100,7 @@ export default class Hud {
     const freqStr = rate.toFixed(1) + '/s';
     if (this.cache.freq !== freqStr) {
       this.cache.freq = freqStr;
-      this.freqText.setText('脉频5s ' + freqStr);
+      this.freqText.setText('脉频 ' + freqStr);
     }
     const timeStr = fmtTime(elapsedMs);
     if (this.cache.time !== timeStr) {

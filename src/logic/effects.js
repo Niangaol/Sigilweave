@@ -99,7 +99,7 @@ export function applyDamage(enemy, amount) {
 // 结算一次符印触发，返回命中数与总伤害，供统计与表现使用。
 // 返回结构在原有 hits/damage/aim/empty/targets 之上追加献祭结算标记：
 // sacrificeSpent 为本次扣除的护盾（8 或 0），sacrificeApplied 表示本次伤害是否翻倍。
-export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, half, aimPoint }) {
+export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPoint }) {
   const def = Object.hasOwn(SIGIL_DEFS, defId) ? SIGIL_DEFS[defId] : null;
   const cell = grid.cells[cellId];
   if (!def || !cell || cell.mutedOutput) {
@@ -111,7 +111,7 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, half,
   // 落点单体命中半径：基础 28px + 罗盘命中加成
   const aimHitRadius = 28 + hitBonus;
   const selectTarget = () => {
-    if (!aimPoint) return resolveTarget(cellId, player, enemies, half);
+    if (!aimPoint) return resolveTarget(cellId, player, enemies);
     // 命中判定半径放宽：弹丸落点有轻微追踪，仍然允许侧身闪避
     const target = enemies.filter(e => e.alive && dist2(e, aimPoint) <= aimHitRadius * aimHitRadius)
       .sort((a, b) => dist2(a, aimPoint) - dist2(b, aimPoint) || a.id - b.id)[0] ?? null;
@@ -193,7 +193,7 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, half,
 }
 
 // 联组成立时的追加结算：对组内各格追加一次按比例的伤害
-export function resolveComboBonus({ grid, order, bonus, state, enemies, half, defId }) {
+export function resolveComboBonus({ grid, order, bonus, state, enemies, defId }) {
   let total = 0;
   let hits = 0;
   if (!Number.isFinite(bonus) || bonus < 0) return { hits, damage: total };
@@ -204,7 +204,7 @@ export function resolveComboBonus({ grid, order, bonus, state, enemies, half, de
     const def = SIGIL_DEFS[cell.slot.defId];
     if (!def) continue;
     const mul = damageMultiplier(grid, cellId, state);
-    const t = resolveTarget(cellId, state.player, enemies, half);
+    const t = resolveTarget(cellId, state.player, enemies);
     if (t.target) {
       total += applyDamage(t.target, def.damage * mul * bonus);
       hits++;

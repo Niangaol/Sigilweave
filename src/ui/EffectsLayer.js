@@ -114,9 +114,10 @@ export default class EffectsLayer {
     sg.clear();
     vg.clear();
     // 世界坐标 -> 屏幕坐标：光迹目标端贴住世界区域，起点罗盘固定屏幕
+    // 世界坐标 -> 逻辑屏幕坐标：用 worldView（已含 zoom）换算，不再假设 zoom=1。
     const cam = this.scene.cameras.main;
-    const sx = (wx) => wx - cam.scrollX;
-    const sy = (wy) => wy - cam.scrollY;
+    const sx = (wx) => wx - cam.worldView.x;
+    const sy = (wy) => wy - cam.worldView.y;
 
     // 联组标签单独管理
     let comboActive = null;

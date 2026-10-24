@@ -74,24 +74,61 @@ export const HEX = {
   inkDark: '#171226',
 };
 
-// 像素衬线体：西幻感的关键是衬线，不用圆体
-export const FONT = '"SimSun", "Songti SC", "STSong", "Noto Serif SC", serif';
+// 正文字体：小字号中文要清晰，优先各平台自带的黑体类字体（离线可用，不引外部字体文件）。
+// 旧版用 SimSun 衬线在 9px 下发丝笔画必糊，用户两次反馈\u201c一大半文字不清晰\u201d后更换。
+export const FONT = '"Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Source Han Sans SC", "SimHei", sans-serif';
+// 展示字体：仅用于大标题（>=24px），保留西幻衬线味；大字下衬线笔画足够粗，不会糊。
+export const FONT_DISPLAY = '"SimSun", "Songti SC", "STSong", "Noto Serif SC", serif';
 
-// Phaser 文本样式工厂：resolution 2 让中文在 2 倍画布下仍然锐利（resolution 1 会糊）
+// 渲染倍率：逻辑坐标永远是 480×270，但画布按屏幕尺寸选择整数倍率（1 逻辑像素 = RENDER_SCALE 设备像素）。
+// 旧版固定 480×270 再交给浏览器拉伸，玩家屏幕越大糊得越厉害；现在渲染分辨率跟着窗口走，文字纹理也按同一倍率生成。
+let RENDER_SCALE = 2;
+export function getRenderScale() { return RENDER_SCALE; }
+export function setRenderScale(scale) {
+  RENDER_SCALE = Math.max(1, Math.min(8, Math.round(scale) || 1));
+  return RENDER_SCALE;
+}
+export const BASE_W = 480;
+export const BASE_H = 270;
+
+// 摄像机 zoom = 倍率：可见世界区域恒为 480×270，只是每个逻辑像素占更多设备像素。
+// zoom 是以摄像机中心展开的，静态场景必须把视野对齐到逻辑画布，否则画面会跑到屏幕外。
+export function applyPixelZoom(scene) {
+  const cam = scene.cameras.main;
+  cam.setZoom(RENDER_SCALE);
+  cam.centerOn(BASE_W / 2, BASE_H / 2);
+  return cam;
+}
+
+// UI 容器补偿量：zoom 在屏幕中心放大，scrollFactor=0 的对象会整体偏移，
+// 把容器放到这个位置，逻辑坐标 p 就恒定落在屏幕 p×倍率处。
+export function uiLayerOffset(scene) {
+  const halfW = scene.scale.width / 2;
+  const halfH = scene.scale.height / 2;
+  return { x: halfW - halfW / RENDER_SCALE, y: halfH - halfH / RENDER_SCALE };
+}
+
+// Phaser 文本样式工厂：resolution 2 让中文在 2 倍画布下仍然锐利（resolution 1 会糊）。
+// 默认加一圈深色描边：小字落在动态地图/光效上时靠描边保证对比度，可用 noStroke 关闭。
 export function textStyle(size = 9, color = HEX.parchment, extra = {}) {
-  return {
-    fontFamily: FONT,
+  const style = {
+    fontFamily: extra.fontFamily ?? FONT,
     fontSize: size + 'px',
     color,
-    resolution: 2,
+    // 纹理分辨率跟渲染倍率一致，否则大屏放大后文字又变回模糊的位图
+    resolution: RENDER_SCALE,
     padding: { x: 0, y: 1 },
-    ...extra,
   };
+  if (!extra.noStroke) {
+    style.stroke = extra.stroke ?? HEX.inkDark;
+    style.strokeThickness = extra.strokeThickness ?? (size >= 24 ? 3 : size >= 12 ? 2 : 1.2);
+  }
+  return { ...style, ...extra };
 }
 
 export function addText(scene, x, y, str, size = 9, color = HEX.parchment, extra = {}) {
   const t = scene.add.text(Math.round(x), Math.round(y), str, textStyle(size, color, extra));
-  t.setResolution(2);
+  t.setResolution(RENDER_SCALE);
   return t;
 }
 

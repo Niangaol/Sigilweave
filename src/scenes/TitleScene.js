@@ -1,6 +1,6 @@
 // 标题页：像素祭坛、旋转符环、操作说明；Enter/空格/点击开始
 import Phaser from 'phaser';
-import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, applyPixelZoom, FONT_DISPLAY } from '../ui/Palette.js';
 
 export default class TitleScene extends Phaser.Scene {
   constructor() {
@@ -8,6 +8,7 @@ export default class TitleScene extends Phaser.Scene {
   }
 
   create() {
+    applyPixelZoom(this);
     // 调试直达：?scene=battle / ?scene=gameover
     const params = new URLSearchParams(window.location.search);
     const jump = params.get('scene');
@@ -36,6 +37,7 @@ export default class TitleScene extends Phaser.Scene {
 
     // 标题：像素衬线体 + 硬阴影
     addText(this, 240, 30, '共振法阵', 34, HEX.parchment, {
+      fontFamily: FONT_DISPLAY,
       stroke: '#0d0a17',
       strokeThickness: 3,
       letterSpacing: 5,

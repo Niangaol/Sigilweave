@@ -1,6 +1,6 @@
 // 开局法术套装选择：三张像素卡并排，按键 1/2/3 或点击卡片选择，Enter/按钮进入战斗。
 import Phaser from 'phaser';
-import { C, HEX, addText, pxRect, pxFrame, pxDiamond } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxDiamond, applyPixelZoom } from '../ui/Palette.js';
 import { STARTING_KITS, createRun } from '../logic/run.js';
 import { SIGIL_DEFS } from '../logic/effects.js';
 import { sectorLabel } from '../data/roster.js';
@@ -14,6 +14,7 @@ export default class LoadoutScene extends Phaser.Scene {
   }
 
   create() {
+    applyPixelZoom(this);
     // 种子从 URL ?seed= 取；没有就随机一局，进入战斗后整套 run 共用这个种子。
     const params = new URLSearchParams(window.location.search);
     this.seed = params.get('seed') || ('sigil-' + Math.random().toString(36).slice(2, 10));
@@ -38,9 +39,8 @@ export default class LoadoutScene extends Phaser.Scene {
   }
 
   text(x, y, value, size = 8, color = HEX.parchment, extra = {}) {
+    // 分辨率统一由 addText 按当前渲染倍率决定，这里不再单独改写
     const t = addText(this, x, y, value, size, color, extra);
-    // 480×270 画布下 2 倍文本纹理会被半尺寸采样出锯齿；若以后画布放大则沿用全局分辨率。
-    if (this.sys.game.canvas.width <= 480) t.setResolution(1);
     this.view.add(t);
     return t;
   }

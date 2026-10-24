@@ -1,6 +1,6 @@
 // 死亡结算：羊皮纸面板 + 本局数据 + R/Enter 重开，Esc 回标题
 import Phaser from 'phaser';
-import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, fmtTime } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, fmtTime, applyPixelZoom, FONT_DISPLAY } from '../ui/Palette.js';
 
 const SAMPLE = {
   elapsedMs: 0, act: 1, kills: 0, shards: 0, triggers: 0, combos: 0,
@@ -18,6 +18,7 @@ export default class GameOverScene extends Phaser.Scene {
   }
 
   create() {
+    applyPixelZoom(this);
     this.cameras.main.fadeIn(240, 0, 0, 0);
     this.drawBackdrop();
     this.drawPanel();
@@ -101,9 +102,11 @@ export default class GameOverScene extends Phaser.Scene {
     pxLine(g, 88, 190, 392, 190, C.brassDark, 0.35, 1);
 
     addText(this, 240, 48, this.data.victory ? '契约终结' : (this.data.trainingComplete ? '演武完成' : '魂火熄灭'), 22, HEX.inkDark, {
+      noStroke: true,
       stroke: '#f0d9a8', strokeThickness: 1, letterSpacing: 4,
     }).setOrigin(0.5, 0).setDepth(3);
     addText(this, 240, 80, this.data.victory ? '三位契约主已消灭 · 通关' : (this.data.trainingComplete ? '构筑演武结束' : ('第 ' + this.data.act + ' 幕 · 挑战中断')), 8, HEX.ink, {
+      noStroke: true,
       letterSpacing: 1,
     }).setOrigin(0.5, 0).setDepth(3);
   }
@@ -118,19 +121,21 @@ export default class GameOverScene extends Phaser.Scene {
     ];
     rows.forEach((row, i) => {
       const y = 112 + i * 19;
-      addText(this, 92, y, row[0], 9, HEX.ink).setDepth(3);
-      addText(this, 222, y, row[1], 10, HEX.inkDark).setOrigin(1, 0).setDepth(3);
-      addText(this, 248, y, row[2], 9, HEX.ink).setDepth(3);
-      addText(this, 392, y, row[3], 10, HEX.inkDark).setOrigin(1, 0).setDepth(3);
+      addText(this, 92, y, row[0], 9, HEX.ink, { noStroke: true }).setDepth(3);
+      addText(this, 222, y, row[1], 10, HEX.inkDark, { noStroke: true }).setOrigin(1, 0).setDepth(3);
+      addText(this, 248, y, row[2], 9, HEX.ink, { noStroke: true }).setDepth(3);
+      addText(this, 392, y, row[3], 10, HEX.inkDark, { noStroke: true }).setOrigin(1, 0).setDepth(3);
     });
-    addText(this, 240, 192, this.data.victory ? ('破局 ' + Object.values(this.data.bossResolutions ?? {}).filter(r => r.method === 'quiz').length + ' 次 ／ 战斗击败 ' + Object.values(this.data.bossResolutions ?? {}).filter(r => r.method === 'combat').length + ' 次') : '法阵的刻线还温着——下一局，把缺的那一角补上。', 8, HEX.ink)
-      .setOrigin(0.5, 0).setDepth(3).setAlpha(0.85);
+    // 羊皮纸属浅底：深色字再加深色描边会糊成一团，这里关掉描边
+    addText(this, 240, 194, this.data.victory ? ('破局 ' + Object.values(this.data.bossResolutions ?? {}).filter(r => r.method === 'quiz').length + ' 次 ／ 战斗击败 ' + Object.values(this.data.bossResolutions ?? {}).filter(r => r.method === 'combat').length + ' 次') : '法阵的刻线还温着——下一局，把缺的那一角补上。', 8, HEX.ink, { noStroke: true })
+      .setOrigin(0.5, 0).setDepth(3);
   }
 
   writePrompts() {
-    this.prompt = addText(this, 240, 212, 'Enter / R　再战　　·　　Esc　返回标题', 9, HEX.inkDark)
+    this.prompt = addText(this, 240, 210, 'Enter / R　再战　　·　　Esc　返回标题', 9, HEX.inkDark, { noStroke: true })
       .setOrigin(0.5, 0).setDepth(3);
-    addText(this, 240, 230, '共 振 法 阵 · 契 约 破 局', 7, HEX.brassDark, {
+    // 品牌行放到面板外的深色底上，避免和再战提示挤在面板底缘
+    addText(this, 240, 244, '共 振 法 阵 · 契 约 破 局', 7, HEX.brass, {
       letterSpacing: 1,
     }).setOrigin(0.5, 0).setDepth(3);
   }

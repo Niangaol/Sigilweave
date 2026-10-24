@@ -1,6 +1,6 @@
 // 幕间工作台独立于战斗：只编辑草稿，出发时一次提交；右下罗盘布局仅用于战斗。
 import Phaser from 'phaser';
-import { C, HEX, addText, pxRect, pxFrame } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, applyPixelZoom } from '../ui/Palette.js';
 import { createGrid } from '../logic/grid.js';
 import { applyDraft, draftFromGrid, unlockToTarget, AUX_TARGETED } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS } from '../logic/effects.js';
@@ -25,6 +25,7 @@ export default class IntermissionScene extends Phaser.Scene {
   constructor() { super('IntermissionScene'); }
   init(data) { this.run = data.run; this.report = data.report ?? {}; }
   create() {
+    applyPixelZoom(this);
     const preview = createGrid();
     const result = applyDraft(preview, this.run.draft, { phase: 'intermission' });
     if (!result.ok) throw new Error('幕间收到无效构筑');

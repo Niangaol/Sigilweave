@@ -1,7 +1,7 @@
 // 共振法阵 · P1 内容表
 // 只放表现层需要的数据：符印名称/像素图案/伤害、魔物、第一幕解锁形状、难度曲线。
 // 冷却、间隔、传导、联组规则全部在 src/logic/* 内，禁止在这里重复实现。
-import { SECTOR_HALF_SIZE } from '../logic/constants.js';
+import { SECTOR_SCREEN_HALF_W, SECTOR_SCREEN_HALF_H, SECTOR_FAR_X, SECTOR_FAR_Y } from '../logic/constants.js';
 import { SIGIL_DEFS, AUX_DEFS } from './cards.js';
 
 // ---------- 玩家 ----------
@@ -261,8 +261,9 @@ export const DIFFICULTY = {
   speedEnd: 40,
   spawnMsStart: 2400,
   spawnMsEnd: 1550,
-  maxAliveStart: 7,
-  maxAliveEnd: 22,
+  // 同屏上限小幅提高（7→9 / 22→26），拥挤感靠落点间距与分离控制，不靠压低数量
+  maxAliveStart: 9,
+  maxAliveEnd: 26,
   damageStart: 8,
   damageEnd: 12,
 };
@@ -296,9 +297,12 @@ export const COMBO_NAMES = {
   ring4: '环封四格',
 };
 
+// 方位条带参数：内 2×2 是屏幕范围，外 12 条延伸到整张地图。
 export const SECTOR = {
-  half: SECTOR_HALF_SIZE,
-  span: (SECTOR_HALF_SIZE * 2) / 4,
+  halfW: SECTOR_SCREEN_HALF_W,
+  halfH: SECTOR_SCREEN_HALF_H,
+  farX: SECTOR_FAR_X,
+  farY: SECTOR_FAR_Y,
 };
 
 // 描绘与数值分离：名称来自唯一卡牌表；空位不能假装是奥术飞弹。
