@@ -3,6 +3,7 @@
 import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxPolyLine, pxDiamond, pxRing } from './Palette.js';
 import { toRC } from '../logic/grid.js';
 import { cardVisual, sectorLabel } from '../data/roster.js';
+import { decoratePlan } from './board-decor.js';
 
 // 用户修订：地图为主画面，法术罗盘固定右下角，保留紧凑斜置盘面。
 export const BOARD = {
@@ -140,6 +141,8 @@ export default class SigilBoard {
         // 黄铜角钉
         pxRect(g, Math.round(x0 + BOARD.shear + 2), y0 + 2, 1, 1, C.brassLight, 0.9);
         pxRect(g, Math.round(x0 + BOARD.cellW - 3), y0 + BOARD.cellH - 3, 1, 1, C.brass, 0.7);
+        // 区位装饰：角落护角 / 边上围栏 / 中心符文
+        this.paintDecor(g, id, quad, 1);
 
         // 符印图案：8×8 像素，刻在格子中央
         const sigil = cardVisual(cell.slot);
@@ -177,11 +180,27 @@ export default class SigilBoard {
         pxRect(g, cx - 3, cy, 7, 1, C.stoneDark, 0.9);
         pxRect(g, cx, cy - 3, 1, 7, C.stoneDark, 0.9);
         pxDiamond(g, cx, cy, 3, C.stoneDark, 0.75, false);
+        // 封印格也标出区位，只是压暗，让玩家解封前就能看懂盘面结构
+        this.paintDecor(g, id, quad, 0.5);
       }
     }
 
     // 台面外缘的黄铜蚀刻
     pxPolyLine(g, hull, C.brassDark, 0.85, 1, true);
+  }
+
+  // 按区位画装饰：只描述计划，颜色/透明度都在 board-decor 里定好
+  paintDecor(g, id, quad, dim = 1) {
+    const plan = decoratePlan(id, quad, { inset: 1, arm: 3 });
+    if (!plan) return;
+    if (plan.wash) pxPoly(g, plan.wash.quad, C[plan.wash.color], plan.wash.alpha * dim);
+    for (const line of plan.lines) {
+      pxLine(g, line.a.x, line.a.y, line.b.x, line.b.y, C[line.color], line.alpha * dim, line.width ?? 1);
+    }
+    for (const dot of plan.dots) {
+      const s = dot.size ?? 1;
+      pxRect(g, Math.round(dot.x), Math.round(dot.y), s, s, C[dot.color], dot.alpha * dim);
+    }
   }
 
   flash(cellId, kind, dur) {

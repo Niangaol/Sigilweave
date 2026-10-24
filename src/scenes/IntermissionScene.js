@@ -1,6 +1,7 @@
 // 幕间工作台独立于战斗：只编辑草稿，出发时一次提交；右下罗盘布局仅用于战斗。
 import Phaser from 'phaser';
-import { C, HEX, addText, pxRect, pxFrame, applyPixelZoom } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, applyPixelZoom } from '../ui/Palette.js';
+import { decoratePlan } from '../ui/board-decor.js';
 import { createGrid } from '../logic/grid.js';
 import { applyDraft, draftFromGrid, unlockToTarget, AUX_TARGETED } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS } from '../logic/effects.js';
@@ -161,6 +162,18 @@ export default class IntermissionScene extends Phaser.Scene {
       const selected = id === this.focusCell || id === this.auxPending;
       pxRect(g, x, y, 51, 26, unlocked ? C.stone : C.night);
       pxFrame(g, x, y, 51, 26, selected ? C.arcane : C.stoneLight);
+      // 角落 / 边上 / 中心三种区位装饰，与战斗罗盘同一份规则，只是刻度更大
+      // inset 1 / centerInset 1：装饰线全部压在格内边，避开 8px 名称行与 7px 明细行
+      const plan = decoratePlan(id, [{ x, y }, { x: x + 51, y }, { x: x + 51, y: y + 26 }, { x, y: y + 26 }], { inset: 1, arm: 8, centerInset: 1 });
+      if (plan) {
+        const dim = unlocked ? 1 : 0.7;
+        if (plan.wash) pxPoly(g, plan.wash.quad, C[plan.wash.color], plan.wash.alpha * dim);
+        for (const line of plan.lines) pxLine(g, line.a.x, line.a.y, line.b.x, line.b.y, C[line.color], line.alpha * dim, line.width ?? 1);
+        for (const dot of plan.dots) {
+          const size = dot.size ?? 1;
+          pxRect(g, Math.round(dot.x), Math.round(dot.y), size, size, C[dot.color], dot.alpha * dim);
+        }
+      }
       this.text(x + 2, y + 2, unlocked ? (slot ? names[slot.defId]?.name : '空符位') : '封印', 8, slot?.kind === 'auxiliary' ? HEX.teal : HEX.parchment);
       const runeCount = (w.draft.runes[id] ?? []).filter(Boolean).length;
       const target = w.draft.auxTargets[id];
