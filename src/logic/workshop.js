@@ -4,10 +4,12 @@ import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS } from './effects.js';
 import { CELL_COUNT } from './constants.js';
 import { Rng } from './rng.js';
 
-// 完整首版卡池：8 符印 + 6 辅助。符印在前，保证首轮三选一必出输出。
+// 完整卡池：16 符印 + 6 辅助。符印在前，保证首轮三选一必出输出。
 export const CARD_POOL = Object.freeze([
   ...['arcane_bolt', 'frost_arrow', 'flame_burst', 'holy_ward',
-    'mana_siphon', 'judgment_hammer', 'thorn_vine', 'starfall']
+    'mana_siphon', 'judgment_hammer', 'thorn_vine', 'starfall',
+    'chain_lightning', 'pierce_lance', 'echo_sigil', 'ember_fan',
+    'quake_maw', 'soul_lance', 'aegis_ring', 'meteor_judgment']
     .map(defId => Object.freeze({ kind: 'sigil', defId })),
   ...['resonance_stone', 'slow_field', 'shard_resonance', 'sacrifice',
     'hourglass', 'wide_runes']

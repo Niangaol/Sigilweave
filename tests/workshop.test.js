@@ -61,7 +61,8 @@ describe('幕间三轮奖励', () => {
   });
   it('多个种子覆盖后续辅助池，互不影响', () => {
     const seen = new Set();
-    for (let i = 0; i < 30; i++) {
+    // 卡池扩到 22 张后，30 个种子已不足以覆盖全部；放宽到 80 个种子，断言不变
+    for (let i = 0; i < 80; i++) {
       const s = make({ seed: i });
       chooseReward(s, s.offer.id, 0);
       for (const card of s.offer.cards) seen.add(cardKey(card));

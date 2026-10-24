@@ -31,16 +31,20 @@ try {
 
   // 点手牌选中（星陨卡在手牌列表第一行 398,52+10）
   await click(434, 62);
+  // 点击是异步投递的：等状态真的变了再断言，避免机器繁忙时读到旧值
+  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editSelected === 'sigil:starfall', null, { timeout: 5000 });
   const sel = await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.editSelected);
   assert.equal(sel, 'sigil:starfall', '手牌卡应被选中');
   // 点 7 号空格（画布 40+3*92=316..400, 34+46=80..118 → 中心 358,99）
   await click(358, 99);
+  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editDraft?.slots?.[7]?.defId === 'starfall', null, { timeout: 5000 });
   const placed = await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.editDraft.slots?.[7]);
   assert.equal(placed.defId, 'starfall', '星陨应放入7号');
   await page.screenshot({ path: 'docs/p6-暂停编辑放置.png' });
   // 完成
   await click(434, 243);
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editOpen === false, null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.grid.cells[7].slot?.defId === 'starfall', null, { timeout: 5000 });
   const applied = await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.grid.cells[7].slot);
   assert.equal(applied.defId, 'starfall', '法阵7号应实时变为星陨');
 
@@ -66,13 +70,18 @@ try {
   assert.equal(after2.handArcane, 1, '奥术飞弹应回手牌');
   assert.equal(after2.slot7.defId, 'starfall', '7号星陨仍在法阵');
   assert.deepEqual({ now: after2.now, cooldowns: after2.cooldowns }, before, '收回也不能洗掉格冷却');
+  // 退出编辑再关菜单：每步都等状态落地，否则连按两次 Esc 会把菜单又打开
   await page.keyboard.press('KeyE');
-  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editOpen);
+  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editOpen === true, null, { timeout: 5000 });
   await page.keyboard.press('Escape');
-  assert.equal(await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.editOpen), false);
+  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editOpen === false, null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.menuOpen === true, null, { timeout: 5000 });
   assert.equal(await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.paused), true, '退出编辑仍保持菜单暂停');
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => !window.__SIGILWEAVE_BATTLE__?.paused);
+  await page.waitForFunction(
+    () => window.__SIGILWEAVE_BATTLE__?.menuOpen === false && window.__SIGILWEAVE_BATTLE__?.paused === false,
+    null, { timeout: 8000 },
+  );
   assert.equal(errors.length, 0, errors.join('; '));
   console.log(JSON.stringify({ applied, after2, errors }));
 } finally { await browser.close(); }

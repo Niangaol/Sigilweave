@@ -150,6 +150,11 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
     for (const e of pool) {
       total += applyDamage(e, base * sac.mult);
       targets.push(e);
+      // 扇形类也可以带减速（余烬扇），与单体分支保持同一套减速语义
+      if (def.slow) {
+        e.slowUntil = state.now + def.slowMs;
+        e.slowFactor = 1 - def.slow;
+      }
     }
     return { hits: targets.length, damage: total, aim: t.aim, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
   }
@@ -172,6 +177,82 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
       targets.push(e);
     }
     return { hits: targets.length, damage: total, aim: { x: player.x, y: player.y }, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
+  }
+
+  // chain：命中后向附近最近的敌人跳跃，逐跳衰减；同一目标不重复命中。
+  if (def.kind === "chain") {
+    const t = selectTarget();
+    const jumpR = Number.isFinite(def.jumpRadius) ? Math.max(0, def.jumpRadius) : 88;
+    const jumpR2 = jumpR * jumpR;
+    const maxHits = 1 + (Number.isFinite(def.jumps) ? Math.max(0, Math.floor(def.jumps)) : 2);
+    const decay = Number.isFinite(def.decay) ? Math.max(0, def.decay) : 0.7;
+    const chain = [];
+    const used = new Set();
+    let cur = t.target;
+    while (cur && chain.length < maxHits) {
+      chain.push(cur);
+      used.add(cur.id);
+      let next = null;
+      let nd = Infinity;
+      for (const e of enemies) {
+        if (!e.alive || used.has(e.id)) continue;
+        const d = dist2(e, cur);
+        if (d > jumpR2) continue;
+        if (d < nd || (d === nd && next && e.id < next.id)) { nd = d; next = e; }
+      }
+      cur = next;
+    }
+    const sac = spendSacrifice(grid, cellId, state, chain);
+    chain.forEach((e, i) => {
+      total += applyDamage(e, base * sac.mult * Math.pow(decay, i));
+      targets.push(e);
+    });
+    return { hits: targets.length, damage: total, aim: t.aim, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
+  }
+
+  // pierce：沿「玩家 -> 落点」这条直线贯穿，命中走廊内的全部敌人，按距离由近到远。
+  if (def.kind === "pierce") {
+    const t = selectTarget();
+    const dx = t.aim.x - player.x;
+    const dy = t.aim.y - player.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const reach = Number.isFinite(def.length) ? Math.max(0, def.length) : 420;
+    const halfW = (Number.isFinite(def.width) ? Math.max(0, def.width) : 28) / 2 + hitBonus / 2;
+    const hitList = enemies.filter((e) => {
+      if (!e.alive) return false;
+      const px = e.x - player.x;
+      const py = e.y - player.y;
+      const along = px * ux + py * uy;
+      if (along < 0 || along > reach) return false;
+      return Math.abs(px * uy - py * ux) <= halfW;
+    }).sort((a, b) => dist2(a, player) - dist2(b, player) || a.id - b.id);
+    const sac = spendSacrifice(grid, cellId, state, hitList);
+    for (const e of hitList) {
+      total += applyDamage(e, base * sac.mult);
+      targets.push(e);
+    }
+    return { hits: targets.length, damage: total, aim: t.aim, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
+  }
+
+  // echo：本格扇区与对侧扇区（15-id）各打最近的一个，同一敌人只结算一次。
+  if (def.kind === "echo") {
+    const own = resolveTarget(cellId, player, enemies);
+    const mirror = resolveTarget(15 - cellId, player, enemies, { assist: false });
+    const hitList = [];
+    for (const cand of [own.target, mirror.target]) {
+      if (!cand || !cand.alive) continue;
+      if (hitList.some((e) => e.id === cand.id)) continue;
+      hitList.push(cand);
+    }
+    const sac = spendSacrifice(grid, cellId, state, hitList);
+    for (const e of hitList) {
+      total += applyDamage(e, base * sac.mult);
+      targets.push(e);
+    }
+    const aim = own.target ? { x: own.target.x, y: own.target.y } : own.aim;
+    return { hits: targets.length, damage: total, aim, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
   }
 
   // area：以区域目标点为中心的范围伤害；星陨按目标到落点的距离分内圈/外圈。

@@ -6,7 +6,8 @@ import { applyDraft, emptyDraft, unlockToTarget } from '../src/logic/build.js';
 
 const combos = buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4']);
 const ROUNDS = Number(process.env.FUZZ_ROUNDS ?? 300);
-const SIGILS = ['arcane_bolt', 'frost_arrow', 'flame_burst', 'holy_ward', 'mana_siphon', 'judgment_hammer', 'thorn_vine', 'starfall'];
+const SIGILS = ['arcane_bolt', 'frost_arrow', 'flame_burst', 'holy_ward', 'mana_siphon', 'judgment_hammer', 'thorn_vine', 'starfall',
+  'chain_lightning', 'pierce_lance', 'echo_sigil', 'ember_fan', 'quake_maw', 'soul_lance', 'aegis_ring', 'meteor_judgment'];
 const AUX = ['resonance_stone', 'slow_field', 'shard_resonance', 'sacrifice', 'hourglass', 'wide_runes'];
 const RUNES = ['forge', 'relay', 'sever', 'silence'];
 const OATHS = [null, 'lone_star', 'watcher', 'martyr'];
