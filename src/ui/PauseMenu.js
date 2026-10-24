@@ -1,9 +1,28 @@
-// 暂停菜单：Esc 打开，失焦自动打开；纯键盘操作
-import { C, HEX, addText, pxRect, pxFrame, pxDiamond } from './Palette.js';
+// 暂停菜单：Esc 打开，失焦自动打开；每一项都可鼠标点击（键盘快捷键保留为等效操作）。
+import { C, HEX, addText, pxRect, pxFrame, pxDiamond, getRenderScale } from './Palette.js';
+
+// 每一行菜单项：显示用的键位提示 + 对应的动作，命中区由 y 与固定宽高推出。
+const ROW_W = 220;
+const ROW_H = 16;
+
+// 纯函数：指针落在哪一行。抽出来是为了能在 Node 里单测，不必构造 Phaser 场景。
+export function hitRowAt(rowDefs, x, y) {
+  if (!Array.isArray(rowDefs)) return -1;
+  for (let i = 0; i < rowDefs.length; i++) {
+    const r = rowDefs[i];
+    if (x >= r.x && x <= r.x + r.w && Math.abs(y - r.y) <= r.h / 2) return i;
+  }
+  return -1;
+}
 
 export default class PauseMenu {
-  constructor(scene) {
+  constructor(scene, actions = {}) {
     this.scene = scene;
+    this.actions = actions;
+    this.rows = [];
+    this.hover = -1;
+    this.pointerMove = null;
+    this.pointerDown = null;
     this.visible = false;
     this.mode = 'menu';
     this.g = scene.add.graphics().setDepth(2000).setVisible(false).setScrollFactor(0);
@@ -12,19 +31,55 @@ export default class PauseMenu {
     }).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false).setScrollFactor(0);
     this.note = addText(scene, 240, 88, '战场与脉流已冻结', 8, HEX.mute)
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false).setScrollFactor(0);
-    this.lines = [
-      addText(scene, 240, 108, 'Esc　　继续战斗', 9, HEX.parchment).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
-      addText(scene, 240, 124, 'R　　　重开本局', 9, HEX.parchment).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
-      addText(scene, 240, 140, 'T　　　返回标题', 9, HEX.parchment).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
-      addText(scene, 240, 156, 'E　　　编辑法阵', 9, HEX.teal).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
+    // 四个菜单项：点一下即可，键位提示保留（键盘是等效操作，不再是唯一入口）
+    const rows = [
+      { y: 108, action: 'resume', label: 'Esc　　继续战斗', color: HEX.parchment },
+      { y: 124, action: 'restart', label: 'R　　　重开本局', color: HEX.parchment },
+      { y: 140, action: 'title', label: 'T　　　返回标题', color: HEX.parchment },
+      { y: 156, action: 'edit', label: 'E　　　编辑法阵', color: HEX.teal },
     ];
-    this.footer = addText(scene, 240, 250, '按住空格可随时观察法阵细目', 7, HEX.brass)
+    this.rowDefs = rows.map((r) => ({ ...r, x: 240 - ROW_W / 2, w: ROW_W, h: ROW_H }));
+    this.lines = rows.map((r) => addText(scene, 240, r.y, r.label, 9, r.color)
+      .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false));
+    this.footer = addText(scene, 240, 250, '点击选项，或按对应按键 · 按住空格观察法阵细目', 7, HEX.brass)
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
     // 实时诊断：联组次数、断链原因分布、冷却受阻次数
     this.diag = addText(scene, 240, 190, '', 7, HEX.mute, { wordWrap: { width: 230 } })
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
     for (const item of [...this.lines, this.footer, this.diag]) item.setScrollFactor(0);
     this.draw();
+  }
+
+  // 命中：指针换回逻辑坐标后与行矩形比较；-1 表示没点在菜单项上
+  hitRow(x, y) {
+    return hitRowAt(this.rowDefs, x, y);
+  }
+
+  installInput() {
+    if (this.pointerDown) return;
+    const logical = (pointer) => ({ x: pointer.x / getRenderScale(), y: pointer.y / getRenderScale() });
+    this.pointerMove = (pointer) => {
+      const { x, y } = logical(pointer);
+      const idx = this.hitRow(x, y);
+      if (idx !== this.hover) { this.hover = idx; this.draw(); }
+    };
+    this.pointerDown = (pointer) => {
+      const { x, y } = logical(pointer);
+      const idx = this.hitRow(x, y);
+      if (idx < 0) return;
+      const action = this.actions[this.rowDefs[idx].action];
+      if (typeof action === 'function') action();
+    };
+    this.scene.input.on('pointermove', this.pointerMove);
+    this.scene.input.on('pointerdown', this.pointerDown);
+  }
+
+  removeInput() {
+    if (this.pointerMove) this.scene.input.off('pointermove', this.pointerMove);
+    if (this.pointerDown) this.scene.input.off('pointerdown', this.pointerDown);
+    this.pointerMove = null;
+    this.pointerDown = null;
+    this.hover = -1;
   }
 
   draw() {
@@ -44,6 +99,12 @@ export default class PauseMenu {
     }
     pxDiamond(g, 240, 54, 3, C.brass, 0.8, false);
     pxDiamond(g, 240, 260, 2, C.brass, 0.6, false);
+    // 悬停高亮：鼠标移到哪一项，哪一项亮起来，明确“这里能点”
+    if (this.visible && this.hover >= 0 && this.rowDefs[this.hover]) {
+      const r = this.rowDefs[this.hover];
+      pxRect(g, r.x, r.y - r.h / 2, r.w, r.h, C.stone, 0.55);
+      pxFrame(g, r.x, r.y - r.h / 2, r.w, r.h, C.brass, 1, 1);
+    }
   }
 
   show(mode = 'menu', info = null) {
@@ -70,9 +131,12 @@ export default class PauseMenu {
       this.diag.setVisible(false);
     }
     for (const line of this.lines) line.setVisible(true);
+    this.installInput();
+    this.draw();
   }
 
   hide() {
+    this.removeInput();
     this.visible = false;
     this.g.setVisible(false);
     this.title.setVisible(false);

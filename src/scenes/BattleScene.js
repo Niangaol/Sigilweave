@@ -102,7 +102,13 @@ export default class BattleScene extends Phaser.Scene {
     this.background = new Background(this, this.act, this.world);
     this.effects = new EffectsLayer(this);
     this.hud = new Hud(this);
-    this.pauseMenu = new PauseMenu(this);
+    // 暂停菜单的每一项都挂真实动作，鼠标点击与键盘快捷键走同一条路径
+    this.pauseMenu = new PauseMenu(this, {
+      resume: () => this.closePause(),
+      restart: () => { if (this.menuOpen || this.editOpen) this.scene.restart(); },
+      title: () => { if (this.menuOpen) this.scene.start('TitleScene'); },
+      edit: () => { if (this.menuOpen && !this.editOpen) this.openGridEdit(); },
+    });
     this.hostileG = this.add.graphics().setDepth(450);
     this.encounterPanel = new EncounterPanel(this, id => this.selectEncounterAnswer(id), () => this.confirmEncounterAnswer(), () => this.continueEncounter());
     // 面板交互：场景级命中测试（画布坐标，不受镜头滚动影响）
