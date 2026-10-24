@@ -1,4 +1,4 @@
-// 三幕完整回归：6/12/16格、1/1/2脉流、沿途NPC问答、每幕Boss前置问答（答对直接消灭）、两次幕间构筑、最终胜利。
+// 三幕完整回归：6/12/16格、2/3/3脉流、沿途NPC问答、每幕Boss前置问答（答对直接消灭）、两次幕间构筑、最终胜利。
 import { chromium, firefox } from 'playwright';
 import assert from 'node:assert/strict';
 const browser = process.env.BROWSER === 'firefox'
@@ -41,6 +41,7 @@ try {
   await page.waitForFunction(n => window.__SIGILWEAVE_BATTLE__?.act === n, act);
   observations.push(await page.evaluate(() => {
    const s = window.__SIGILWEAVE_BATTLE__;
+   if (s.background.world.w !== s.world.w || s.background.world.h !== s.world.h) throw new Error('跨幕背景尺寸不匹配');
    return { act: s.act, count: s.grid.unlockedIds().length, signals: s.engine.signals.size };
   }));
   const npcId = await answerEncounter('npc');

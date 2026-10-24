@@ -16,12 +16,14 @@ export default class PauseMenu {
       addText(scene, 240, 108, 'Esc　　继续战斗', 9, HEX.parchment).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
       addText(scene, 240, 124, 'R　　　重开本局', 9, HEX.parchment).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
       addText(scene, 240, 140, 'T　　　返回标题', 9, HEX.parchment).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
+      addText(scene, 240, 156, 'E　　　编辑法阵', 9, HEX.teal).setOrigin(0.5, 0.5).setDepth(2001).setVisible(false),
     ];
-    this.footer = addText(scene, 240, 168, '按住空格可随时观察法阵细目', 7, HEX.brass)
+    this.footer = addText(scene, 240, 250, '按住空格可随时观察法阵细目', 7, HEX.brass)
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
     // 实时诊断：联组次数、断链原因分布、冷却受阻次数
-    this.diag = addText(scene, 240, 154, '', 7, HEX.mute)
+    this.diag = addText(scene, 240, 190, '', 7, HEX.mute, { wordWrap: { width: 230 } })
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
+    for (const item of [...this.lines, this.footer, this.diag]) item.setScrollFactor(0);
     this.draw();
   }
 
@@ -31,17 +33,17 @@ export default class PauseMenu {
     // 全屏压暗：纯色半透明，不是毛玻璃
     pxRect(g, 0, 0, 480, 270, C.void, 0.55);
     // 石质面板
-    pxRect(g, 112, 44, 256, 136, C.ink, 0.98);
-    pxFrame(g, 112, 44, 256, 136, C.brassDark, 2, 1);
-    pxFrame(g, 116, 48, 248, 128, C.brass, 0.5, 1);
+    pxRect(g, 112, 44, 256, 226, C.ink, 0.98);
+    pxFrame(g, 112, 44, 256, 226, C.brassDark, 2, 1);
+    pxFrame(g, 116, 48, 248, 218, C.brass, 0.5, 1);
     pxRect(g, 120, 80, 240, 1, C.brassDark, 0.8);
-    pxRect(g, 120, 152, 240, 1, C.brassDark, 0.5);
-    for (const [x, y] of [[112, 44], [364, 44], [112, 176], [364, 176]]) {
+    pxRect(g, 120, 236, 240, 1, C.brassDark, 0.5);
+    for (const [x, y] of [[112, 44], [364, 44], [112, 266], [364, 266]]) {
       pxRect(g, x, y, 3, 3, C.brass, 0.9);
       pxRect(g, x + 1, y + 1, 1, 1, C.brassLight, 1);
     }
     pxDiamond(g, 240, 54, 3, C.brass, 0.8, false);
-    pxDiamond(g, 240, 170, 2, C.brass, 0.6, false);
+    pxDiamond(g, 240, 260, 2, C.brass, 0.6, false);
   }
 
   show(mode = 'menu', info = null) {

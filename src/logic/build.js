@@ -134,6 +134,13 @@ export function applyDraft(grid, draft, opts = {}) {
     cell.seversPropagation = cell.runes.includes('sever');
   }
   rebuildDerived(staged, ACTS[draft.act - 1].baseIntervalMs);
+  // 保留原格冷却（暂停改阵不允许靠重置冷却白嫖）
+  if (opts.preserveFrom) {
+    for (const cell of staged.cells) {
+      const prev = opts.preserveFrom.cells?.[cell.id];
+      if (prev) cell.cooldownUntil = prev.cooldownUntil ?? 0;
+    }
+  }
   const snapshot = snapshotBuild(staged);
   grid.cells.splice(0, grid.cells.length, ...staged.cells);
   grid.baseIntervalMs = staged.baseIntervalMs;

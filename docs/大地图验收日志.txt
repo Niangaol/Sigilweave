@@ -1,0 +1,50 @@
+
+=== ACCEPTANCE layout-smoke ===
+{"lowerMap":{"playerY":800.2662399999955,"cameraY":637,"lv":"LV 1","exp":"EXP 0/10","hudFixed":true},"pauseAndResume":true,"errors":[]}
+ACCEPTANCE_PASS layout-smoke
+
+=== ACCEPTANCE workshop-smoke ===
+{"first":{"act":2,"count":12,"reports":1},"resumed":{"act":2,"count":12,"slot":{"kind":"sigil","defId":"arcane_bolt"},"exits":["up","down","left"]},"transactions":"16→8→12→4","errors":[]}
+ACCEPTANCE_PASS workshop-smoke
+
+=== ACCEPTANCE encounter-smoke ===
+PATH_A_OK {"act":2,"shards":24,"resolutions":{"1":{"act":1,"bossId":"boss-1","method":"quiz","tier":"major","reward":12}},"completed":{"npc-1":true,"boss-1":true},"reports":1}
+PATH_B_OK {"act":1,"bossId":"boss-1","method":"combat","tier":"major","reward":12}
+ACCEPTANCE_PASS encounter-smoke
+
+=== ACCEPTANCE three-act-smoke ===
+ELAPSED_DEBUG {"elapsedMs":511.603333333333}
+{"observations":[{"act":1,"count":6,"signals":2},{"act":2,"count":12,"signals":3},{"act":3,"count":16,"signals":3}],"resolutions":{"1":{"act":1,"bossId":"boss-1","method":"quiz","tier":"major","reward":12},"2":{"act":2,"bossId":"boss-2","method":"quiz","tier":"major","reward":12},"3":{"act":3,"bossId":"boss-3","method":"quiz","tier":"major","reward":12}},"errors":[]}
+ACCEPTANCE_PASS three-act-smoke
+
+=== ACCEPTANCE progression-smoke ===
+{"handAfter":[["sigil:judgment_hammer",1],["sigil:arcane_bolt",1]],"res":{"major":{"act":1,"bossId":"boss-1","method":"quiz","tier":"major","reward":12},"lv":5,"buffs":{"damageMul":1.2400000000000002,"intervalMul":1,"cooldownMul":1,"hitBonus":0,"comboWindowMul":1,"expMul":1}},"errors":[]}
+ACCEPTANCE_PASS progression-smoke
+
+=== ACCEPTANCE loadout-smoke ===
+{"kitNames":["疾风","烈焰","壁垒"],"selected":"flame","battle":{"seed":"loadout-smoke","act":1,"unlocked":[4,5,6,7,9,10],"slots":{"4":{"kind":"sigil","defId":"flame_burst"},"5":{"kind":"sigil","defId":"mana_siphon"},"6":{"kind":"sigil","defId":"thorn_vine"},"9":{"kind":"sigil","defId":"arcane_bolt"}}},"directBattle":{"loadoutSkipped":true,"seed":"direct"},"errors":[]}
+ACCEPTANCE_PASS loadout-smoke
+
+=== ACCEPTANCE help-smoke ===
+{"help":{"hasResonance":true,"hasBreak":true,"hasQuiz":true},"diag":{"visible":true,"text":"联组 3　断链：冷却 17 · 改道 5 · 消散 0　受阻 6"},"errors":[]}
+ACCEPTANCE_PASS help-smoke
+
+=== ACCEPTANCE pause-edit-smoke ===
+{"applied":{"kind":"sigil","defId":"starfall"},"after2":{"now":109.69,"cooldowns":[10109.69,10209.69,10309.69,10409.69,10509.69,10609.69,10709.69,10809.69,10909.69,11009.69,11109.69,11209.69,11309.69,11409.69,11509.69,11609.69],"slot5":null,"slot7":{"kind":"sigil","defId":"starfall"},"handArcane":1},"errors":[]}
+ACCEPTANCE_PASS pause-edit-smoke
+
+=== ACCEPTANCE rewards-smoke ===
+{"result":{"character":{"maxHp":140,"maxHpBonus":40,"speedMult":1.08,"pickupBonus":12,"iframesBonus":0.15,"shieldCap":50},"moved":103.68000000000006,"cd":2200,"cooled":1980,"hand":1,"shards":6,"duplicate":{"hand":1,"shards":6,"cd":1980},"combo":{"actual":1.25,"expected":1.25},"majorHand":2},"restored":{"maxHp":140,"shieldCap":50,"speedMult":1.08,"pickupBonus":12,"iframesBonus":0.15},"errors":[]}
+ACCEPTANCE_PASS rewards-smoke
+
+=== ACCEPTANCE balance-acceptance ===
+{"scope":"无辅助、全铺奥术、角色固定世界中心、每幕8种子各180秒；受阻率为百分比","rows":[{"act":1,"starts":2,"intervalMs":1400,"mean":24.00125,"min":20.95,"max":28.46,"results":[{"seed":"balance-acceptance-1","rate":26.38,"triggers":187,"blocked":67},{"seed":"balance-acceptance-2","rate":20.95,"triggers":200,"blocked":53},{"seed":"balance-acceptance-3","rate":21.83,"triggers":197,"blocked":55},{"seed":"balance-acceptance-4","rate":20.95,"triggers":200,"blocked":53},{"seed":"balance-acceptance-5","rate":25.5,"triggers":187,"blocked":64},{"seed":"balance-acceptance-6","rate":24.22,"triggers":194,"blocked":62},{"seed":"balance-acceptance-7","rate":28.46,"triggers":181,"blocked":72},{"seed":"balance-acceptance-8","rate":23.72,"triggers":193,"blocked":60}]},{"act":2,"starts":3,"intervalMs":1200,"mean":16.92375,"min":15.299999999999999,"max":18.310000000000002,"results":[{"seed":"balance-acceptance-1","rate":17.65,"triggers":364,"blocked":78},{"seed":"balance-acceptance-2","rate":16.33,"triggers":374,"blocked":73},{"seed":"balance-acceptance-3","rate":17.34,"triggers":367,"blocked":77},{"seed":"balance-acceptance-4","rate":16.669999999999998,"triggers":365,"blocked":73},{"seed":"balance-acceptance-5","rate":15.299999999999999,"triggers":371,"blocked":67},{"seed":"balance-acceptance-6","rate":18.310000000000002,"triggers":357,"blocked":80},{"seed":"balance-acceptance-7","rate":15.959999999999999,"triggers":374,"blocked":71},{"seed":"balance-acceptance-8","rate":17.83,"triggers":364,"blocked":79}]},{"act":3,"starts":3,"intervalMs":1000,"mean":19.473750000000003,"min":17.330000000000002,"max":22.85,"results":[{"seed":"balance-acceptance-1","rate":20.419999999999998,"triggers":421,"blocked":108},{"seed":"balance-acceptance-2","rate":22.85,"triggers":395,"blocked":117},{"seed":"balance-acceptance-3","rate":18.2,"triggers":427,"blocked":95},{"seed":"balance-acceptance-4","rate":20.95,"triggers":400,"blocked":106},{"seed":"balance-acceptance-5","rate":17.82,"triggers":429,"blocked":93},{"seed":"balance-acceptance-6","rate":19.88,"triggers":415,"blocked":103},{"seed":"balance-acceptance-7","rate":17.330000000000002,"triggers":434,"blocked":91},{"seed":"balance-acceptance-8","rate":18.34,"triggers":423,"blocked":95}]}]}
+ACCEPTANCE_PASS balance-acceptance
+
+=== ACCEPTANCE stress ===
+STRESS {"frames":35801,"simulatedMs":120006.42,"phase":"play","p50":3.3,"p95":3.4,"p99":3.9,"max":13.3,"enemies":150,"projectiles":299,"shards":200,"objects":700,"pools":{"projectile":{"name":"projectile","active":299,"free":1,"created":300,"reused":83955,"saturated":15,"peak":300,"capacity":300},"shard":{"name":"shard","active":200,"free":0,"created":200,"reused":10,"saturated":1975,"peak":200,"capacity":200}},"errors":[]}
+POOLS {"projectile":{"name":"projectile","active":299,"free":1,"created":300,"reused":83955,"saturated":15,"peak":300,"capacity":300},"shard":{"name":"shard","active":200,"free":0,"created":200,"reused":10,"saturated":1975,"peak":200,"capacity":200}}
+{"stress":{"frames":35801,"simulatedMs":120006.42,"phase":"play","p50":3.3,"p95":3.4,"p99":3.9,"max":13.3,"enemies":150,"projectiles":299,"shards":200,"objects":700,"pools":{"projectile":{"name":"projectile","active":299,"free":1,"created":300,"reused":83955,"saturated":15,"peak":300,"capacity":300},"shard":{"name":"shard","active":200,"free":0,"created":200,"reused":10,"saturated":1975,"peak":200,"capacity":200}},"errors":[]},"lifecycle":[{"enemies":0,"projectiles":1,"shards":0,"objects":44},{"enemies":0,"projectiles":1,"shards":0,"objects":44},{"enemies":0,"projectiles":1,"shards":0,"objects":44},{"enemies":0,"projectiles":1,"shards":0,"objects":44},{"enemies":0,"projectiles":1,"shards":0,"objects":44}],"errors":[]}
+NOTE 软件渲染的 headless Edge，绝对值偏悲观；用于比较与防冻结，不代表真机上限。
+ACCEPTANCE_PASS stress
+ACCEPTANCE_ALL_PASS 11

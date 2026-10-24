@@ -17,6 +17,9 @@ try {
   assert.equal(errors.length, 0, errors.join('; '));
   assert.equal(stress.frames > (long ? 3000 : 600), true, 'should sample enough frames');
   assert(stress.max < 250, 'no freeze over 250ms, max=' + stress.max);
+  assert.equal(stress.phase, 'play', '不得采到升级或问答暂停状态');
+  assert(stress.simulatedMs >= windowMs * 0.9, '模拟时钟须持续推进，不能用暂停空帧冒充负载');
+  assert(stress.enemies >= 100 && stress.projectiles >= 100 && stress.shards >= 100, '采样结束必须仍有高负载实体');
   // 池化：不得超出容量，压测期间应有复用；饱和允许出现但需记录
   assert(stress.pools.projectile.created <= 300, 'projectile pool cap');
   assert(stress.pools.shard.created <= 200, 'shard pool cap');

@@ -13,7 +13,11 @@ export default class Hud {
     this.freqText = addText(scene, 180, 3, '脉频5s 0.0/s', 9, HEX.arcaneLight).setDepth(1002);
     this.actText = addText(scene, 300, 4, '第一幕 · 演武', 9, HEX.brassLight).setDepth(1002);
     this.timeText = addText(scene, 474, 4, '00:00', 9, HEX.parchment).setDepth(1002).setOrigin(1, 0);
-    this.cache = { hp: -1, shard: -1, freq: '', time: '', act: '' };
+    // 成长信息单列第二行，延续黄铜刻度与青色经验。
+    this.lvText = addText(scene, 8, 20, 'LV 1', 9, HEX.brassLight).setDepth(1002);
+    this.expText = addText(scene, 170, 20, 'EXP 0/10', 9, HEX.teal).setDepth(1002);
+    for (const text of [this.hpText, this.shardText, this.freqText, this.actText, this.timeText, this.lvText, this.expText]) text.setScrollFactor(0);
+    this.cache = { hp: -1, shard: -1, freq: '', time: '', act: '', progression: '' };
 
     this.drawStatic();
   }
@@ -22,8 +26,8 @@ export default class Hud {
     const g = this.bg;
     g.clear();
     // 顶栏底板：不透明的深紫，下面一条黄铜细线
-    pxRect(g, 0, 0, 480, 19, C.ink, 1);
-    pxRect(g, 0, 19, 480, 1, C.brassDark, 1);
+    pxRect(g, 0, 0, 480, 33, C.ink, 1);
+    pxRect(g, 0, 33, 480, 1, C.brassDark, 1);
     pxRect(g, 0, 18, 480, 1, C.ink, 1);
     // 边角铆钉
     for (const x of [3, 474]) {
@@ -42,7 +46,7 @@ export default class Hud {
   }
 
   update(data) {
-    const { hp, maxHp, shield = 0, shards, rate, buckets, elapsedMs, act } = data;
+    const { hp, maxHp, shield = 0, shards, rate, buckets, elapsedMs, act, lv = 1, exp = 0, expNeed = 10 } = data;
     const g = this.dyn;
     g.clear();
 
@@ -60,6 +64,17 @@ export default class Hud {
     if (ratio <= 0.3 && Math.floor(this.scene.time.now / 260) % 2 === 0) {
       pxRect(g, 0, 0, 3, 19, C.blood, 0.7);
       pxRect(g, 477, 0, 3, 19, C.blood, 0.7);
+    }
+
+    const expRatio = Math.max(0, Math.min(1, exp / Math.max(1, expNeed)));
+    pxRect(g, 52, 24, 108, 5, C.nightDeep, 1);
+    pxFrame(g, 52, 24, 108, 5, C.brassDark, 1, 1);
+    if (expRatio > 0) pxRect(g, 53, 25, Math.round(106 * expRatio), 3, C.teal, 1);
+    const progressionStr = lv + ':' + exp + ':' + expNeed;
+    if (this.cache.progression !== progressionStr) {
+      this.cache.progression = progressionStr;
+      this.lvText.setText('LV ' + lv);
+      this.expText.setText('EXP ' + exp + '/' + expNeed);
     }
 
     // 碎片

@@ -13,14 +13,19 @@ try {
   await page.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('LoadoutScene'));
   await page.keyboard.press('Enter'); // 默认套装出发
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.player);
+  const start = await page.evaluate(() => ({ y: window.__SIGILWEAVE_BATTLE__.player.y, cameraY: window.__SIGILWEAVE_BATTLE__.cameras.main.scrollY }));
   await page.keyboard.down('ArrowDown');
-  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__.player.y > 210);
+  await page.waitForFunction(y => window.__SIGILWEAVE_BATTLE__.player.y > y + 80, start.y);
   await page.keyboard.up('ArrowDown');
   const lowerMap = await page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
-    return { playerY: s.player.y };
+    return { playerY: s.player.y, cameraY: s.cameras.main.scrollY, lv: s.hud.lvText.text, exp: s.hud.expText.text, hudFixed: [s.hud.hpText, s.hud.shardText, s.hud.freqText, s.hud.actText, s.hud.timeText, s.hud.lvText, s.hud.expText].every(t => t.scrollFactorX === 0 && t.scrollFactorY === 0) };
   });
-  assert(lowerMap.playerY > 210, '角色必须能进入原先被法阵占据的下半屏');
+  assert(lowerMap.playerY > start.y + 80, '必须实际向世界下方移动');
+  assert(lowerMap.cameraY > start.cameraY + 30, '镜头必须跟随玩家移动');
+  assert.equal(lowerMap.hudFixed, true, '顶栏文字必须固定视口');
+  assert.equal(lowerMap.lv, 'LV 1');
+  assert.equal(lowerMap.exp, 'EXP 0/10');
   await page.keyboard.down('Space');
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__.paused);
   await page.screenshot({ path: 'docs/布局修正-暂停.png' });

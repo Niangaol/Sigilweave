@@ -10,6 +10,18 @@ export { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS };
 const SACRIFICE_SHIELD_COST = 8;
 const SACRIFICE_DAMAGE_MUL = 2;
 
+// 罗盘「扩域环带」的命中范围加成：单位像素。
+// 只接受非负有限值，避免 NaN / Infinity / 负数污染半径计算。
+function hitBonusOf(state) {
+  const value = state && state.hitBonus;
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function radiusWithBonus(base, bonus) {
+  const safeBase = Number.isFinite(base) ? Math.max(0, base) : 0;
+  return safeBase + bonus;
+}
+
 // 区域符印的内圈衰减：星陨半径 70，其中半径 35 内伤害 -30%，外圈全额。
 // 只有定义了内圈的区域符印才分段，其余（如荆棘藤蔓）整圈全额。
 const AREA_INNER_RINGS = Object.freeze({
@@ -95,10 +107,13 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, half,
   }
 
   const player = state.player;
+  const hitBonus = hitBonusOf(state);
+  // 落点单体命中半径：基础 28px + 罗盘命中加成
+  const aimHitRadius = 28 + hitBonus;
   const selectTarget = () => {
     if (!aimPoint) return resolveTarget(cellId, player, enemies, half);
-    // 命中判定半径放宽到 28px：弹丸落点有轻微追踪，仍然允许侧身闪避
-    const target = enemies.filter(e => e.alive && dist2(e, aimPoint) <= 28 * 28)
+    // 命中判定半径放宽：弹丸落点有轻微追踪，仍然允许侧身闪避
+    const target = enemies.filter(e => e.alive && dist2(e, aimPoint) <= aimHitRadius * aimHitRadius)
       .sort((a, b) => dist2(a, aimPoint) - dist2(b, aimPoint) || a.id - b.id)[0] ?? null;
     return { target, aim: { ...aimPoint }, empty: !target };
   };
@@ -128,7 +143,9 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, half,
 
   if (def.kind === "fan3") {
     const t = selectTarget();
-    const pool = enemies.filter((e) => e.alive && dist2(e, t.aim) <= 50 * 50).sort((a, b) => dist2(a, t.aim) - dist2(b, t.aim) || a.id - b.id).slice(0, 3);
+    // 扇形三连的扩散半径：基础 50px + 罗盘命中加成
+    const fanRadius = 50 + hitBonus;
+    const pool = enemies.filter((e) => e.alive && dist2(e, t.aim) <= fanRadius * fanRadius).sort((a, b) => dist2(a, t.aim) - dist2(b, t.aim) || a.id - b.id).slice(0, 3);
     const sac = spendSacrifice(grid, cellId, state, pool);
     for (const e of pool) {
       total += applyDamage(e, base * sac.mult);
@@ -138,11 +155,18 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, half,
   }
 
   if (def.kind === "ward") {
-    const r2 = def.radius * def.radius;
+    // 护盾类范围同样吃到命中范围加成；护盾上限优先读人物宝箱写回的 player.shieldCap
+    const wardRadius = radiusWithBonus(def.radius, hitBonus);
+    const r2 = wardRadius * wardRadius;
     const hitList = enemies.filter((e) => e.alive && dist2(e, player) <= r2);
     // 献祭按触发瞬间的护盾判定，先扣费再结算本格护盾与伤害。
     const sac = spendSacrifice(grid, cellId, state, hitList);
-    state.player.shield = Math.min(def.shieldCap, (state.player.shield || 0) + def.shield);
+    const playerCap = state.player.shieldCap;
+    const cap = Number.isFinite(playerCap) && playerCap >= 0 ? playerCap : def.shieldCap;
+    const currentShield = Number.isFinite(state.player.shield) && state.player.shield > 0
+      ? state.player.shield
+      : 0;
+    state.player.shield = Math.min(cap, currentShield + def.shield);
     for (const e of hitList) {
       total += applyDamage(e, base * sac.mult);
       targets.push(e);
@@ -152,7 +176,9 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, half,
 
   // area：以区域目标点为中心的范围伤害；星陨按目标到落点的距离分内圈/外圈。
   const t = selectTarget();
-  const r2 = def.radius * def.radius;
+  // 范围半径：基础 def.radius + 罗盘命中加成
+  const areaRadius = radiusWithBonus(def.radius, hitBonus);
+  const r2 = areaRadius * areaRadius;
   const inner = innerRingOf(def, defId);
   const innerR2 = inner ? inner.radius * inner.radius : -1;
   const hitList = enemies.filter((e) => e.alive && dist2(e, t.aim) <= r2);

@@ -12,6 +12,8 @@ export default class Player {
     this.maxHp = PLAYER.hp;
     this.radius = PLAYER.radius;
     this.alive = true;
+    // 人物宝箱增益：额外受击无敌时间，单位「秒」；默认 0 时行为与旧版完全一致。
+    this.iframesBonus = 0;
     this.invulnUntil = 0;
     this.hurtAt = -9999;
     this.walkPhase = 0;
@@ -42,10 +44,15 @@ export default class Player {
   takeDamage(amount, now) {
     if (!this.alive) return false;
     if (now < this.invulnUntil) return false;
-    const absorbed = Math.min(this.shield, Math.max(0, amount));
-    this.shield -= absorbed;
+    // 人物宝箱「坚韧余辉」以秒为单位累加；非法/负数按 0 处理，默认仍是 900ms。
+    const bonusMs = Number.isFinite(this.iframesBonus) && this.iframesBonus > 0
+      ? this.iframesBonus * 1000
+      : 0;
+    const shield = Number.isFinite(this.shield) && this.shield > 0 ? this.shield : 0;
+    const absorbed = Math.min(shield, Math.max(0, amount));
+    this.shield = shield - absorbed;
     this.hp = Math.max(0, this.hp - Math.max(0, amount - absorbed));
-    this.invulnUntil = now + PLAYER.iframesMs;
+    this.invulnUntil = now + PLAYER.iframesMs + bonusMs;
     this.hurtAt = now;
     if (this.hp <= 0) this.alive = false;
     return true;

@@ -90,7 +90,8 @@ export function createGrid() {
 
 // 重新推导每格的共鸣石层数、有效间隔与有效冷却。
 // 规则：共鸣石作用于正交四邻，不影响自身；减幅乘算后再夹硬下限。
-export function rebuildDerived(grid, baseIntervalMs) {
+export function rebuildDerived(grid, baseIntervalMs, { cooldownMul = 1 } = {}) {
+  if (!Number.isFinite(cooldownMul) || cooldownMul <= 0) throw new RangeError('冷却倍率必须是有限正数');
   if (!Number.isFinite(baseIntervalMs) || baseIntervalMs <= 0) throw new RangeError('基础间隔必须是有限正数');
   grid.baseIntervalMs = baseIntervalMs;
   for (const cell of grid.cells) {
@@ -114,7 +115,7 @@ export function rebuildDerived(grid, baseIntervalMs) {
     const factor = Math.pow(RESONANCE_FACTOR, cell.resonanceStacks);
     const cdMul = cell.slot?.kind === 'sigil' ? (SIGIL_DEFS[cell.slot.defId]?.cdMul ?? 1) : 1;
     cell.effIntervalMs = Math.max(INTERVAL_FLOOR_MS, baseIntervalMs * factor * (cell.mutedOutput ? 0.6 : 1));
-    cell.effCooldownMs = Math.max(COOLDOWN_FLOOR_MS, baseCooldown(cell.id) * factor * Math.pow(0.7, cell.hourglassStacks) * cdMul);
+    cell.effCooldownMs = Math.max(COOLDOWN_FLOOR_MS, baseCooldown(cell.id) * factor * Math.pow(0.7, cell.hourglassStacks) * cdMul * cooldownMul);
   }
   return grid;
 }

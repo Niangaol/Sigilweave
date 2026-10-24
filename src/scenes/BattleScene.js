@@ -7,7 +7,7 @@ import { createGrid, rebuildDerived, toId, toRC, manhattan } from '../logic/grid
 import { buildComboCatalog } from '../logic/combo.js';
 import { resolveTarget } from '../logic/sector.js';
 import { ACTS, WORLD_SIZES } from '../logic/constants.js';
-import { applyDraft, snapshotBuild } from '../logic/build.js';
+import { applyDraft, snapshotBuild, draftFromGrid, validateDraft, AUX_TARGETED } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, resolveSigilTrigger, resolveComboBonus } from '../logic/effects.js';
 import { createRun, recordAct } from '../logic/run.js';
 import { createProgression, grantExp, levelStats, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuff } from '../logic/progression.js';
@@ -61,6 +61,9 @@ export default class BattleScene extends Phaser.Scene {
     this.combatRng = new Rng(this.run.seed + ':combat:' + this.act);
     this.debugParams = params;
     this.phase = 'play';
+    this.stressRunning = false;
+    this.pendingPicks = 0;
+    this.timeExpTimer = 0;
     this.run.encounters ??= createEncounterState(this.run.seed);
     this.run.bossResolutions ??= {};
     this.playerSlowUntil = 0;
@@ -89,6 +92,10 @@ export default class BattleScene extends Phaser.Scene {
     this.hintUntil = 13000;
     this.chests = [];
 
+    // 在背景构造前刷新世界尺寸，避免同一个Scene跨幕复用上一幕的world。
+    const world = WORLD_SIZES[this.act] ?? WORLD_SIZES[1];
+    this.world = { w: world.w, h: world.h };
+
     // ---------- 视觉层 ----------
     this.background = new Background(this, this.act, this.world);
     this.effects = new EffectsLayer(this);
@@ -111,13 +118,12 @@ export default class BattleScene extends Phaser.Scene {
     this.input.on('pointerdown', this.panelPointerHandler);
 
     // ---------- 世界与摄像机（每幕一张大地图） ----------
-    const world = WORLD_SIZES[this.act] ?? WORLD_SIZES[1];
-    this.world = { w: world.w, h: world.h };
     this.worldBounds = { left: 24, top: 40, right: world.w - 24, bottom: world.h - 24 };
     this.battleBounds = this.worldBounds; // 敌人 AI 读取的世界活动范围
 
     // ---------- 玩家 ----------
     this.player = new Player(this, world.w / 2, world.h / 2);
+    Object.assign(this.player, this.run.characterStats ?? {});
     this.cameras.main.setBounds(0, 0, world.w, world.h);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setDeadzone(60, 40);
@@ -170,7 +176,7 @@ export default class BattleScene extends Phaser.Scene {
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys({
       up: 'W', down: 'S', left: 'A', right: 'D',
-      space: 'SPACE', esc: 'ESC', restart: 'R', title: 'T', mute: 'M',
+      space: 'SPACE', esc: 'ESC', restart: 'R', title: 'T', mute: 'M', edit: 'E',
     });
     this.input.keyboard.addCapture(['W', 'A', 'S', 'D', 'SPACE', 'ESC', 'R', 'T', 'M', 'UP', 'DOWN', 'LEFT', 'RIGHT']);
     this.input.keyboard.resetKeys();
@@ -181,6 +187,7 @@ export default class BattleScene extends Phaser.Scene {
 
     this.onEsc = () => {
       if (this.phase !== 'play') return;
+      if (this.editOpen) { this.closeGridEdit(); return; }
       if (this.menuOpen) this.closePause();
       else this.openPause('menu');
     };
@@ -212,6 +219,10 @@ export default class BattleScene extends Phaser.Scene {
       this.pauseMenu.show('focus');
     };
 
+    this.onEdit = () => {
+      if (this.phase === 'play' && this.menuOpen && !this.editOpen) this.openGridEdit();
+    };
+    this.input.keyboard.on('keydown-E', this.onEdit);
     this.input.keyboard.on('keydown-M', this.onMute);
     this.input.keyboard.on('keydown-ESC', this.onEsc);
     this.input.keyboard.on('keydown-R', this.onRestart);
@@ -444,6 +455,7 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   closePause() {
+    if (this.editOpen) return;
     this.menuOpen = false;
     this.focusPaused = false;
     this.pauseMenu.hide();
@@ -475,11 +487,11 @@ export default class BattleScene extends Phaser.Scene {
       this.checkDeath();
       if (this.phase === 'play' && this.bossDefeated) this.startBossClearTransition();
       else if (this.phase === 'play') {
-        this.checkProgressEvents();
+        if (!this.stressRunning) this.checkProgressEvents();
         this.updateEventPointVisuals();
         this.updateChests(dt);
         this.timeExpTimer = (this.timeExpTimer ?? 0) + dt;
-        if (this.timeExpTimer >= 20000) {
+        if (!this.stressRunning && this.timeExpTimer >= 20000) {
           this.timeExpTimer -= 20000;
           const gained = grantExp(this.run.progression, 1, this.run.compassBuffs.expMul * (this.quickMode ? 4 : 1));
           if (gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
@@ -518,7 +530,7 @@ export default class BattleScene extends Phaser.Scene {
       maxHp: this.player.maxHp,
       lv: this.run.progression.level,
       exp: this.run.progression.exp,
-      expNeed: expNeeded(this.run.progression.level + 1),
+      expNeed: expNeeded(this.run.progression.level),
       shield: this.player.shield,
       shards: this.shardCount,
       rate: this.recentRate,
@@ -531,7 +543,7 @@ export default class BattleScene extends Phaser.Scene {
   updatePlayer(dt) {
     const { dx, dy } = this.readMoveAxis();
     const factor = this.engine.now < this.playerSlowUntil ? 0.75 : 1;
-    this.player.update(dt * factor, dx, dy, this.worldBounds, this.engine.now);
+    this.player.update(dt * factor * (this.player.speedMult ?? 1), dx, dy, this.worldBounds, this.engine.now);
   }
 
   updateStartSample(dt) {
@@ -717,6 +729,142 @@ export default class BattleScene extends Phaser.Scene {
     if (!result.hits) this.effects.impact(p.x, p.y, p.def.color, true);
   }
 
+  // ---------- 暂停编辑法阵（保留冷却；战斗实时不可改，暂停可改） ----------
+  openGridEdit() {
+    if (this.editOpen) return;
+    this.editOpen = true;
+    this.editSelected = null;
+    this.editAuxPending = null;
+    this.editNote = '点手牌再点符位放置；点已放置的卡收回。';
+    this.pauseMenu.hide();
+    this.editHandPage = 0;
+    this.editDraft = draftFromGrid(this.grid, { act: this.act });
+    this.editHand = { ...this.run.hand };
+    this.editUI = this.add.container(0, 0).setDepth(3500).setScrollFactor(0);
+    this.editPointer = (pointer) => {
+      const hit = this.editRects?.find(r => pointer.x >= r.x && pointer.x <= r.x + r.w && pointer.y >= r.y && pointer.y <= r.y + r.h);
+      if (hit) hit.action();
+    };
+    this.input.on('pointerdown', this.editPointer);
+    this.drawGridEdit();
+  }
+
+  editNames() { return { ...SIGIL_DEFS, ...AUX_DEFS }; }
+
+  drawGridEdit() {
+    if (this.editUI) { this.editUI.destroy(true); this.editUI = null; }
+    const ui = this.add.container(0, 0).setDepth(3500).setScrollFactor(0);
+    this.editUI = ui;
+    this.editRects = [];
+    const g = this.add.graphics();
+    ui.add(g);
+    pxRect(g, 0, 0, 480, 270, C.void, 0.94);
+    pxFrame(g, 8, 8, 464, 254, C.brassDark, 2, 1);
+    ui.add(addText(this, 16, 12, '编辑法阵（暂停中 · 冷却保留）', 10, HEX.brassLight));
+    const names = this.editNames();
+    const draft = this.editDraft;
+    for (const id of draft.unlocked) {
+      const x = 20 + (id % 4) * 92, y = 34 + Math.floor(id / 4) * 46;
+      const slot = draft.slots?.[id];
+      const g2 = this.add.graphics();
+      pxRect(g2, x, y, 84, 38, slot ? C.stoneDark : C.nightDeep);
+      pxFrame(g2, x, y, 84, 38, this.editSelected === id ? C.teal : C.brassDark, 1, 1);
+      ui.add(g2);
+      ui.add(addText(this, x + 4, y + 4, (id + 1) + '号 ' + (slot ? names[slot.defId]?.name ?? slot.defId : '空'), 7, slot?.kind === 'auxiliary' ? HEX.teal : HEX.parchment));
+      if (slot) ui.add(addText(this, x + 4, y + 22, '点击收回', 7, HEX.mute));
+      else ui.add(addText(this, x + 4, y + 22, '空', 7, HEX.mute));
+      this.editRects.push({ x, y, w: 84, h: 38, action: () => this.editCellClick(id) });
+    }
+    ui.add(addText(this, 400, 34, '手牌', 9, HEX.brass));
+    const hand = Object.entries(this.editHand).filter(([, count]) => count > 0);
+    const lastPage = Math.max(0, Math.ceil(hand.length / 5) - 1);
+    this.editHandPage = Math.min(this.editHandPage, lastPage);
+    let row = 0;
+    for (const [key, count] of hand.slice(this.editHandPage * 5, this.editHandPage * 5 + 5)) {
+      const defId = key.split(':')[1];
+      const y = 52 + row * 24;
+      const bg = this.add.graphics();
+      pxRect(bg, 396, y, 76, 20, C.stoneDark); pxFrame(bg, 396, y, 76, 20, this.editSelected === key ? C.teal : C.brassDark, 1, 1);
+      ui.add(bg);
+      ui.add(addText(this, 398, y + 3, (names[defId]?.name ?? defId) + '×' + count, 7, HEX.parchment));
+      this.editRects.push({ x: 396, y, w: 76, h: 20, action: () => { this.editSelected = this.editSelected === key ? null : key; this.editNote = this.editSelected ? '选中，点符位放置' : ''; this.drawGridEdit(); } });
+      row++;
+    }
+    ui.add(addText(this, 396, 200, this.editNote, 7, HEX.arcaneLight, { wordWrap: { width: 76 } }));
+    if (lastPage > 0) {
+      ui.add(addText(this, 398, 178, '◀ ' + (this.editHandPage + 1) + '/' + (lastPage + 1) + ' ▶', 8, HEX.teal));
+      for (const [x, step] of [[396, -1], [434, 1]]) this.editRects.push({ x, y: 174, w: 38, h: 20, action: () => {
+        this.editHandPage = (this.editHandPage + step + lastPage + 1) % (lastPage + 1); this.drawGridEdit();
+      } });
+    }
+    const done = this.add.graphics();
+    pxRect(done, 396, 232, 76, 18, C.stoneDark); pxFrame(done, 396, 232, 76, 18, C.teal, 1, 1);
+    ui.add(done);
+    ui.add(addText(this, 434, 236, '完成', 8, HEX.teal).setOrigin(0.5, 0.5));
+    this.editRects.push({ x: 396, y: 232, w: 76, h: 18, done: true, action: () => this.closeGridEdit() });
+  }
+
+  editCellClick(id) {
+    const draft = this.editDraft;
+    const names = this.editNames();
+    // 绑定模式：辅助等待目标
+    if (this.editAuxPending !== null) {
+      draft.auxTargets ??= {};
+      draft.auxTargets[this.editAuxPending] = id;
+      this.editAuxPending = null;
+      this.editNote = '目标已绑定';
+      this.drawGridEdit(); return;
+    }
+    const selKey = this.editSelected;
+    if (selKey) {
+      const [kind, defId] = selKey.split(':');
+      const card = { kind, defId };
+      const old = draft.slots?.[id];
+      // 收回原卡到手的副本
+      if (old) { const k = old.kind + ':' + old.defId; this.editHand[k] = (this.editHand[k] ?? 0) + 1; }
+      this.editHand[selKey]--;
+      if (this.editHand[selKey] <= 0) delete this.editHand[selKey];
+      draft.slots ??= {};
+      draft.slots[id] = card;
+      // 指向该格的辅助目标随之失效
+      for (const [src, tgt] of Object.entries(draft.auxTargets ?? {})) if (src === String(id) || (tgt === id && kind !== 'sigil')) delete draft.auxTargets[src];
+      this.editSelected = null;
+      this.editNote = '已放置 ' + (names[defId]?.name ?? defId);
+      if (kind === 'auxiliary' && AUX_TARGETED.has(defId)) {
+        this.editAuxPending = id;
+        this.editNote = '点相邻输出格绑定目标';
+      }
+      this.drawGridEdit(); return;
+    }
+    // 无选择：收回该格卡牌
+    const old = draft.slots?.[id];
+    if (!old) { this.editNote = (id + 1) + ' 号是空格'; this.drawGridEdit(); return; }
+    const k = old.kind + ':' + old.defId;
+    this.editHand[k] = (this.editHand[k] ?? 0) + 1;
+    delete draft.slots[id];
+    for (const [src, tgt] of Object.entries(draft.auxTargets ?? {})) if (tgt === id || src === String(id)) delete draft.auxTargets[src];
+    this.editNote = '已收回 ' + (names[old.defId]?.name ?? old.defId);
+    this.drawGridEdit();
+  }
+
+  closeGridEdit() {
+    const errors = validateDraft(this.editDraft);
+    if (errors.length) { this.editNote = '未通过校验：' + errors.map(e => e.code).join('、'); this.drawGridEdit(); return; }
+    const preserve = { cells: this.grid.cells.map(c => ({ id: c.id, cooldownUntil: c.cooldownUntil })) };
+    const result = applyDraft(this.grid, this.editDraft, { phase: 'intermission', preserveFrom: preserve });
+    if (!result.ok) { this.editNote = '校验失败'; this.drawGridEdit(); return; }
+    this.run.draft = result.snapshot;
+    this.run.hand = { ...this.editHand };
+    // 罗盘乘算在改阵后重放
+    rebuildDerived(this.grid, ACTS[this.act - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
+    this.engine.setCombos(buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4']).filter(inst => inst.order.every(id => this.grid.cells[id].unlocked && this.grid.cells[id].slot?.kind === 'sigil' && !this.grid.cells[id].mutedOutput)));
+    this.editOpen = false;
+    if (this.editPointer) { this.input.off('pointerdown', this.editPointer); this.editPointer = null; }
+    this.editUI?.destroy(true); this.editUI = null;
+    this.openPause('menu');
+  }
+
+  // Boss 进场演出：压降 + 震屏 + 名字条 + 时停无敌（答错进入实战前播放）
   // Boss 进场演出：压降 + 震屏 + 名字条 + 时停无敌（答错进入实战前播放）
   playBossIntro(bossId) {
     const def = getEncounterById(bossId);
@@ -810,12 +958,12 @@ export default class BattleScene extends Phaser.Scene {
         const buff = rollBuff(CHARACTER_BUFFS, () => this.combatRng.next());
         if (buff) {
           const adapter = {
-            maxHp: this.player.maxHp + (this.player.maxHpBonus ?? 0),
+            maxHp: this.player.maxHp,
             hp: this.player.hp,
             speed: PLAYER.speed * (this.player.speedMult ?? 1),
             pickupRadius: 38 + (this.player.pickupBonus ?? 0),
             iframeBonus: this.player.iframesBonus ?? 0,
-            shieldCap: 40,
+            shieldCap: this.player.shieldCap ?? 40,
           };
           buff.apply(adapter);
           this.player.maxHpBonus = adapter.maxHp - PLAYER.hp;
@@ -824,6 +972,12 @@ export default class BattleScene extends Phaser.Scene {
           this.player.speedMult = adapter.speed / PLAYER.speed;
           this.player.pickupBonus = adapter.pickupRadius - 38;
           this.player.iframesBonus = adapter.iframeBonus;
+          this.player.shieldCap = adapter.shieldCap;
+          this.run.characterStats = {
+            maxHp: this.player.maxHp, maxHpBonus: this.player.maxHpBonus,
+            speedMult: this.player.speedMult, pickupBonus: this.player.pickupBonus,
+            iframesBonus: this.player.iframesBonus, shieldCap: this.player.shieldCap,
+          };
           this.effects.text(this.player.x, this.player.y - 14, '宝箱 · ' + buff.name + '：' + buff.desc, HEX.brassLight, true);
         }
         sfx.pick();
@@ -869,7 +1023,7 @@ export default class BattleScene extends Phaser.Scene {
     // 经验：普通+1、精英+6；4% 掉宝箱（人物本体增益）
     const expMul = this.run.compassBuffs.expMul * (this.quickMode ? 4 : 1);
     const gained = grantExp(this.run.progression, e.def?.elite ? 6 : 1, expMul);
-    if (gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
+    if (!this.stressRunning && gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
     if (this.combatRng.next() < 0.04 && this.chests.length < 6) this.spawnChest(e.x, e.y);
     this.effects.burst(e.x, e.y, C.bone, 10);
     this.effects.dissipate(e.x, e.y, C.groove);
@@ -1027,11 +1181,13 @@ export default class BattleScene extends Phaser.Scene {
     if (!receipt.ok) return;
     this.shardCount += receipt.reward; this.kills++;
     // Boss 战利品：问答定义给出法术卡进手牌 + 随机一个罗盘本体增益
-    const def = getEncounterById(bossId);
-    if (def?.reward?.cardKey) this.run.hand[def.reward.cardKey] = (this.run.hand[def.reward.cardKey] ?? 0) + 1;
+    const spellKey = 'sigil:' + ['frost_arrow', 'holy_ward', 'starfall'][this.act - 1];
+    this.run.hand[spellKey] = (this.run.hand[spellKey] ?? 0) + 1;
     const buff = rollBuff(COMPASS_BUFFS, () => this.combatRng.next());
     if (buff) {
       buff.apply(this.run.compassBuffs);
+      this.engine.comboWindowMul = this.run.compassBuffs.comboWindowMul;
+      if (this.engine.combos) this.engine.combos.windowMul = this.engine.comboWindowMul;
       rebuildDerived(this.grid, ACTS[this.act - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
       this.effects.text(240, 96, '罗盘增益 · ' + buff.name + '：' + buff.desc, HEX.teal, true);
     }
@@ -1128,14 +1284,16 @@ export default class BattleScene extends Phaser.Scene {
   // 压测：真实实体类堆到 150 敌 / 300 弹丸 / 200 碎片，采样 20 秒帧时间
   startStress() {
     if (this.phase !== 'play') return;
+    this.stressRunning = true;
+    const simulationBegin = this.engine.now;
     this.player.invulnUntil = Number.MAX_SAFE_INTEGER;
     const spawnWave = () => {
       if (this.phase !== 'play') return;
       for (let i = 0; i < 25 && this.enemies.length < 150; i++) this.spawnEnemy({ hp: 10, speed: 30, damage: 8, maxAlive: 999 });
-      while (this.shards.length < 200) this.spawnShard(20 + this.combatRng.next() * 440, 40 + this.combatRng.next() * 210);
+      while (this.shards.length < 200) this.spawnShard(this.player.x - 220 + this.combatRng.next() * 440, this.player.y - 105 + this.combatRng.next() * 210);
       while (this.projectiles.length < 300) {
         const def = cardVisual({ kind: 'sigil', defId: 'arcane_bolt' });
-        if (!this.fireProjectile(240, 200, 20 + this.combatRng.next() * 440, 40 + this.combatRng.next() * 210, def, null)) break;
+        if (!this.fireProjectile(this.player.x, this.player.y, this.player.x - 220 + this.combatRng.next() * 440, this.player.y - 105 + this.combatRng.next() * 210, def, null)) break;
       }
     };
     for (let i = 0; i < 6; i++) spawnWave();
@@ -1153,6 +1311,8 @@ export default class BattleScene extends Phaser.Scene {
       const pick = (q) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] ?? 0;
       window.__STRESS__ = {
         frames: sorted.length,
+        simulatedMs: +(this.engine.now - simulationBegin).toFixed(2),
+        phase: this.phase,
         p50: +pick(0.5).toFixed(2), p95: +pick(0.95).toFixed(2), p99: +pick(0.99).toFixed(2),
         max: +(sorted[sorted.length - 1] ?? 0).toFixed(2),
         enemies: this.enemies.length, projectiles: this.projectiles.length, shards: this.shards.length,
@@ -1171,6 +1331,12 @@ export default class BattleScene extends Phaser.Scene {
     this.input.keyboard.off('keydown-R', this.onRestart);
     this.input.keyboard.off('keydown-T', this.onTitle);
     this.input.keyboard.off('keydown-M', this.onMute);
+    this.input.keyboard.off('keydown-E', this.onEdit);
+    if (this.editPointer) this.input.off('pointerdown', this.editPointer);
+    this.editPointer = null;
+    this.editUI?.destroy(true);
+    this.editUI = null;
+    this.editOpen = false;
     window.removeEventListener('pointerdown', this.panelPointerHandler);
     this.time.removeAllEvents();
     this.encounterPanel.destroy();
