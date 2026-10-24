@@ -61,9 +61,11 @@ export default class IntermissionScene extends Phaser.Scene {
   // —— 视觉构件 ——
   // 分区面板：底 + 双层黄铜边框 + 四角铆钉，统一所有区块的仪式感
   panel(g, x, y, w, h, opts = {}) {
-    pxRect(g, x, y, w, h, opts.fill ?? C.ink, opts.alpha ?? 0.9);
+    // 画风同步：面板底不透明 + 最外 1px 暗描边（对齐素材描边语言）
+    pxRect(g, x, y, w, h, opts.fill ?? C.ink, opts.alpha ?? 1);
     pxFrame(g, x, y, w, h, opts.frame ?? C.brassDark);
     pxFrame(g, x + 2, y + 2, w - 4, h - 4, C.brass, 1, 0.2);
+    pxFrame(g, x - 1, y - 1, w + 2, h + 2, C.outline, 1, 1);
     for (const [sx, sy] of [[x, y], [x + w - 3, y], [x, y + h - 3], [x + w - 3, y + h - 3]]) {
       pxRect(g, sx, sy, 3, 3, C.brass, 0.9);
       pxRect(g, sx + 1, sy + 1, 1, 1, C.brassLight, 1);

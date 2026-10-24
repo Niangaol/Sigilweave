@@ -83,6 +83,7 @@ export default class GameOverScene extends Phaser.Scene {
     // 黄铜双边框 + 角钉
     pxFrame(g, 64, 32, 352, 206, C.brass, 3, 1);
     pxFrame(g, 69, 37, 342, 196, C.brassDark, 1, 0.9);
+    pxFrame(g, 63, 31, 354, 208, C.outline, 1, 1);
     for (const [x, y] of [[64, 32], [412, 32], [64, 234], [412, 234]]) {
       pxRect(g, x, y, 4, 4, C.brass, 1);
       pxRect(g, x + 1, y + 1, 2, 2, C.brassLight, 1);

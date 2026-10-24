@@ -84,6 +84,7 @@ export default class TitleScene extends Phaser.Scene {
     pxRect(this.helpG, X, Y, W, H, C.ink, 0.98);
     pxFrame(this.helpG, X, Y, W, H, C.brass, 1, 1);
     pxFrame(this.helpG, X + 3, Y + 3, W - 6, H - 6, C.brassDark, 0.5, 1);
+    pxFrame(this.helpG, X - 1, Y - 1, W + 2, H + 2, C.outline, 1, 1);
     const lines = [
       ['玩法说明', 12, HEX.brassLight, 12],
       ['右下角罗盘 = 你周围的 4×4 方位。格子在左 = 你左侧区域，踩中即向该区域出手。', 9, HEX.parchment, 40],
