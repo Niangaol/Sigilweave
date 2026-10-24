@@ -134,6 +134,23 @@ export function addText(scene, x, y, str, size = 9, color = HEX.parchment, extra
 
 // ---------- 硬边像素绘制 ----------
 
+// 8×8 像素字模：'#' 为亮像素，其余忽略。统一入口，避免每个界面各写一套循环。
+export function drawGlyph(g, x, y, glyph, color, opts = {}) {
+  if (!Array.isArray(glyph) || !glyph.length) return;
+  const scale = opts.scale ?? 1;
+  const alpha = opts.alpha ?? 1;
+  const w = glyph[0].length;
+  const h = glyph.length;
+  g.fillStyle(color, alpha);
+  for (let row = 0; row < h; row++) {
+    const line = glyph[row];
+    for (let col = 0; col < w; col++) {
+      if (line[col] !== '#') continue;
+      g.fillRect(x + col * scale, y + row * scale, scale, scale);
+    }
+  }
+}
+
 export function pxRect(g, x, y, w, h, color, alpha = 1) {
   if (w <= 0 || h <= 0) return;
   g.fillStyle(color, alpha);

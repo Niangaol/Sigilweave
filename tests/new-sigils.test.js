@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { createGrid, rebuildDerived } from '../src/logic/grid.js';
 import { resolveSigilTrigger, SIGIL_DEFS } from '../src/logic/effects.js';
 import { CARD_POOL } from '../src/logic/workshop.js';
-import { SIGILS } from '../src/data/roster.js';
+import { SIGILS, RUNE_GLYPHS } from '../src/data/roster.js';
+import { drawGlyph } from '../src/ui/Palette.js';
 
 function full() {
   const grid = createGrid();
@@ -58,6 +59,41 @@ describe('每个法术都必须有独立图标', () => {
       expect(SIGIL_DEFS[card.defId], card.defId).toBeTruthy();
       expect(SIGILS[card.defId]?.glyph, card.defId + ' 无图标').toBeTruthy();
     }
+  });
+});
+
+describe('铭文图标与绘图工具', () => {
+  it('四种铭文都有 8×8 图标且两两不同', () => {
+    const ids = Object.keys(RUNE_GLYPHS);
+    expect(ids.sort()).toEqual(['forge', 'relay', 'sever', 'silence']);
+    const seen = new Set();
+    for (const id of ids) {
+      const glyph = RUNE_GLYPHS[id];
+      expect(glyph, id).toHaveLength(8);
+      let lit = 0;
+      for (const row of glyph) {
+        expect(row, id + ' 行宽').toHaveLength(8);
+        expect(/^[.#]+$/.test(row)).toBe(true);
+        lit += [...row].filter((ch) => ch === '#').length;
+      }
+      expect(lit).toBeGreaterThanOrEqual(6);
+      seen.add(glyph.join('|'));
+    }
+    expect(seen.size).toBe(ids.length);
+  });
+  it('drawGlyph 只画 # 像素，坐标与缩放正确', () => {
+    const ops = [];
+    const g = {
+      fillStyle: (color, alpha) => ops.push({ color, alpha }),
+      fillRect: (x, y, w, h) => ops.push({ x, y, w, h }),
+    };
+    drawGlyph(g, 10, 20, ['#.#.....', '........', '........', '........', '........', '........', '........', '........'], 0xffffff, { scale: 2, alpha: 0.5 });
+    const rects = ops.filter((o) => o.w !== undefined);
+    expect(rects).toEqual([
+      { x: 10, y: 20, w: 2, h: 2 },
+      { x: 14, y: 20, w: 2, h: 2 },
+    ]);
+    expect(ops[0]).toMatchObject({ color: 0xffffff, alpha: 0.5 });
   });
 });
 

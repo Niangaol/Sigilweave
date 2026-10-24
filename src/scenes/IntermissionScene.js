@@ -1,7 +1,8 @@
 // 幕间工作台独立于战斗：只编辑草稿，出发时一次提交；右下罗盘布局仅用于战斗。
 import Phaser from 'phaser';
-import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, applyPixelZoom } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxDiamond, drawGlyph, applyPixelZoom } from '../ui/Palette.js';
 import { decoratePlan } from '../ui/board-decor.js';
+import { cardVisual, RUNE_GLYPHS } from '../data/roster.js';
 import { createGrid } from '../logic/grid.js';
 import { applyDraft, draftFromGrid, unlockToTarget, AUX_TARGETED } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS } from '../logic/effects.js';
@@ -46,6 +47,8 @@ export default class IntermissionScene extends Phaser.Scene {
     this.note = '三轮奖励选完后出发；法阵必须保留至少两张非中继输出。';
     this.input.keyboard.resetKeys();
     this.view = this.add.container(0, 0);
+    // 悬停高亮独立成层：移鼠标只清这一层，不重建整页文字
+    this.hoverG = this.add.graphics().setDepth(5);
     this.paint();
     window.__SIGILWEAVE_WORKSHOP__ = this;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -55,13 +58,251 @@ export default class IntermissionScene extends Phaser.Scene {
   text(x, y, value, size = 8, color = HEX.parchment, extra = {}) {
     const t = addText(this, x, y, value, size, color, extra); this.view.add(t); return t;
   }
-  button(x, y, w, h, label, action, color = HEX.parchment) {
-    const g = this.add.graphics(); this.view.add(g);
-    pxRect(g, x, y, w, h, C.stoneDark); pxFrame(g, x, y, w, h, C.brassDark);
-    this.text(x + w / 2, y + h / 2, label, 8, color).setOrigin(0.5);
-    const zone = this.add.zone(x, y, w, h).setOrigin(0).setInteractive({ useHandCursor: true }); this.view.add(zone);
-    zone.on('pointerdown', () => { if (!this.departed) action(); });
+  // —— 视觉构件 ——
+  // 分区面板：底 + 双层黄铜边框 + 四角铆钉，统一所有区块的仪式感
+  panel(g, x, y, w, h, opts = {}) {
+    pxRect(g, x, y, w, h, opts.fill ?? C.ink, opts.alpha ?? 0.9);
+    pxFrame(g, x, y, w, h, opts.frame ?? C.brassDark);
+    pxFrame(g, x + 2, y + 2, w - 4, h - 4, C.brass, 1, 0.2);
+    for (const [sx, sy] of [[x, y], [x + w - 3, y], [x, y + h - 3], [x + w - 3, y + h - 3]]) {
+      pxRect(g, sx, sy, 3, 3, C.brass, 0.9);
+      pxRect(g, sx + 1, sy + 1, 1, 1, C.brassLight, 1);
+    }
   }
+
+  // 悬停高亮画在独立图层：只清这一层，不必重建整页文字
+  hoverRect(x, y, w, h, color = C.brassLight) {
+    const g = this.hoverG;
+    if (!g) return;
+    g.clear();
+    pxRect(g, x, y, w, h, color, 0.1);
+    pxFrame(g, x, y, w, h, color, 1, 0.8);
+  }
+
+  clearHover() { this.hoverG?.clear(); }
+
+  zone(x, y, w, h, action, color = C.brassLight) {
+    const z = this.add.zone(x, y, w, h).setOrigin(0).setInteractive({ useHandCursor: true });
+    this.view.add(z);
+    z.on('pointerover', () => this.hoverRect(x, y, w, h, color));
+    z.on('pointerout', () => this.clearHover());
+    z.on('pointerdown', () => { if (!this.departed) action(); });
+    return z;
+  }
+
+  glyphOf(defId, kind) {
+    if (RUNE_GLYPHS[defId]) return RUNE_GLYPHS[defId];
+    return cardVisual({ kind: kind ?? (SIGIL_DEFS[defId] ? 'sigil' : 'auxiliary'), defId })?.glyph ?? null;
+  }
+
+  button(x, y, w, h, label, action, color = HEX.parchment, opts = {}) {
+    const g = this.add.graphics(); this.view.add(g);
+    pxRect(g, x, y, w, h, opts.fill ?? C.stoneDark, opts.alpha ?? 1);
+    pxFrame(g, x, y, w, h, opts.frame ?? C.brassDark);
+    pxRect(g, x + 1, y + 1, w - 2, 1, C.brass, 0.25);
+    this.text(x + w / 2, y + h / 2, label, opts.size ?? 8, color).setOrigin(0.5);
+    return this.zone(x, y, w, h, action);
+  }
+
+  // 带图标的按钮：左侧 8×8 字模 + 竖分隔线，文字左对齐
+  iconButton(x, y, w, h, defId, label, action, color = HEX.parchment, kind = null) {
+    const g = this.add.graphics(); this.view.add(g);
+    pxRect(g, x, y, w, h, C.stoneDark, 1);
+    pxFrame(g, x, y, w, h, C.brassDark);
+    const glyph = this.glyphOf(defId, kind);
+    if (glyph) drawGlyph(g, x + 4, y + Math.floor((h - 8) / 2), glyph, C.arcaneLight, { alpha: 0.95 });
+    pxRect(g, x + 15, y + 2, 1, h - 4, C.brassDark, 0.6);
+    this.text(x + 20, y + Math.floor((h - 8) / 2) + 1, label, 8, color);
+    return this.zone(x, y, w, h, action);
+  }
+
+  // 手牌行：图标 + 名称 + 右对齐效果说明，选中时整行符文高亮
+  handRow(x, y, w, h, defId, label, hint, selected, action) {
+    const g = this.add.graphics(); this.view.add(g);
+    pxRect(g, x, y, w, h, selected ? C.nightSoft : C.night, 0.95);
+    pxFrame(g, x, y, w, h, selected ? C.arcane : C.stoneLight);
+    const glyph = this.glyphOf(defId);
+    if (glyph) drawGlyph(g, x + 3, y + 3, glyph, selected ? C.arcaneLight : C.parchment, { alpha: 0.95 });
+    this.text(x + 14, y + 4, label, 8, selected ? HEX.arcaneLight : HEX.parchment);
+    if (hint) this.text(x + w - 4, y + 4, hint, 7, HEX.mute).setOrigin(1, 0);
+    return this.zone(x, y, w, h, action, C.arcaneLight);
+  }
+
+  paint() {
+    this.view.removeAll(true);
+    this.clearHover();
+    const w = this.workshop;
+    const g = this.add.graphics(); this.view.add(g);
+
+    // 背景：硬边竖纹 + 四角硬边压暗（全程不使用平滑渐变）
+    pxRect(g, 0, 0, 480, 270, C.void);
+    for (let x = 0; x < 480; x += 24) pxRect(g, x, 0, 12, 270, C.ink, 0.22);
+    for (let i = 0; i < 3; i++) {
+      const a = 0.1 - i * 0.03;
+      pxRect(g, 0, i * 8, 480, 8, C.void, a);
+      pxRect(g, 0, 270 - (i + 1) * 8, 480, 8, C.void, a);
+      pxRect(g, i * 8, 0, 8, 270, C.void, a);
+      pxRect(g, 480 - (i + 1) * 8, 0, 8, 270, C.void, a);
+    }
+    pxFrame(g, 6, 6, 468, 258, C.brassDark);
+    pxFrame(g, 8, 8, 464, 254, C.brass, 1, 0.18);
+
+    // 标题栏：菱形纹章 + 幕数 + 碎片计数
+    pxRect(g, 10, 10, 460, 14, C.ink, 0.95);
+    pxRect(g, 10, 23, 460, 1, C.brassDark, 0.9);
+    pxDiamond(g, 14, 17, 3, C.brass, 0.95, false);
+    this.text(21, 11, '幕间构筑', 12, HEX.brassLight);
+    this.text(97, 13, '第 ' + w.draft.act + ' 幕准备', 8, HEX.mute);
+    pxRect(g, 396, 11, 70, 12, C.nightDeep, 1);
+    pxFrame(g, 396, 11, 70, 12, C.brassDark);
+    pxDiamond(g, 403, 17, 3, C.teal, 0.95, true);
+    this.text(409, 13, '碎片', 8, HEX.mute);
+    this.text(462, 13, String(w.shards), 9, HEX.teal).setOrigin(1, 0);
+
+    // 奖励区
+    this.panel(g, 10, 26, 460, 34, { fill: C.ink, alpha: 0.88 });
+    const offer = w.offer;
+    if (offer) {
+      offer.cards.forEach((card, i) => {
+        const x = 14 + i * 152;
+        this.iconButton(x, 28, 144, 22, card.defId,
+          names[card.defId].name + '  领取', () => this.choose(i),
+          card.kind === 'auxiliary' ? HEX.teal : HEX.arcaneLight, card.kind);
+        this.text(x + 3, 50, hints[card.defId] ?? '', 7, HEX.mute);
+      });
+    } else {
+      this.text(20, 36, '三轮奖励已领取 · 选右侧手牌，再点左侧符位放置', 8, HEX.teal);
+    }
+
+    // 信息行
+    pxRect(g, 14, 62, 222, 1, C.brassDark, 0.45);
+    pxDiamond(g, 16, 66, 2, C.brass, 0.8, false);
+    this.text(22, 63, '奖励剩余 ' + w.roundsRemaining + ' 轮', 8, HEX.brass);
+    pxDiamond(g, 104, 66, 2, C.brass, 0.8, false);
+    this.text(110, 63, '已解封 ' + w.draft.unlocked.length + ' / 16 格', 8, HEX.mute);
+
+    // 法阵区
+    this.panel(g, 10, 72, 224, 124, { fill: C.nightDeep, alpha: 0.82 });
+    const grid = createGrid();
+    applyDraft(grid, w.draft, { phase: 'intermission' });
+    for (let id = 0; id < 16; id++) {
+      const x = 14 + (id % 4) * 54, y = 76 + Math.floor(id / 4) * 29;
+      const unlocked = w.draft.unlocked.includes(id), slot = w.draft.slots[id];
+      const selected = id === this.focusCell || id === this.auxPending;
+      pxRect(g, x, y, 51, 26, unlocked ? C.stone : C.night);
+      if (unlocked) {
+        pxRect(g, x + 1, y + 1, 49, 1, C.groove, 0.3);
+        pxRect(g, x + 1, y + 24, 49, 1, C.nightDeep, 0.45);
+      }
+      pxFrame(g, x, y, 51, 26, selected ? C.arcane : C.stoneLight, selected ? 2 : 1);
+      // 角落 / 边上 / 中心三种区位装饰，与战斗罗盘同一份规则，只是刻度更大
+      const plan = decoratePlan(id, [{ x, y }, { x: x + 51, y }, { x: x + 51, y: y + 26 }, { x, y: y + 26 }], { inset: 1, arm: 8, centerInset: 1 });
+      if (plan) {
+        const dim = unlocked ? 1 : 0.7;
+        if (plan.wash) pxPoly(g, plan.wash.quad, C[plan.wash.color], plan.wash.alpha * dim);
+        for (const line of plan.lines) pxLine(g, line.a.x, line.a.y, line.b.x, line.b.y, C[line.color], line.alpha * dim, line.width ?? 1);
+        for (const dot of plan.dots) {
+          const size = dot.size ?? 1;
+          pxRect(g, Math.round(dot.x), Math.round(dot.y), size, size, C[dot.color], dot.alpha * dim);
+        }
+      }
+      if (!unlocked) {
+        pxDiamond(g, x + 25, y + 12, 3, C.stoneDark, 0.9, false);
+        this.text(x + 3, y + 2, '封印', 8, HEX.mute);
+      } else if (slot) {
+        const visual = cardVisual(slot);
+        if (visual.glyph) drawGlyph(g, x + 3, y + 3, visual.glyph, visual.color ?? C.arcaneLight, { alpha: 0.95 });
+        this.text(x + 13, y + 2, names[slot.defId]?.name ?? '?', 8, slot.kind === 'auxiliary' ? HEX.teal : HEX.parchment);
+      } else {
+        this.text(x + 3, y + 2, '空符位', 8, HEX.mute);
+      }
+      const runeCount = (w.draft.runes[id] ?? []).filter(Boolean).length;
+      const target = w.draft.auxTargets[id];
+      this.text(x + 3, y + 15, (id + 1) + ' · 铭' + runeCount + ' 出' + this.currentExits(id).length + (target !== undefined ? (' →' + (target + 1)) : ''), 7, HEX.mute);
+      this.zone(x, y, 51, 26, () => this.clickCell(id), C.arcaneLight);
+    }
+
+    const cell = grid.cells[this.focusCell];
+    if (this.exitMode) {
+      // 出口编辑面板：临时覆盖左下统计区，不改动法阵本身
+      this.panel(g, 10, 196, 224, 70, { fill: C.ink, alpha: 0.97, frame: C.brass });
+      this.text(16, 199, '出口编辑 · ' + (this.focusCell + 1) + ' 号（' + (w.draft.slots[this.focusCell] ? names[w.draft.slots[this.focusCell].defId] : '空符位') + '）', 8, HEX.brassLight);
+      const cur = this.currentExits(this.focusCell);
+      const dirs = [['up', '上'], ['down', '下'], ['left', '左'], ['right', '右']];
+      dirs.forEach(([d, label], i) => {
+        const x = 16 + (i % 2) * 102, y = 214 + Math.floor(i / 2) * 20;
+        this.button(x, y, 102, 18, label + ' ' + (cur.includes(d) ? '开' : '关'), () => this.toggleExit(d),
+          cur.includes(d) ? HEX.teal : HEX.mute, { fill: cur.includes(d) ? C.stone : C.nightDeep });
+      });
+      this.button(16, 254, 204, 12, '完成出口编辑', () => { this.exitMode = false; this.paint(); }, HEX.brassLight);
+      this.text(244, 240, w.note ?? this.note, 7, HEX.arcaneLight, { wordWrap: { width: 216 } });
+      const ex = this.currentExits(this.focusCell);
+      const label = { up: '上', down: '下', left: '左', right: '右' };
+      this.text(228, 199, ex.map(d => label[d]).join('') || '无', 8, HEX.teal).setOrigin(1, 0);
+      return;
+    }
+
+    // 统计区
+    this.panel(g, 10, 196, 224, 62, { fill: C.ink, alpha: 0.9 });
+    const outputs = Object.entries(w.draft.slots).filter(([id, s]) => s?.kind === 'sigil' && !w.draft.runes[id]?.includes('relay')).length;
+    const auxes = Object.values(w.draft.slots).filter(s => s?.kind === 'auxiliary').length;
+    const empties = w.draft.unlocked.filter(id => !w.draft.slots[id]).length;
+    this.text(16, 200, '输出 ' + outputs + ' / 辅助 ' + auxes + ' / 空位 ' + empties, 8, HEX.teal);
+    this.text(16, 212, '选中 ' + (this.focusCell + 1) + ' 号  间隔 ' + (cell.effIntervalMs / 1000).toFixed(2) + 's / 冷却 ' + (cell.effCooldownMs / 1000).toFixed(2) + 's', 8, HEX.mute);
+    this.text(16, 222, '上幕：触发 ' + (this.report.triggers ?? 0) + '  受阻 ' + (this.report.blocked ?? 0) + '  击杀 ' + (this.report.kills ?? 0), 8, HEX.mute);
+    this.text(16, 233, '誓约', 8, HEX.brass);
+    OATH_LIST.forEach(([id, label], i) => {
+      this.button(44 + i * 52, 231, 48, 14, label, () => this.setOath(w.draft.oath === id ? null : id),
+        w.draft.oath === id ? HEX.teal : HEX.mute, { fill: w.draft.oath === id ? C.stone : C.nightDeep });
+    });
+    this.text(16, 249, w.draft.oath ? ('当前：' + OATH_DEFS[w.draft.oath].name) : '未立誓（全局生效，最多一个）', 7, HEX.mute);
+
+    // 右列：手牌与铭文（先算手牌统计，下面标题与列表都要用）
+    const handTypes = Object.values(w.hand).filter(Boolean).length;
+    const handTotal = Object.values(w.hand).reduce((a, b) => a + b, 0);
+    this.panel(g, 240, 72, 230, 190, { fill: C.ink, alpha: 0.9 });
+    pxRect(g, 242, 64, 74, 11, C.ink, 0.95);
+    pxFrame(g, 242, 64, 74, 11, C.brassDark);
+    this.text(246, 66, '手牌 ' + handTypes + ' 种', 8, HEX.brass);
+    this.button(390, 64, 70, 13, '出口编辑', () => { this.exitMode = true; this.auxPending = null; this.paint(); }, HEX.brassLight, { fill: C.nightDeep });
+    // 手牌列表区：固定内框，张数少时也读作“列表容器”而不是一片空白
+    pxRect(g, 244, 78, 216, 86, C.night, 0.55);
+    pxFrame(g, 244, 78, 216, 86, C.stoneLight, 1, 0.45);
+    let row = 0;
+    for (const [key, count] of Object.entries(w.hand)) {
+      if (!count || row >= 5) continue;
+      const defId = key.split(':')[1];
+      const y = 82 + row * 16;
+      this.handRow(244, y, 216, 14, defId, names[defId]?.name + ' ×' + count, hints[defId] ?? '',
+        this.selectedCard === key, () => {
+          this.selectedCard = this.selectedCard === key ? null : key;
+          this.auxPending = null;
+          this.note = this.selectedCard ? (hints[defId] + '；点击符位安装') : '已取消选择';
+          this.paint();
+        });
+      row++;
+    }
+    if (!row) this.text(248, 88, '暂时没有手牌，请先领取上方奖励。', 8, HEX.mute);
+    if (this.auxPending !== null) this.text(244, 166, '等待目标：点击 ' + (this.auxPending + 1) + ' 号相邻输出符印', 8, HEX.blood);
+    else if (w.draft.auxTargets && Object.keys(w.draft.auxTargets).length) this.text(244, 166, '指向：' + Object.entries(w.draft.auxTargets).map(([a, b]) => (a + 1) + '→' + (b + 1)).join(' '), 7, HEX.mute);
+    this.button(244, 172, 105, 16, '主卡返回手牌', () => { this.auxPending = null; this.act(removeCard(w, this.focusCell)); });
+    this.button(355, 172, 105, 16, '取消手牌选择', () => { this.selectedCard = null; this.auxPending = null; this.paint(); });
+    this.iconButton(244, 192, 105, 15, 'forge', '熔炉 8碎', () => this.addRune('forge'), HEX.parchment);
+    this.iconButton(355, 192, 105, 15, 'relay', '中继 8碎', () => this.addRune('relay'), HEX.parchment);
+    this.iconButton(244, 209, 105, 15, 'sever', '断流 8碎', () => this.addRune('sever'), HEX.parchment);
+    this.iconButton(355, 209, 105, 15, 'silence', '静默 8碎', () => this.addRune('silence'), HEX.parchment);
+    for (let i = 0; i < 2; i++) {
+      const rune = w.draft.runes[this.focusCell]?.[i];
+      this.button(244 + i * 111, 224, 105, 15, rune ? ('拆 ' + names[rune].name) : ('铭文槽 ' + (i + 1) + ' 空'),
+        () => this.act(removeRune(w, this.focusCell, i)), rune ? HEX.brassLight : HEX.mute,
+        { fill: rune ? C.stoneDark : C.nightDeep });
+    }
+    this.text(244, 240, this.note, 7, HEX.arcaneLight, { wordWrap: { width: 216 }, lineSpacing: 0 });
+    const ready = canDepart(w);
+    this.button(244, 250, 216, 12, '确认构筑 · 出发', () => this.depart(), ready.ok ? HEX.teal : HEX.mute,
+      { fill: ready.ok ? C.stoneDark : C.nightDeep, frame: ready.ok ? C.teal : C.brassDark, size: 9 });
+  }
+
   act(result) { this.note = result.message; this.paint(); }
   choose(index) {
     const offer = this.workshop.offer;
@@ -140,108 +381,5 @@ export default class IntermissionScene extends Phaser.Scene {
     this.workshop.draft.oath = id;
     this.note = id ? ('已立誓：' + OATH_DEFS[id].name) : '已解除誓约';
     this.paint();
-  }
-  paint() {
-    this.view.removeAll(true);
-    const w = this.workshop;
-    const g = this.add.graphics(); this.view.add(g);
-    pxRect(g, 0, 0, 480, 270, C.void);
-    pxFrame(g, 6, 6, 468, 258, C.brassDark);
-    this.text(14, 10, '幕间构筑  /  第 ' + w.draft.act + ' 幕准备', 12, HEX.brassLight);
-    this.text(466, 12, '碎片 ' + w.shards, 10, HEX.teal).setOrigin(1, 0);
-    const offer = w.offer;
-    if (offer) {
-      offer.cards.forEach((card, i) => {
-        const x = 14 + i * 152;
-        this.button(x, 28, 144, 22, names[card.defId].name + '  领取', () => this.choose(i), card.kind === 'auxiliary' ? HEX.teal : HEX.arcaneLight);
-        this.text(x + 3, 52, hints[card.defId] ?? '', 7, HEX.mute);
-      });
-    } else this.text(16, 34, '三轮奖励已领取。选右侧手牌，再点左侧符位放置。', 8, HEX.teal);
-    this.text(14, 66, '奖励剩余 ' + w.roundsRemaining + ' 轮  /  已解封 ' + w.draft.unlocked.length + ' 格', 8, HEX.mute);
-    const grid = createGrid();
-    applyDraft(grid, w.draft, { phase: 'intermission' });
-    for (let id = 0; id < 16; id++) {
-      const x = 14 + (id % 4) * 54, y = 76 + Math.floor(id / 4) * 29;
-      const unlocked = w.draft.unlocked.includes(id), slot = w.draft.slots[id];
-      const selected = id === this.focusCell || id === this.auxPending;
-      pxRect(g, x, y, 51, 26, unlocked ? C.stone : C.night);
-      pxFrame(g, x, y, 51, 26, selected ? C.arcane : C.stoneLight);
-      // 角落 / 边上 / 中心三种区位装饰，与战斗罗盘同一份规则，只是刻度更大
-      // inset 1 / centerInset 1：装饰线全部压在格内边，避开 8px 名称行与 7px 明细行
-      const plan = decoratePlan(id, [{ x, y }, { x: x + 51, y }, { x: x + 51, y: y + 26 }, { x, y: y + 26 }], { inset: 1, arm: 8, centerInset: 1 });
-      if (plan) {
-        const dim = unlocked ? 1 : 0.7;
-        if (plan.wash) pxPoly(g, plan.wash.quad, C[plan.wash.color], plan.wash.alpha * dim);
-        for (const line of plan.lines) pxLine(g, line.a.x, line.a.y, line.b.x, line.b.y, C[line.color], line.alpha * dim, line.width ?? 1);
-        for (const dot of plan.dots) {
-          const size = dot.size ?? 1;
-          pxRect(g, Math.round(dot.x), Math.round(dot.y), size, size, C[dot.color], dot.alpha * dim);
-        }
-      }
-      this.text(x + 2, y + 2, unlocked ? (slot ? names[slot.defId]?.name : '空符位') : '封印', 8, slot?.kind === 'auxiliary' ? HEX.teal : HEX.parchment);
-      const runeCount = (w.draft.runes[id] ?? []).filter(Boolean).length;
-      const target = w.draft.auxTargets[id];
-      this.text(x + 2, y + 14, (id + 1) + '  铭 ' + runeCount + ' 出' + this.currentExits(id).length + (target !== undefined ? (' →' + (target + 1)) : ''), 7, HEX.mute);
-      const zone = this.add.zone(x, y, 51, 26).setOrigin(0).setInteractive({ useHandCursor: true }); this.view.add(zone);
-      zone.on('pointerdown', () => { if (!this.departed) this.clickCell(id); });
-    }
-    const cell = grid.cells[this.focusCell];
-    if (this.exitMode) {
-      // 出口编辑面板：临时覆盖左下统计区，不改动法阵本身
-      pxRect(g, 10, 196, 224, 70, C.ink, 0.96); pxFrame(g, 10, 196, 224, 70, C.brass);
-      this.text(16, 198, '出口编辑 · ' + (this.focusCell + 1) + ' 号（' + (w.draft.slots[this.focusCell] ? names[w.draft.slots[this.focusCell].defId] : '空符位') + '）', 8, HEX.brassLight);
-      const cur = this.currentExits(this.focusCell);
-      const dirs = [['up', '上'], ['down', '下'], ['left', '左'], ['right', '右']];
-      dirs.forEach(([d, label], i) => {
-        const x = 16 + (i % 2) * 102, y = 214 + Math.floor(i / 2) * 20;
-        this.button(x, y, 102, 18, label + ' ' + (cur.includes(d) ? '开' : '关'), () => this.toggleExit(d), cur.includes(d) ? HEX.teal : HEX.mute);
-      });
-      this.button(16, 254, 204, 12, '完成出口编辑', () => { this.exitMode = false; this.paint(); }, HEX.brassLight);
-      this.text(244, 244, w.note ?? this.note, 7, HEX.arcaneLight, { wordWrap: { width: 216 } });
-      const ex = this.currentExits(this.focusCell);
-      const label = { up: '上', down: '下', left: '左', right: '右' };
-      this.text(228, 196, ex.map(d => label[d]).join('') || '无', 8, HEX.teal).setOrigin(1, 0);
-      return;
-    }
-    this.text(16, 196, '输出 ' + Object.entries(w.draft.slots).filter(([id, s]) => s?.kind === 'sigil' && !w.draft.runes[id]?.includes('relay')).length
-      + ' / 辅助 ' + Object.values(w.draft.slots).filter(s => s?.kind === 'auxiliary').length
-      + ' / 空位 ' + w.draft.unlocked.filter(id => !w.draft.slots[id]).length, 8, HEX.teal);
-    this.text(16, 208, '选中 ' + (this.focusCell + 1) + ' 号  间隔 ' + (cell.effIntervalMs / 1000).toFixed(2) + 's / 冷却 ' + (cell.effCooldownMs / 1000).toFixed(2) + 's', 8, HEX.mute);
-    this.text(16, 220, '上幕：触发 ' + (this.report.triggers ?? 0) + '  受阻 ' + (this.report.blocked ?? 0) + '  击杀 ' + (this.report.kills ?? 0), 8, HEX.mute);
-    this.text(16, 233, '誓约', 8, HEX.brass);
-    OATH_LIST.forEach(([id, label], i) => {
-      this.button(44 + i * 52, 231, 48, 14, label, () => this.setOath(w.draft.oath === id ? null : id), w.draft.oath === id ? HEX.teal : HEX.mute);
-    });
-    this.text(16, 249, w.draft.oath ? ('当前：' + OATH_DEFS[w.draft.oath].name) : '未立誓（全局生效，最多一个）', 7, HEX.mute);
-    // 右列：手牌与操作
-    this.text(244, 66, '手牌：点选后装入符位', 8, HEX.brass);
-    this.button(390, 64, 70, 13, '出口编辑', () => { this.exitMode = true; this.auxPending = null; this.paint(); }, HEX.brassLight);
-    let row = 0;
-    for (const [key, count] of Object.entries(w.hand)) {
-      if (!count || row >= 5) continue;
-      const defId = key.split(':')[1];
-      const y = 78 + row * 16;
-      this.button(244, y, 216, 14, names[defId]?.name + ' ×' + count + '   ' + (hints[defId] ?? ''), () => {
-        this.selectedCard = this.selectedCard === key ? null : key;
-        this.auxPending = null;
-        this.note = this.selectedCard ? (hints[defId] + '；点击符位安装') : '已取消选择'; this.paint();
-      }, this.selectedCard === key ? HEX.teal : HEX.parchment);
-      row++;
-    }
-    if (!row) this.text(244, 80, '暂时没有手牌，请先领取上方奖励。', 8, HEX.mute);
-    if (this.auxPending !== null) this.text(244, 160, '等待目标：点击 ' + (this.auxPending + 1) + ' 号相邻输出符印', 8, HEX.blood);
-    else if (w.draft.auxTargets && Object.keys(w.draft.auxTargets).length) this.text(244, 160, '指向：' + Object.entries(w.draft.auxTargets).map(([a, b]) => (a + 1) + '→' + (b + 1)).join(' '), 7, HEX.mute);
-    this.button(244, 172, 105, 16, '主卡返回手牌', () => { this.auxPending = null; this.act(removeCard(w, this.focusCell)); });
-    this.button(355, 172, 105, 16, '取消手牌选择', () => { this.selectedCard = null; this.auxPending = null; this.paint(); });
-    this.button(244, 192, 105, 15, '熔炉 8碎', () => this.addRune('forge'));
-    this.button(355, 192, 105, 15, '中继 8碎', () => this.addRune('relay'));
-    this.button(244, 209, 105, 15, '断流 8碎', () => this.addRune('sever'));
-    this.button(355, 209, 105, 15, '静默 8碎', () => this.addRune('silence'));
-    for (let i = 0; i < 2; i++) {
-      const rune = w.draft.runes[this.focusCell]?.[i];
-      this.button(244 + i * 111, 226, 105, 15, rune ? ('拆 ' + names[rune].name) : ('铭文槽 ' + (i + 1) + ' 空'), () => this.act(removeRune(w, this.focusCell, i)), rune ? HEX.brassLight : HEX.mute);
-    }
-    this.text(244, 244, this.note, 7, HEX.arcaneLight, { wordWrap: { width: 216 }, lineSpacing: 0 });
-    this.button(244, 254, 216, 14, '确认构筑 · 出发', () => this.depart(), canDepart(w).ok ? HEX.teal : HEX.mute);
   }
 }
