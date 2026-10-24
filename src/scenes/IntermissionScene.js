@@ -143,14 +143,15 @@ export default class IntermissionScene extends Phaser.Scene {
         infoY: 63,
         statsPanel: { x: 10, y: 196, w: 224, h: 62 },
         statsY: [200, 212],
-        oathLabelY: 233,
-        oathBtn: (i) => ({ x: 44 + i * 52, y: 231, w: 48, h: 14 }),
-        oathCurrentY: 249,
+        // 誓约整体上移 7px：原来状态栏（noteY）正好压在誓约按钮上，长提示会糊成一团
+        oathLabelY: 226,
+        oathBtn: (i) => ({ x: 44 + i * 52, y: 224, w: 48, h: 12 }),
+        oathCurrentY: 236,
         handPanel: { x: 240, y: 72, w: 230, h: 190 },
         handRow: (row) => ({ x: 244, y: 82 + row * 16, w: 216, h: 14 }),
         runeBtn: (i) => ({ x: (i % 2 ? 355 : 244), y: 192 + Math.floor(i / 2) * 17, w: 105, h: 15 }),
         runeSlot: (i) => ({ x: 244 + i * 111, y: 226, w: 105, h: 15 }),
-        noteY: 240,
+        noteY: 246,
         depart: { x: 244, y: 250, w: 216, h: 12 },
         exitPanel: { x: 10, y: 196, w: 224, h: 70 },
         exitTitleY: 199,
@@ -312,8 +313,10 @@ export default class IntermissionScene extends Phaser.Scene {
     const auxes = Object.values(w.draft.slots).filter(s => s?.kind === 'auxiliary').length;
     const empties = w.draft.unlocked.filter(id => !w.draft.slots[id]).length;
     this.text(16, L.statsY[0], '输出 ' + outputs + ' / 辅助 ' + auxes + ' / 空位 ' + empties, 8, HEX.teal);
-    this.text(16, L.statsY[1], '选中 ' + (this.focusCell + 1) + ' 号  间隔 ' + (cell.effIntervalMs / 1000).toFixed(2) + 's / 冷却 ' + (cell.effCooldownMs / 1000).toFixed(2) + 's'
-      + '　上幕：触发 ' + (this.report.triggers ?? 0) + ' 受阻 ' + (this.report.blocked ?? 0) + ' 击杀 ' + (this.report.kills ?? 0), 8, HEX.mute);
+    const statsLine = '选中 ' + (this.focusCell + 1) + ' 号  间隔 ' + (cell.effIntervalMs / 1000).toFixed(2) + 's / 冷却 ' + (cell.effCooldownMs / 1000).toFixed(2) + 's'
+      + '　上幕：触发 ' + (this.report.triggers ?? 0) + ' 受阻 ' + (this.report.blocked ?? 0) + ' 击杀 ' + (this.report.kills ?? 0);
+    // 横屏这一行本来就顶出面板压到右侧栏，截断到能放下的长度
+    this.text(16, L.statsY[1], isPortrait() ? statsLine : this.clipText(statsLine, 31), 8, HEX.mute);
 
     // 誓约
     this.text(16, L.oathLabelY, '誓约', 8, HEX.brass);
@@ -351,8 +354,12 @@ export default class IntermissionScene extends Phaser.Scene {
       row++;
     }
     if (!row) this.text(20, L.handPanel.y + 24, '暂时没有手牌，请先领取上方奖励。', 8, HEX.mute);
-    if (this.auxPending !== null) this.text(16, L.noteY - 12, '等待目标：点击 ' + (this.auxPending + 1) + ' 号相邻输出符印', 8, HEX.blood);
-    else if (w.draft.auxTargets && Object.keys(w.draft.auxTargets).length) this.text(16, L.noteY - 12, '指向：' + Object.entries(w.draft.auxTargets).map(([a, b]) => (a + 1) + '→' + (b + 1)).join(' '), 7, HEX.mute);
+    // 底部只留一行状态：待绑定 > 当前指向 > 最近一次操作提示
+    const status = this.auxPending !== null
+      ? { text: '等待目标 · 点 ' + (this.auxPending + 1) + ' 号相邻输出符印', color: HEX.blood, size: 7 }
+      : (w.draft.auxTargets && Object.keys(w.draft.auxTargets).length && !this.note)
+        ? { text: '指向：' + Object.entries(w.draft.auxTargets).map(([a, b]) => (a + 1) + '→' + (b + 1)).join(' '), color: HEX.mute, size: 7 }
+        : { text: this.note, color: HEX.arcaneLight, size: 7 };
 
     // 铭文购买与槽位
     const runeIds = ['forge', 'relay', 'sever', 'silence'];
@@ -368,7 +375,8 @@ export default class IntermissionScene extends Phaser.Scene {
         () => this.act(removeRune(w, this.focusCell, i)), rune ? HEX.brassLight : HEX.mute,
         { fill: rune ? C.stoneDark : C.nightDeep });
     }
-    this.text(16, L.noteY, this.note, 7, HEX.arcaneLight, { wordWrap: { width: isPortrait() ? 440 : 216 } });
+    this.text(16, L.noteY, isPortrait() ? status.text : this.clipText(status.text), status.size, status.color,
+      { wordWrap: { width: isPortrait() ? 440 : 216 } });
     const ready = canDepart(w);
     const dp = L.depart;
     this.button(dp.x, dp.y, dp.w, dp.h, '确认构筑 · 出发', () => this.depart(), ready.ok ? HEX.teal : HEX.mute,
@@ -377,6 +385,12 @@ export default class IntermissionScene extends Phaser.Scene {
 
   act(result) { this.note = result.message; this.paint(); }
 
+  // 横屏状态栏只有一行空间：超长就截断，宁可少说也别糊在誓约按钮上
+  clipText(value, max = 27) {
+    const text = String(value ?? '');
+    return text.length <= max ? text : text.slice(0, max - 1) + '…';
+  }
+
   // 找出目标失效的指向型辅助并进入绑定模式；没有就返回 false。
   syncAuxPending() {
     const missing = missingAuxTargets(this.workshop.draft);
@@ -384,7 +398,8 @@ export default class IntermissionScene extends Phaser.Scene {
     const id = missing[0];
     const card = this.workshop.draft.slots?.[id];
     this.selectedCard = null;
-    const cardName = names[card?.defId] ?? card?.defId ?? '辅助';
+    // names 里存的是 { name } 对象，这里必须取 .name，否则提示里会出现 [object Object]
+    const cardName = names[card?.defId]?.name ?? card?.defId ?? '辅助';
     if (!auxTargetCandidates(this.workshop.draft, id).length) {
       // 没有可指向的邻居：进绑定模式会把玩家挂死，只提示
       this.auxPending = null;
@@ -419,7 +434,7 @@ export default class IntermissionScene extends Phaser.Scene {
             this.note = '请点击相邻输出符印，指定这张辅助的作用目标';
           } else {
             this.auxPending = null;
-            this.note = (id + 1) + ' 号「' + (names[defId] ?? defId) + '」相邻没有符印可指向，请收回或换个位置';
+            this.note = (id + 1) + ' 号「' + (names[defId]?.name ?? defId) + '」相邻没有符印可指向，请收回或换个位置';
           }
         } else {
           // 换卡会连带清掉「原本指向这一格」的辅助目标：立刻把玩家带到那一格去重绑

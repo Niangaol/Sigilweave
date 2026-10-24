@@ -71,7 +71,7 @@ try {
   // 出口编辑：第7格关掉右出口，出发后应保留单向配置
   await click(201, 118);
   await click(425, 70);
-  await click(168, 243);
+  await click(168, 243); // 出口编辑里的「右」开关，不是誓约按钮
   await click(117, 258);
   await click(352, 261);
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.act === 2 && window.__SIGILWEAVE_BATTLE__.phase === 'play');
