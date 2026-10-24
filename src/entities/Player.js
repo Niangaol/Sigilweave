@@ -108,7 +108,8 @@ export default class Player {
       s.setTintFill(0x241f33);
     } else if (flash) {
       s.setTintFill(0xffffff);
-      if (s.anims.currentAnim?.key !== 'player-hurt') s.play('player-hurt', true);
+      // stop() 不清 currentAnim，第二次受击要靠 !isPlaying 才能重播受伤动画
+      if (s.anims.currentAnim?.key !== 'player-hurt' || !s.anims.isPlaying) s.play('player-hurt', true);
     } else {
       s.clearTint();
       if (now < this.invulnUntil) {

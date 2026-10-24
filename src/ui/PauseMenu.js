@@ -93,6 +93,7 @@ export default class PauseMenu {
     pxRect(g, 0, 0, 480, 270, C.void, 0.55);
     // 石质面板
     pxRect(g, 112, 44, 256, 226, C.ink, 0.98);
+    pxFrame(g, 111, 43, 258, 228, C.outline, 1, 1);
     pxFrame(g, 112, 44, 256, 226, C.brassDark, 2, 1);
     pxFrame(g, 116, 48, 248, 218, C.brass, 0.5, 1);
     pxRect(g, 120, 80, 240, 1, C.brassDark, 0.8);

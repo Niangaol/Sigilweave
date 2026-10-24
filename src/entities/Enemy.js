@@ -193,7 +193,8 @@ export default class Enemy {
     if (this.windup) want = 'attack';
     else if (this.speed > 0 && moving) want = 'walk';
     const key = prefix + '-' + want;
-    if (this.scene.anims.exists(key) && s.anims.currentAnim?.key !== key) s.play(key, true);
+    // 一次性动画（挥剑/攻击）播完后 currentAnim 不清，必须允许 !isPlaying 时重播
+    if (this.scene.anims.exists(key) && (s.anims.currentAnim?.key !== key || !s.anims.isPlaying)) s.play(key, true);
   }
 
   // 预警线 / 血条 / 精英描边：覆盖层，压在精灵上一层。
@@ -264,9 +265,15 @@ export default class Enemy {
     if (!this.windup) return;
     const aim = this.brain?.aim;
     if (!aim || !Number.isFinite(aim.x) || !Number.isFinite(aim.y)) return;
-    pxLine(g, x, y - 2, aim.x, aim.y, C.blood, 0.4);
-    pxRing(g, aim.x, aim.y, 9, C.blood, 0.75, 1);
-    pxDiamond(g, x, y - this.radius - 10, 2, C.blood, 0.9, true);
+    // 画风同步：瞄准线改暗描边底 + blood 主线（双线硬边，替代旧单线柔光）
+    pxLine(g, x, y - 1, aim.x, aim.y - 1, C.outline, 0.85);
+    pxLine(g, x, y - 2, aim.x, aim.y - 2, C.blood, 1);
+    // 落点：双环硬边（外暗描边 / 内 blood）
+    pxRing(g, aim.x, aim.y, 10, C.outline, 0.95, 1);
+    pxRing(g, aim.x, aim.y, 9, C.blood, 0.9, 1);
+    // 头顶警示菱形：暗菱形打底 + 红核（纯填充，不依赖 stroke API，测试假场景同样可跑）
+    pxDiamond(g, x, y - this.radius - 11, 3, C.outline, 1, true);
+    pxDiamond(g, x, y - this.radius - 10, 1, C.blood, 0.95, true);
   }
 
   drawSkeleton(g, x, y, bob, color, flash) {

@@ -121,10 +121,14 @@ export default class EncounterPanel {
       pxRect(g, 0, 0, 480, CANVAS_H_PORTRAIT, C.void, 0.92);
       pxRect(g, 10, 24, 460, 712, C.ink); pxFrame(g, 10, 24, 460, 712, C.brass, 1, 1);
       pxFrame(g, 13, 27, 454, 706, C.brassDark, 1, 0.4);
+      pxFrame(g, 9, 23, 462, 714, C.outline, 1, 1);
+      for (const [rx, ry] of [[13, 27], [460, 27], [13, 723], [460, 723]]) { pxRect(g, rx, ry, 3, 3, C.brass, 0.95); pxRect(g, rx + 1, ry + 1, 1, 1, C.brassLight, 1); }
     } else {
       pxRect(g, 0, 0, 480, 270, C.void, 0.76);
       pxRect(g, 18, 22, 444, 234, C.ink); pxFrame(g, 18, 22, 444, 234, C.brass, 1, 1);
       pxFrame(g, 21, 25, 438, 228, C.brassDark, 1, 0.4);
+      pxFrame(g, 17, 21, 446, 236, C.outline, 1, 1);
+      for (const [rx, ry] of [[21, 25], [452, 25], [21, 244], [452, 244]]) { pxRect(g, rx, ry, 3, 3, C.brass, 0.95); pxRect(g, rx + 1, ry + 1, 1, 1, C.brassLight, 1); }
     }
     pxDiamond(g, P ? 44 : 40, P ? 61 : 43, P ? 9 : 8, active.type === 'boss' ? C.blood : C.teal, 1, false);
     this.text(P ? 62 : 58, P ? 50 : 32, active.name + ' · ' + active.title, P ? 14 : 12, HEX.brassLight, { wordWrap: { width: P ? 396 : 388 } });

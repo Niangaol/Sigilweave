@@ -53,17 +53,33 @@ export default class Projectile {
     g.clear();
     const x = Math.round(this.x);
     const y = Math.round(this.y);
-    // 拖尾：由暗到亮的小像素
-    for (let i = 0; i < this.trail.length; i++) {
+    const col = this.def.color;
+
+    // 拖尾：离散像素点三档（越旧越小越暗），不用连续 alpha —— 对齐素材的硬色块语言
+    const n = this.trail.length;
+    for (let i = 0; i < n; i++) {
       const p = this.trail[i];
-      const a = 0.08 + (i / this.trail.length) * 0.3;
-      pxRect(g, p.x - 1, p.y - 1, 2, 2, this.def.color, a);
+      const k = n > 1 ? i / (n - 1) : 1;      // 0=最旧 1=最新
+      const px = Math.round(p.x);
+      const py = Math.round(p.y);
+      if (k > 0.66) {
+        // 近端：2×2 本体色，带暗描边角
+        pxRect(g, px - 1, py - 1, 2, 2, col, 1);
+        pxRect(g, px - 2, py, 1, 1, C.outline, 1);
+        pxRect(g, px + 1, py, 1, 1, C.outline, 1);
+      } else if (k > 0.33) {
+        pxRect(g, px, py, 1, 1, col, 1);
+      } else {
+        // 远端：暗色残影
+        pxRect(g, px, py, 1, 1, C.outline, 1);
+      }
     }
-    // 外晕与弹芯
-    pxRect(g, x - 3, y - 3, 7, 7, this.def.color, 0.14);
-    pxRect(g, x - 2, y - 2, 5, 5, this.def.color, 0.35);
-    pxRect(g, x - 1, y - 1, 3, 3, this.def.color, 1);
+
+    // 弹体三层：外菱形描边 → 本体 → 亮芯（与角色素材同一套「描边+本体+高光」）
+    pxDiamond(g, x, y, 3, C.outline, 1, false);
+    pxDiamond(g, x, y, 2, col, 1, true);
     pxRect(g, x - 1, y - 1, 1, 1, C.white, 1);
+    pxRect(g, x, y, 1, 1, C.arcaneLight, 1);
   }
 
   deactivate() {

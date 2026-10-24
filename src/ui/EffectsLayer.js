@@ -134,20 +134,28 @@ export default class EffectsLayer {
         const fx = sx(it.from.x); const fy = sy(it.from.y);
         const tx = sx(it.to.x); const ty = sy(it.to.y);
         // 法杖上方的施法光柱（世界层直接画，随镜头滚动）
-        pxRect(g, Math.round(it.from.x) - 1, Math.round(it.from.y) - 24, 3, 24, color, 0.28 * a);
-        pxRect(g, Math.round(it.from.x), Math.round(it.from.y) - 28, 1, 6, color, 0.55 * a);
+        // 施法光柱：暗描边槽 + 本色芯（硬边双线，替代旧柔光叠层）
+        const bx = Math.round(it.from.x);
+        const by = Math.round(it.from.y);
+        pxRect(g, bx - 1, by - 26, 3, 26, C.outline, 0.85 * a);
+        pxRect(g, bx, by - 24, 1, 22, color, a);
+        pxRect(g, bx, by - 29, 1, 4, C.white, 0.9 * a);
         // 主光迹：从法杖指向目标方位。空区也画，只是终点是区域中心。
-        pxLine(sg, fx, fy, tx, ty, color, 0.42 * a, 1);
+        // 主光迹：暗描边底 + 本色主线（双线硬边）
+        pxLine(sg, fx, fy + 1, tx, ty + 1, C.outline, 0.75 * a, 1);
+        pxLine(sg, fx, fy, tx, ty, color, 0.95 * a, 1);
         // 流动亮段：让「哪一下在飞」有明确的指向感
         const flow = (this.clock / 420) % 1;
         for (let s = 0; s < 5; s++) {
           const u = (flow + s * 0.035) % 1;
           const px = fx + (tx - fx) * u;
           const py = fy + (ty - fy) * u;
-          pxRect(sg, Math.round(px) - 1, Math.round(py) - 1, 3, 3, color, 0.7 * a);
+          pxRect(sg, Math.round(px) - 1, Math.round(py) - 1, 3, 3, C.outline, 0.9 * a);
+          pxRect(sg, Math.round(px), Math.round(py), 2, 2, color, a);
         }
         // 终点标记：命中目标为实心菱形，空射为空心加十字
-        pxDiamond(sg, tx, ty, 5, color, 0.95 * a, false);
+        pxDiamond(sg, tx, ty, 5, C.outline, 0.95 * a, false);
+        pxDiamond(sg, tx, ty, 4, color, a, false);
         if (it.empty) {
           pxLine(sg, tx - 2, ty - 2, tx + 2, ty + 2, C.mute, 0.6 * a, 1);
           pxLine(sg, tx + 2, ty - 2, tx - 2, ty + 2, C.mute, 0.6 * a, 1);
@@ -158,8 +166,10 @@ export default class EffectsLayer {
         this.drawSectorBrackets(sg, it.sector, color, 0.7 * a, sx, sy);
       } else if (it.kind === 'reroute') {
         // 冷却改道：短折线，青绿色属于「运行层」，不和伤害/联组抢色
-        pxLine(sg, it.from.x, it.from.y, it.mid.x, it.mid.y, C.teal, 0.75 * a, 1);
-        pxLine(sg, it.mid.x, it.mid.y, it.to.x, it.to.y, C.teal, 0.75 * a, 1);
+        pxLine(sg, it.from.x, it.from.y + 1, it.mid.x, it.mid.y + 1, C.outline, 0.8 * a, 1);
+        pxLine(sg, it.mid.x, it.mid.y + 1, it.to.x, it.to.y + 1, C.outline, 0.8 * a, 1);
+        pxLine(sg, it.from.x, it.from.y, it.mid.x, it.mid.y, C.teal, a, 1);
+        pxLine(sg, it.mid.x, it.mid.y, it.to.x, it.to.y, C.teal, a, 1);
         pxRect(sg, Math.round(it.mid.x) - 1, Math.round(it.mid.y) - 1, 2, 2, C.teal, a);
         pxDiamond(sg, it.to.x, it.to.y, 3, C.teal, a, false);
       } else if (it.kind === 'fallback') {
@@ -172,14 +182,17 @@ export default class EffectsLayer {
           const y0 = it.from.y + (it.to.y - it.from.y) * u0 - Math.sin(u0 * Math.PI) * 16;
           const x1 = it.from.x + (it.to.x - it.from.x) * u1;
           const y1 = it.from.y + (it.to.y - it.from.y) * u1 - Math.sin(u1 * Math.PI) * 16;
-          pxLine(sg, x0, y0, x1, y1, C.teal, 0.8 * a, 1);
+          pxLine(sg, x0, y0 + 1, x1, y1 + 1, C.outline, 0.85 * a, 1);
+          pxLine(sg, x0, y0, x1, y1, C.teal, a, 1);
         }
         pxDiamond(sg, it.to.x, it.to.y, 4, C.teal, a, false);
       } else if (it.kind === 'dissipate') {
         for (let ring = 0; ring < 3; ring++) {
           const rk = Math.max(0, Math.min(1, k - ring * 0.12));
           if (rk <= 0) continue;
-          pxDiamond(sg, it.x, it.y, 3 + rk * (12 + ring * 3), it.color, (1 - rk) * 0.85, false);
+          const rr = 3 + rk * (12 + ring * 3);
+          pxDiamond(sg, it.x, it.y, rr + 1, C.outline, (1 - rk) * 0.9, false);
+          pxDiamond(sg, it.x, it.y, rr, it.color, (1 - rk) * 0.85, false);
         }
         for (let s = 0; s < 6; s++) {
           const ang = (s / 6) * Math.PI * 2;
@@ -192,10 +205,13 @@ export default class EffectsLayer {
         for (let s = 0; s < it.centers.length - 1; s++) {
           const p0 = it.centers[s];
           const p1 = it.centers[s + 1];
-          pxLine(sg, p0.x, p0.y, p1.x, p1.y, C.brass, 0.9 * a, 3);
-          if (bright) pxLine(sg, p0.x, p0.y, p1.x, p1.y, C.white, 0.95, 2);
+          // 联组链带：brassDark 3px 底 + brass 1px 亮线（硬边双线，与素材描边语言一致）
+          pxLine(sg, p0.x, p0.y, p1.x, p1.y, C.brassDark, a, 3);
+          pxLine(sg, p0.x, p0.y, p1.x, p1.y, C.brass, a, 1);
+          if (bright) pxLine(sg, p0.x, p0.y, p1.x, p1.y, C.white, 0.95, 1);
         }
         for (const p of it.centers) {
+          pxDiamond(sg, p.x, p.y, 5, C.outline, a, false);
           pxDiamond(sg, p.x, p.y, 4, C.brass, a, false);
           pxDiamond(sg, p.x, p.y, 1, bright ? C.white : C.arcaneLight, a, true);
         }
@@ -208,8 +224,13 @@ export default class EffectsLayer {
         }
       } else if (it.kind === 'impact') {
         const rr = 2 + k * 5;
-        pxDiamond(g, it.x, it.y, rr, it.color, 0.9 * a, false);
-        pxRect(g, Math.round(it.x) - 1, Math.round(it.y) - 1, 2, 2, it.color, a);
+        // 命中：描边菱形扩张 + 本色环 + 白核十字
+        pxDiamond(g, it.x, it.y, rr + 1, C.outline, 0.9 * a, false);
+        pxDiamond(g, it.x, it.y, rr, it.color, a, false);
+        const hx = Math.round(it.x);
+        const hy = Math.round(it.y);
+        pxRect(g, hx - 1, hy, 3, 1, C.white, a);
+        pxRect(g, hx, hy - 1, 1, 3, C.white, a);
         for (let s = 0; s < 4; s++) {
           const ang = (s / 4) * Math.PI * 2 + Math.PI / 4;
           const dist = 3 + k * 12;
@@ -219,17 +240,23 @@ export default class EffectsLayer {
         for (const p of it.particles) {
           const px = it.x + p.dx * k * 2.2;
           const py = it.y + p.dy * k * 2.2 + k * k * 8;
-          pxRect(g, Math.round(px), Math.round(py), p.s, p.s, it.color, a);
+          const qx = Math.round(px);
+          const qy = Math.round(py);
+          pxRect(g, qx - 1, qy - 1, 3, 3, C.outline, a);
+          pxRect(g, qx, qy, 1, 1, it.color, a);
         }
       } else if (it.kind === 'hurt') {
         // 受击红边：分段硬边，不闪全屏
         const aa = a * 0.8;
+        // 受击红边：blood 4px 外带 + bloodDark 2px 内衬（双线硬边，不闪全屏）
         pxRect(vg, 0, 20, 480, 4, C.blood, aa);
         pxRect(vg, 0, 266, 480, 4, C.blood, aa);
         pxRect(vg, 0, 20, 4, 250, C.blood, aa);
         pxRect(vg, 476, 20, 4, 250, C.blood, aa);
-        pxRect(vg, 0, 20, 8, 250, C.bloodDark, aa * 0.4);
-        pxRect(vg, 472, 20, 8, 250, C.bloodDark, aa * 0.4);
+        pxRect(vg, 0, 24, 480, 2, C.bloodDark, aa);
+        pxRect(vg, 0, 264, 480, 2, C.bloodDark, aa);
+        pxRect(vg, 4, 20, 2, 250, C.bloodDark, aa);
+        pxRect(vg, 474, 20, 2, 250, C.bloodDark, aa);
       }
 
       if (k >= 1) {

@@ -18,6 +18,10 @@ export default class Boss {
     this.sprite = scene.textures?.exists(texKey) && typeof scene.add?.sprite === 'function'
       ? scene.add.sprite(Math.round(this.x), Math.round(this.y) + BOSS_FEET, texKey).setOrigin(0.5, 1)
       : null;
+    // 素材预警条（attack_warning.png）：Boss 读条时平铺在落点地面，兑现素材交付用途
+    this.warningSprite = scene.textures?.exists('attack_warning') && typeof scene.add?.image === 'function'
+      ? scene.add.image(0, 0, 'attack_warning').setOrigin(0.5, 0.5).setVisible(false).setDepth(860)
+      : null;
     if (this.sprite) this.sprite.setDepth(Math.floor(this.y));
     this.draw(0);
   }
@@ -46,8 +50,19 @@ export default class Boss {
     // 预警：读条瞄准线 + 落点环（程序化，保持既有手感）
     if (this.model.windupLeft > 0 && this.model.aim) {
       const aim = this.model.aim;
-      pxLine(g, x, y, aim.x, aim.y, C.blood, 0.65);
-      pxRing(g, aim.x, aim.y, 14, C.blood, 0.9, 1);
+      // 画风同步：瞄准线暗描边底 + blood 主线；落点双环硬边
+      pxLine(g, x, y + 1, aim.x, aim.y + 1, C.outline, 0.9);
+      pxLine(g, x, y, aim.x, aim.y, C.blood, 1);
+      pxRing(g, aim.x, aim.y, 15, C.outline, 1, 1);
+      pxRing(g, aim.x, aim.y, 14, C.blood, 0.95, 1);
+      // 素材预警条：落点脚下横向 1 条，宽度贴合环（32→40px）
+      if (this.warningSprite) {
+        this.warningSprite.setVisible(true)
+          .setPosition(Math.round(aim.x), Math.round(aim.y) + 10)
+          .setDisplaySize(40, 7);
+      }
+    } else if (this.warningSprite) {
+      this.warningSprite.setVisible(false);
     }
     if (this.sprite) {
       const s = this.sprite;
@@ -72,5 +87,5 @@ export default class Boss {
     pxRect(g, x - 17, y - 26, 34, 3, C.nightDeep);
     pxRect(g, x - 17, y - 26, Math.max(0, Math.round(34 * this.hp / this.maxHp)), 2, C.blood);
   }
-  destroy() { this.sprite?.destroy(); this.g.destroy(); }
+  destroy() { this.sprite?.destroy(); this.warningSprite?.destroy(); this.g.destroy(); }
 }

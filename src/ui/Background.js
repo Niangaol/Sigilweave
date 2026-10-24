@@ -23,7 +23,8 @@ const THEMES = {
     seed: 0x6d01,
     tileBase: C.graveTile, tileLit: C.graveTileLit, tileDark: C.graveTileDark,
     seam: C.nightDeep,
-    noise: [C.stoneDark, C.groove, C.stoneLight],
+    // 画风同步：混入素材同源的中间调（khaki/mauve），让地砖有材质而不是纯色块
+    noise: [C.stoneDark, C.groove, C.stoneLight, C.khaki, C.mauve],
     wall: C.stoneDark, wallEdge: C.groove, stud: C.stoneLight,
     pillar: C.stoneDark, pillarLit: C.stoneLight, wax: C.parchment,
     flame: C.arcane, flameCore: C.arcaneLight, glow: C.arcane,
@@ -34,7 +35,7 @@ const THEMES = {
     seed: 0x6d02,
     tileBase: C.mossTile, tileLit: C.mossTileLit, tileDark: C.mossTileDark,
     seam: C.ink,
-    noise: [C.rot, C.mossTileLit, C.stoneDark],
+    noise: [C.rot, C.mossTileLit, C.stoneDark, C.sage, C.khaki],
     wall: C.mossTileDark, wallEdge: C.swampGlint, stud: C.brassDark,
     pillar: C.ruinStone, pillarLit: C.mossTileLit, wax: C.parchment,
     flame: C.wisp, flameCore: C.wispCore, glow: C.wisp,
@@ -45,7 +46,7 @@ const THEMES = {
     seed: 0x6d03,
     tileBase: C.starTile, tileLit: C.starTileLit, tileDark: C.starTileDark,
     seam: C.ink,
-    noise: [C.runeDim, C.starTileLit, C.void],
+    noise: [C.runeDim, C.starTileLit, C.void, C.mauve],
     wall: C.starTileDark, wallEdge: C.runeCold, stud: C.runeCold,
     pillar: C.shardStone, pillarLit: C.runeDim, wax: C.parchment,
     flame: C.coldFlame, flameCore: C.coldFlameCore, glow: C.coldFlame,
@@ -529,11 +530,12 @@ export default class Background {
       const f = (step + c.phase) % 3;
       const h = 2 + (f === 0 ? 1 : 0);
       const y = c.y - 8;
-      pxRect(g, c.x, y - h, 1, h + 1, T.flame, 0.9);
-      pxRect(g, c.x - 1, y - 1, 3, 2, T.flame, 0.7);
+      // 画风同步：火苗硬边化——实心焰身 + 1px 亮芯 + 单层硬边光晕（去掉旧多层柔光）
+      pxRect(g, c.x, y - h, 1, h + 1, T.flame, 1);
+      pxRect(g, c.x - 1, y - 1, 3, 2, T.flame, 1);
       pxRect(g, c.x, y - h - 1, 1, 1, T.flameCore, 1);
-      pxRect(g, c.x - 3, y + 1, 7, 1, T.glow, 0.08);
-      pxRect(g, c.x - 5, y - 2, 11, 3, T.glow, 0.05);
+      pxRect(g, c.x - 3, y + 1, 7, 1, T.glow, 0.35);
+      pxRect(g, c.x - 4, y, 9, 1, T.glow, 0.18);
     }
   }
 }

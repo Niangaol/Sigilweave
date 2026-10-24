@@ -97,9 +97,15 @@ export default class SigilBoard {
 
     // 小窗底板：让罗盘在满屏地图上依然读得清
     const p = BOARD.panel;
-    pxRect(g, p.x, p.y, p.w, p.h, C.void, 0.86);
-    pxFrame(g, p.x, p.y, p.w, p.h, C.brassDark, 1);
-    pxFrame(g, p.x + 1, p.y + 1, p.w - 2, p.h - 2, C.stoneDark, 1);
+    // 画风同步：不透明石底 + 外描边 + 内亮边 + 四角铆钉（对齐素材的描边语言）
+    pxRect(g, p.x, p.y, p.w, p.h, C.ink, 1);
+    pxFrame(g, p.x, p.y, p.w, p.h, C.outline, 1);
+    pxFrame(g, p.x + 1, p.y + 1, p.w - 2, p.h - 2, C.brassDark, 1);
+    pxFrame(g, p.x + 2, p.y + 2, p.w - 4, p.h - 4, C.stoneDark, 1);
+    for (const [rx, ry] of [[p.x + 3, p.y + 3], [p.x + p.w - 6, p.y + 3], [p.x + 3, p.y + p.h - 6], [p.x + p.w - 6, p.y + p.h - 6]]) {
+      pxRect(g, rx, ry, 3, 3, C.brass, 0.95);
+      pxRect(g, rx + 1, ry + 1, 1, 1, C.brassLight, 1);
+    }
 
     const hull = hullPoints();
 

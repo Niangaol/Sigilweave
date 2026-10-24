@@ -24,17 +24,28 @@ export const C = {
   ink: 0x171226,
   mute: 0x8a7aa8,
 
+  // —— 画风同步中间调（2026-10 取自 12 个角色素材的实际用色）——
+  // 新素材的语言：近黑暗紫描边 + 低饱和中间调 + 骨白亮点。
+  // outline 专用于“给特效/面板描边”，比 void 更贴近素材描边色。
+  outline: 0x1c1226,
+  khaki: 0x6c6c54,   // 骨/腐中间调
+  mauve: 0x543c3c,   // 暗暖紫（受击/腐化）
+  sage: 0x849c6c,    // 苔绿中间调
+  tan: 0xcc9c6c,     // 暖褐高光
+
   // —— 三幕大地图主题色（Background 世界化专用）——
+  // 2026-10 画风同步：整体压暗 + 去饱和，向角色素材的暗紫/枯绿/蓝黑基调靠拢，
+  // 让角色（中间调为主）在背景上更“跳”，符合素材本身的明度关系。
   // 一幕「荒废墓园」：灰紫石板 + 雾
-  graveTile: 0x2c2745,
-  graveTileLit: 0x383157,
-  graveTileDark: 0x221d38,
-  fog: 0xbfb8d9,
+  graveTile: 0x262038,
+  graveTileLit: 0x332b4a,
+  graveTileDark: 0x1c1729,
+  fog: 0xb5ab99,
   // 二幕「腐沼教堂」：绿苔 + 沼水 + 彩窗 + 鬼火
-  mossTile: 0x25321e,
-  mossTileLit: 0x334528,
-  mossTileDark: 0x1b2616,
-  swampWater: 0x2f4f45,
+  mossTile: 0x1f2a18,
+  mossTileLit: 0x2b3a20,
+  mossTileDark: 0x151d10,
+  swampWater: 0x263e33,
   swampGlint: 0x7cc9a8,
   glassRed: 0x8e2f3c,
   glassBlue: 0x2f5a8e,
@@ -42,9 +53,9 @@ export const C = {
   wisp: 0x8fe89a,
   wispCore: 0xdcffd4,
   // 三幕「星陨王庭」：蓝黑星纹 + 冷色符文
-  starTile: 0x151833,
-  starTileLit: 0x1d2347,
-  starTileDark: 0x0f1226,
+  starTile: 0x101227,
+  starTileLit: 0x171b36,
+  starTileDark: 0x0a0c1c,
   runeCold: 0x7fd7ff,
   runeDim: 0x44639c,
   shardStone: 0x39406a,
