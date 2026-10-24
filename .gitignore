@@ -3,3 +3,10 @@ dist/
 *.log
 .DS_Store
 docs/p2-璋冭瘯.png
+# 本地随手文档与一次性探针，不进仓库
+新建 DOC 文档.doc
+vitest.probe.config.mjs
+# 探针脚本一律不入库
+*-probe.*
+*probe*.mjs
+_probe*.mjs

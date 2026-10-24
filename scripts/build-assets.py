@@ -81,6 +81,14 @@ def erode(m, it=1):
              np.roll(b, 1, 1) & np.roll(b, -1, 1))
     return m
 
+def dilate_xy(m, xit=10, yit=6):
+    """矩形结构元膨胀: x 方向 xit px, y 方向 yit px。保横向速度线、避开 24px 行距。"""
+    for _ in range(xit):
+        m = m | np.roll(m, 1, 1) | np.roll(m, -1, 1)
+    for _ in range(yit):
+        m = m | np.roll(m, 1, 0) | np.roll(m, -1, 0)
+    return m
+
 def label_components(mask):
     """行程编码 + 并查集, 8 连通。返回 (labels 1..n, n), 0 为背景。"""
     h, w = mask.shape
@@ -250,9 +258,11 @@ def clean_mask(fg, wm):
 
 # ---------------- 切帧 ----------------
 def slice_frames(fg):
-    dil = dilate(fg, DILATE_ITERS)
+    dil = dilate_xy(fg, 10, 6)
     lab, n = label_components(dil)
     comps = [c for c in comp_stats(lab, n) if c['area'] >= 300]
+    for c in comps:
+        print('    comp cy=%.0f cx=%.0f area=%d bbox=%s' % (c['cy'], c['cx'], c['area'], c['bbox']))
     info = dict(ncomp=len(comps), rows=None, fallback=None)
     if not comps:
         return grid_fallback(fg), dict(info, fallback='empty')
@@ -302,9 +312,10 @@ def grid_fallback(fg):
             sub = fg[y0:y1, x0:x1]
             bb = bbox_of(sub)
             if bb is None or bb[3] - bb[1] < MIN_FRAME_H:
-                frames.append(((x0, y0, x1, y1), np.zeros_like(sub)))
+                frames.append(((x0, y0, x1, y1), np.zeros((y1 - y0, x1 - x0), bool)))
             else:
-                frames.append(((bb[0] + x0, bb[1] + y0, bb[2] + x0, bb[3] + y0), sub.copy()))
+                frames.append(((bb[0] + x0, bb[1] + y0, bb[2] + x0, bb[3] + y0),
+                               sub[bb[1] - y0:bb[3] - y0, bb[0] - x0:bb[2] - x0].copy()))
     return frames
 
 def crop_rgba(a, m, bb):
@@ -442,6 +453,7 @@ def process_sheet(cfg):
     print('  bg=%s tol=%s' % ([c.tolist() for c in bgs], cfg['tol']))
     frames, info = slice_frames(fg)
     print('  slice:', info)
+    dbg_overlay('sheet_%s' % cfg['out'], a, fg, [bb for bb, _ in frames], scale=0.5)
     cw, ch = cfg['cell']
     norm, modes = [], []
     for i, (bb, m) in enumerate(frames):
@@ -457,7 +469,6 @@ def process_sheet(cfg):
     sheet = compose_sheet(norm, cw, ch)
     out = os.path.join(OUT_SPR, cfg['out'])
     Image.fromarray(sheet, 'RGBA').save(out)
-    dbg_overlay('sheet_%s' % cfg['out'], a, fg, [bb for bb, _ in frames], scale=0.5)
     return dict(out=cfg['out'], path=out, cell=(cw, ch), how=info.get('fallback') or 'cc')
 
 def process_single(cfg, a=None, wm=None):
