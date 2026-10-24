@@ -12,6 +12,78 @@ export const BUILD_ERROR = Object.freeze({
   INVALID_EXITS: 'invalid_exits', WRONG_PHASE: 'wrong_phase',
 });
 export const AUX_TARGETED = new Set(['hourglass', 'wide_runes', 'sacrifice']);
+
+// 校验错误的中文说法。界面绝不能把 aux_needs_target 这种内部编码直接甩给玩家：
+// 玩家看到的应该是「5 号位「时之沙漏」：还没选作用目标」。
+const BUILD_ERROR_TEXT = Object.freeze({
+  invalid_draft: '构筑数据格式不对',
+  invalid_act: '幕数无效',
+  invalid_cell: '格号无效或该格未解封',
+  duplicate_cell: '同一格重复解封',
+  locked_cell: '这一格还没解封',
+  slot_conflict: '符位上的卡数据不合法',
+  unknown_def: '不认识的符印或辅助',
+  rune_slot_full: '铭文槽已满',
+  duplicate_rune: '同一格装了重复铭文',
+  aux_needs_target: '还没选作用目标（要指向一个相邻的符印格）',
+  aux_target_invalid: '作用目标不合法（必须是相邻、已解封且装着符印的格子）',
+  oath_unknown: '誓约无效',
+  too_many_unlocked: '解封格数超过本幕上限',
+  invalid_exits: '出口配置不合法',
+  wrong_phase: '当前不是可编辑阶段',
+});
+
+// 把校验错误列表翻成人话，并带上「几号位 + 卡名」，让玩家一眼知道该改哪一格。
+export function explainBuildErrors(errors, draft) {
+  if (!Array.isArray(errors) || !errors.length) return '';
+  return errors.map((error) => {
+    const raw = error?.cellId;
+    const id = Number.isInteger(raw) ? raw : (/^\d+$/.test(String(raw ?? '')) ? Number(raw) : null);
+    const text = BUILD_ERROR_TEXT[error?.code] ?? error?.code ?? '未知错误';
+    if (id === null || id < 0 || id >= CELL_COUNT) return text;
+    const slot = draft?.slots?.[id];
+    const card = slot ? (slot.kind === 'sigil' ? SIGIL_DEFS : AUX_DEFS)[slot.defId] : null;
+    return (id + 1) + '号位' + (card?.name ? '「' + card.name + '」' : '') + '：' + text;
+  }).join('；');
+}
+
+// 某一格可以指向的合法目标：正交相邻、已解封、装着符印。
+// 返回空数组说明这张辅助在当前摆放下根本没法绑（界面要提示收回，而不是把玩家挂在绑定模式里）。
+export function auxTargetCandidates(draft, cellIdValue) {
+  const id = Number(cellIdValue);
+  if (!cellId(id)) return [];
+  const slots = draft?.slots;
+  if (!record(slots)) return [];
+  const unlocked = new Set(Array.isArray(draft?.unlocked) ? draft.unlocked : []);
+  return neighborsOf(id, ORTHO_DIRS)
+    .map(n => n.id)
+    .filter(nid => {
+      const slot = slots[nid];
+      return unlocked.has(nid) && record(slot) && slot.kind === 'sigil' && own(SIGIL_DEFS, slot.defId);
+    });
+}
+
+// 找出「指向型辅助但目标已经失效/缺失」的格子（升序）。
+// 编辑界面用它把玩家直接带到待绑定的那一格，而不是等点完成才甩一条校验错误。
+export function missingAuxTargets(draft) {
+  const out = [];
+  const slots = draft?.slots;
+  if (!record(slots)) return out;
+  const targets = record(draft?.auxTargets) ? draft.auxTargets : {};
+  const unlocked = new Set(Array.isArray(draft?.unlocked) ? draft.unlocked : []);
+  for (const [key, slot] of Object.entries(slots)) {
+    if (!record(slot) || slot.kind !== 'auxiliary' || !AUX_TARGETED.has(slot.defId)) continue;
+    const id = Number(key);
+    if (!cellId(id)) continue;
+    const target = targets[key];
+    const targetSlot = slots[target];
+    const ok = own(targets, key) && cellId(target) && unlocked.has(target)
+      && neighborsOf(id, ORTHO_DIRS).some(n => n.id === target)
+      && record(targetSlot) && targetSlot.kind === 'sigil' && own(SIGIL_DEFS, targetSlot.defId);
+    if (!ok) out.push(id);
+  }
+  return out.sort((a, b) => a - b);
+}
 const own = (o, k) => Object.hasOwn(o, k);
 const record = v => v !== null && typeof v === 'object' && !Array.isArray(v)
   && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);

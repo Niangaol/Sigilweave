@@ -1,5 +1,5 @@
 // 幕间工作台：仅维护构筑草稿与交易，不依赖渲染或运行中法阵。
-import { validateDraft, emptyDraft } from './build.js';
+import { validateDraft, emptyDraft, explainBuildErrors } from './build.js';
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS } from './effects.js';
 import { CELL_COUNT } from './constants.js';
 import { Rng } from './rng.js';
@@ -140,7 +140,8 @@ export function canDepart(state) {
   if (!validState(state)) return result(false, '工作台状态无效');
   if (state.roundsRemaining !== 0 || state.offer !== null) return result(false, '请先完成三轮奖励选择');
   const errors = validateDraft(state.draft);
-  if (errors.length) return result(false, '构筑校验未通过：' + errors.map(error => error.code).join('、'));
+  // 别把 aux_needs_target 这种内部编码直接给玩家看
+  if (errors.length) return result(false, '还没法出发 — ' + explainBuildErrors(errors, state.draft));
   const outputs = Object.entries(state.draft.slots).filter(([id, card]) =>
     card?.kind === 'sigil' && !state.draft.runes[id]?.includes('relay'));
   if (outputs.length < 2) return result(false, '法阵中至少需要两张未安装中继的输出符印');

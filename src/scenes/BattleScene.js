@@ -3,11 +3,11 @@
 // 逻辑内核只读引用：SigilEngine / grid / sector / combo，所有时序与冷却都不在这里重写。
 import Phaser from 'phaser';
 import { SigilEngine } from '../logic/engine.js';
-import { createGrid, rebuildDerived, toId, toRC, manhattan } from '../logic/grid.js';
+import { createGrid, rebuildDerived, toId, toRC, manhattan, neighborsOf } from '../logic/grid.js';
 import { buildComboCatalog } from '../logic/combo.js';
 import { resolveTarget } from '../logic/sector.js';
-import { ACTS, WORLD_SIZES } from '../logic/constants.js';
-import { applyDraft, snapshotBuild, draftFromGrid, validateDraft, AUX_TARGETED } from '../logic/build.js';
+import { ACTS, WORLD_SIZES, ORTHO_DIRS } from '../logic/constants.js';
+import { applyDraft, snapshotBuild, draftFromGrid, validateDraft, AUX_TARGETED, missingAuxTargets, explainBuildErrors, auxTargetCandidates } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, resolveSigilTrigger, resolveComboBonus } from '../logic/effects.js';
 import { createRun, recordAct } from '../logic/run.js';
 import { createProgression, grantExp, levelStats, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuff } from '../logic/progression.js';
@@ -875,6 +875,7 @@ export default class BattleScene extends Phaser.Scene {
       const x = 20 + (id % 4) * 92, y = 34 + Math.floor(id / 4) * 46;
       const slot = draft.slots?.[id];
       const selected = this.editSelected === id;
+      const pending = this.editAuxPending === id;
       pxRect(g, x, y, 84, 38, slot ? C.stone : C.night);
       if (slot) {
         pxRect(g, x + 1, y + 1, 82, 1, C.groove, 0.3);
@@ -888,13 +889,17 @@ export default class BattleScene extends Phaser.Scene {
         for (const line of plan.lines) pxLine(g, line.a.x, line.a.y, line.b.x, line.b.y, C[line.color], line.alpha * dim, line.width ?? 1);
         for (const dot of plan.dots) pxRect(g, Math.round(dot.x), Math.round(dot.y), dot.size ?? 1, dot.size ?? 1, C[dot.color], dot.alpha * dim);
       }
-      pxFrame(g, x, y, 84, 38, selected ? C.teal : C.stoneLight, selected ? 2 : 1);
+      // 待绑定的格子描成暖金：玩家一眼看到「就是这一格在等我点目标」
+      pxFrame(g, x, y, 84, 38, pending ? C.arcane : selected ? C.teal : C.stoneLight, pending || selected ? 2 : 1);
       if (slot) {
         const visual = cardVisual(slot);
         if (visual.glyph) drawGlyph(g, x + 5, y + 5, visual.glyph, visual.color ?? C.arcaneLight, { scale: 2, alpha: 0.95 });
         ui.add(addText(this, x + 24, y + 6, names[slot.defId]?.name ?? slot.defId, 8, slot?.kind === 'auxiliary' ? HEX.teal : HEX.parchment));
         const target = draft.auxTargets?.[id];
-        ui.add(addText(this, x + 4, y + 26, (id + 1) + '号 · ' + (target !== undefined ? ('→ ' + (target + 1) + ' 号') : '点击收回'), 7, HEX.mute));
+        // 副标题只放短词：84px 宽塞不下再用「·」拼句子，会压到隔壁格子
+        const sub = pending ? '待选目标'
+          : target !== undefined ? ('→ ' + (target + 1) + ' 号') : '点击收回';
+        ui.add(addText(this, x + 4, y + 26, (id + 1) + '号 · ' + sub, 7, pending ? HEX.arcaneLight : HEX.mute));
       } else {
         pxDiamond(g, x + 10, y + 12, 3, C.stoneDark, 0.9, false);
         ui.add(addText(this, x + 24, y + 6, '空符位', 8, HEX.mute));
@@ -924,7 +929,8 @@ export default class BattleScene extends Phaser.Scene {
     }
     if (!row) ui.add(addText(this, 400, 56, '没有手牌', 7, HEX.mute));
     // 操作提示放底部横条：右栏太窄，长提示会溢出面板
-    ui.add(addText(this, 20, 234, this.editNote || '点手牌再点符位放置；点已放置的卡收回。', 8, HEX.arcaneLight));
+    // 提示条：给个折行宽度，长句子不会顶出右边框压到「完成」按钮
+    ui.add(addText(this, 20, 231, this.editNote || '点手牌再点符位放置；点已放置的卡收回。', 8, HEX.arcaneLight, { wordWrap: { width: 360 } }));
     if (lastPage > 0) {
       pxRect(g, 396, 174, 76, 20, C.nightDeep, 0.9);
       pxFrame(g, 396, 174, 76, 20, C.stoneLight, 1, 0.7);
@@ -944,15 +950,9 @@ export default class BattleScene extends Phaser.Scene {
   editCellClick(id) {
     const draft = this.editDraft;
     const names = this.editNames();
-    // 绑定模式：辅助等待目标
-    if (this.editAuxPending !== null) {
-      draft.auxTargets ??= {};
-      draft.auxTargets[this.editAuxPending] = id;
-      this.editAuxPending = null;
-      this.editNote = '目标已绑定';
-      this.drawGridEdit(); return;
-    }
     const selKey = this.editSelected;
+    // 选牌优先于绑定：等待目标期间如果玩家选了一张牌，他要能先改牌面（比如把符印补回去），
+    // 否则「目标失效 → 进入绑定模式 → 却放不了牌」会把局面卡死。
     if (selKey) {
       const [kind, defId] = selKey.split(':');
       const card = { kind, defId };
@@ -967,10 +967,37 @@ export default class BattleScene extends Phaser.Scene {
       for (const [src, tgt] of Object.entries(draft.auxTargets ?? {})) if (src === String(id) || (tgt === id && kind !== 'sigil')) delete draft.auxTargets[src];
       this.editSelected = null;
       this.editNote = '已放置 ' + (names[defId]?.name ?? defId);
-      if (kind === 'auxiliary' && AUX_TARGETED.has(defId)) {
+      if (kind === 'auxiliary' && AUX_TARGETED.has(defId) && auxTargetCandidates(this.editDraft, id).length) {
         this.editAuxPending = id;
         this.editNote = '点相邻输出格绑定目标';
+      } else if (kind === 'auxiliary' && AUX_TARGETED.has(defId)) {
+        this.editNote = (id + 1) + ' 号「' + (names[defId]?.name ?? defId) + '」相邻没有符印可指向，请收回或换个位置';
+        this.syncAuxPending();
+      } else {
+        this.syncAuxPending();
       }
+      this.drawGridEdit(); return;
+    }
+    // 绑定模式：辅助等待目标。这里必须当场校验，
+    // 否则随便点一格也会被记成目标，等到点「完成」才报 aux_target_invalid。
+    if (this.editAuxPending !== null) {
+      const src = this.editAuxPending;
+      // 再点一次自己 = 取消绑定，避免「相邻根本没有符印」时被挂在绑定模式里出不来
+      if (id === src) {
+        this.editAuxPending = null;
+        this.editNote = '已取消绑定。这张辅助没目标就不能完成，建议收回或换个位置。';
+        this.drawGridEdit(); return;
+      }
+      const adjacent = neighborsOf(src, ORTHO_DIRS).some(n => n.id === id);
+      const slot = draft.slots?.[id];
+      if (!adjacent || slot?.kind !== 'sigil') {
+        this.editNote = (src + 1) + ' 号的作用目标必须是「相邻且装着符印」的格子';
+        this.drawGridEdit(); return;
+      }
+      draft.auxTargets ??= {};
+      draft.auxTargets[src] = id;
+      this.editAuxPending = null;
+      this.editNote = '目标已绑定：' + (id + 1) + ' 号符印';
       this.drawGridEdit(); return;
     }
     // 无选择：收回该格卡牌
@@ -981,12 +1008,40 @@ export default class BattleScene extends Phaser.Scene {
     delete draft.slots[id];
     for (const [src, tgt] of Object.entries(draft.auxTargets ?? {})) if (tgt === id || src === String(id)) delete draft.auxTargets[src];
     this.editNote = '已收回 ' + (names[old.defId]?.name ?? old.defId);
+    this.syncAuxPending();
     this.drawGridEdit();
+  }
+
+  // 改卡/收卡会连带把别的指向型辅助的目标弄失效（例如把它作用的那格符印换掉）。
+  // 这种情况不能等玩家点「完成」才报错——直接切进那一格的绑定模式，把人带过去。
+  syncAuxPending() {
+    const missing = missingAuxTargets(this.editDraft);
+    const names = this.editNames();
+    if (!missing.length) { this.editAuxPending = null; return false; }
+    // 优先保留玩家原本在绑的那一格
+    const id = missing.includes(this.editAuxPending) ? this.editAuxPending : missing[0];
+    const slot = this.editDraft.slots?.[id];
+    this.editSelected = null;
+    const cardName = names[slot?.defId]?.name ?? slot?.defId ?? '辅助';
+    if (!auxTargetCandidates(this.editDraft, id).length) {
+      // 没有可指向的邻居：进绑定模式等于把玩家挂死，只提示并保留目标失效状态
+      this.editAuxPending = null;
+      this.editNote = (id + 1) + ' 号「' + cardName + '」没有可指向的相邻符印，请收回或换个位置';
+      return true;
+    }
+    this.editAuxPending = id;
+    this.editNote = (id + 1) + ' 号「' + cardName + '」的目标失效了：点一个相邻符印重新绑定';
+    return true;
   }
 
   closeGridEdit() {
     const errors = validateDraft(this.editDraft);
-    if (errors.length) { this.editNote = '未通过校验：' + errors.map(e => e.code).join('、'); this.drawGridEdit(); return; }
+    if (errors.length) {
+      // 指向型辅助缺目标是最常见的一种：与其甩错误码，不如把玩家送到那一格去绑
+      if (!this.syncAuxPending()) this.editNote = '未通过校验：' + explainBuildErrors(errors, this.editDraft);
+      this.drawGridEdit();
+      return;
+    }
     const preserve = { cells: this.grid.cells.map(c => ({ id: c.id, cooldownUntil: c.cooldownUntil })) };
     const result = applyDraft(this.grid, this.editDraft, { phase: 'intermission', preserveFrom: preserve });
     if (!result.ok) { this.editNote = '校验失败'; this.drawGridEdit(); return; }

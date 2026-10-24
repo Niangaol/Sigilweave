@@ -4,7 +4,7 @@ import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxDiamond, drawGlyph,
 import { decoratePlan } from '../ui/board-decor.js';
 import { cardVisual, RUNE_GLYPHS } from '../data/roster.js';
 import { createGrid } from '../logic/grid.js';
-import { applyDraft, draftFromGrid, unlockToTarget, AUX_TARGETED } from '../logic/build.js';
+import { applyDraft, draftFromGrid, unlockToTarget, AUX_TARGETED, missingAuxTargets, auxTargetCandidates } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS } from '../logic/effects.js';
 import { neighborsOf } from '../logic/grid.js';
 import { createWorkshop, chooseReward, placeCard, removeCard, installRune, removeRune, canDepart } from '../logic/workshop.js';
@@ -377,6 +377,25 @@ export default class IntermissionScene extends Phaser.Scene {
 
   act(result) { this.note = result.message; this.paint(); }
 
+  // 找出目标失效的指向型辅助并进入绑定模式；没有就返回 false。
+  syncAuxPending() {
+    const missing = missingAuxTargets(this.workshop.draft);
+    if (!missing.length) return false;
+    const id = missing[0];
+    const card = this.workshop.draft.slots?.[id];
+    this.selectedCard = null;
+    const cardName = names[card?.defId] ?? card?.defId ?? '辅助';
+    if (!auxTargetCandidates(this.workshop.draft, id).length) {
+      // 没有可指向的邻居：进绑定模式会把玩家挂死，只提示
+      this.auxPending = null;
+      this.note = (id + 1) + ' 号「' + cardName + '」没有可指向的相邻符印，请收回或换个位置';
+      return true;
+    }
+    this.auxPending = id;
+    this.note = (id + 1) + ' 号「' + cardName + '」的目标失效了：点一个相邻输出符印重新绑定';
+    return true;
+  }
+
   choose(index) {
     const offer = this.workshop.offer;
     if (!offer) return;
@@ -385,8 +404,39 @@ export default class IntermissionScene extends Phaser.Scene {
 
   clickCell(id) {
     if (!this.workshop.draft.unlocked.includes(id)) { this.note = '该格尚未解封'; this.paint(); return; }
+    this.focusCell = id;
+    // 选牌优先于绑定：等待目标期间玩家也要能先改牌面（例如把被换掉的符印补回去），
+    // 否则「目标失效 → 等绑定 → 却放不了牌」会把局面卡死。
+    if (this.selectedCard) {
+      const defId = this.selectedCard.split(':')[1];
+      const result = placeCard(this.workshop, id, this.selectedCard);
+      this.note = result.message;
+      if (result.ok) {
+        this.selectedCard = null;
+        if (AUX_TARGETED.has(defId)) {
+          if (auxTargetCandidates(this.workshop.draft, id).length) {
+            this.auxPending = id;
+            this.note = '请点击相邻输出符印，指定这张辅助的作用目标';
+          } else {
+            this.auxPending = null;
+            this.note = (id + 1) + ' 号「' + (names[defId] ?? defId) + '」相邻没有符印可指向，请收回或换个位置';
+          }
+        } else {
+          // 换卡会连带清掉「原本指向这一格」的辅助目标：立刻把玩家带到那一格去重绑
+          this.syncAuxPending();
+        }
+      }
+      this.paint();
+      return;
+    }
     // 有指向型辅助等待目标时，点击相邻输出符印完成绑定。
     if (this.auxPending !== null) {
+      // 再点一次自己 = 取消绑定，避免「相邻没有符印」时被挂在绑定模式里出不来
+      if (id === this.auxPending) {
+        this.auxPending = null;
+        this.note = '已取消绑定。这张辅助没目标就不能出发，建议收回或换个位置。';
+        this.paint(); return;
+      }
       const isNeighbor = neighborsOf(this.auxPending, ORTHO_DIRS).some(n => n.id === id);
       const isOutput = this.workshop.draft.slots[id]?.kind === 'sigil';
       if (isNeighbor && isOutput) {
@@ -397,26 +447,17 @@ export default class IntermissionScene extends Phaser.Scene {
       this.note = '请选择相邻且装有符印的格子作为目标';
       this.paint(); return;
     }
-    this.focusCell = id;
-    if (this.selectedCard) {
-      const defId = this.selectedCard.split(':')[1];
-      const result = placeCard(this.workshop, id, this.selectedCard);
-      this.note = result.message;
-      if (result.ok) {
-        this.selectedCard = null;
-        if (AUX_TARGETED.has(defId)) {
-          this.auxPending = id;
-          this.note = '请点击相邻输出符印，指定这张辅助的作用目标';
-        }
-      }
-    }
     this.paint();
   }
 
   depart() {
     if (this.departed) return;
     const ready = canDepart(this.workshop);
-    if (!ready.ok) { this.act(ready); return; }
+    if (!ready.ok) {
+      // 缺作用目标是最常见的卡点：直接把界面切到那一格的绑定模式，而不是只弹一句错误
+      if (this.syncAuxPending()) { this.note = '还没法出发 — ' + this.note; this.paint(); return; }
+      this.act(ready); return;
+    }
     const grid = createGrid();
     const result = applyDraft(grid, this.workshop.draft, { phase: 'intermission' });
     if (!result.ok) { this.act({ message: '构筑未通过校验，请检查目标与插槽' }); return; }
