@@ -4,8 +4,14 @@
 import { C, pxRect, pxLine, pxRing, pxDiamond } from './Palette.js';
 import { WORLD_SIZES } from '../logic/constants.js';
 
-const TILE = 32;     // 地砖边长（世界像素）
+const TILE = 32;     // 二/三幕地砖边长（世界像素）
 const WALL_T = 12;   // 结界墙厚度
+
+// 一幕地板重制（2026-10）：旧版是 32px 大方格 + 1/3 随机深浅，远看像马赛克迷彩。
+// 现在换成横排错缝的碎石板：每块砖 1px 亮顶边 / 暗底边做出厚度，缝里长苔、砖面有裂缝缺角。
+const ROW_H = 23;         // 石砖行高：故意不取 32，避免又和旧方格对齐
+const SLAB_MIN_W = 22;    // 单块石板最窄
+const SLAB_MAX_W = 46;    // 单块石板最宽
 
 // 固定种子的噪点，保证每次打开画面一致
 function makeRng(seed) {
@@ -29,6 +35,20 @@ const THEMES = {
     pillar: C.stoneDark, pillarLit: C.stoneLight, wax: C.parchment,
     flame: C.arcane, flameCore: C.arcaneLight, glow: C.arcane,
     candles: 8,
+    // 一幕专用的石砖地板配色（二/三幕仍走旧的 drawTiles）
+    floor: {
+      key: 'sigilweave-floor-act1',
+      grout: 0x0b0813,                                 // 砖缝底：比 ink 再深两档，缝才立得起来
+      // 五档石色：差一档只有 8 级时整片地板会糊成一块，这里放宽到 ~14 级。
+      // 最暗一档要给足余量——压到近黑就会有单块砖变成「地面上的黑洞」。
+      // 后两档只换色调不换亮度：清一色紫灰会显得是「塑料地砖」，掺一点苔绿和暖褐才像真石头
+      tones: [0x1a1527, 0x201a30, C.graveTile, 0x2e2644, 0x38304f, 0x232a2b, 0x2b2231],
+      hi: 0x5c5283,                                    // 左上受光的 1px 亮边
+      lo: 0x0a0713,                                    // 右下背光的 1px 暗边
+      crack: 0x08060f,                                 // 裂缝
+      moss: 0x46543b,                                  // 缝里的苔（低饱和，别抢角色）
+      mossDark: 0x2c3626,
+    },
   },
   2: {
     name: '腐沼教堂',
@@ -64,6 +84,8 @@ export default class Background {
     this.theme = THEMES[act] || THEMES[1];
     this.staticG = scene.add.graphics().setDepth(-100);
     this.flickerG = scene.add.graphics().setDepth(-90);
+    // 一幕地板烘焙成纹理后挂在这里（见 bakeFloor）；二/三幕恒为 null
+    this.floorImg = null;
     this.candles = [];
     this.lastFlickerStep = -1;
     this.drawStatic();
@@ -139,6 +161,201 @@ export default class Background {
       const x = m + Math.floor(rng() * (w - m * 2));
       const y = m + Math.floor(rng() * (h - m * 2));
       pxRect(g, x, y, 1, 1, T.noise[Math.floor(rng() * T.noise.length)], 0.18 + rng() * 0.3);
+    }
+  }
+
+  // ---------- 一幕地板重制：错缝石砖 + 立体倒角 ----------
+
+  // 一幕走新地板，二/三幕保持不变，避免一次改三幕的回归面
+  drawFloor(g, rng, T) {
+    if (this.act === 1 && this.bakeFloor(T)) return;
+    this.drawTiles(g, rng, T);
+  }
+
+  // 石砖细节是每帧重绘的大头（约 4.5 万条绘制指令），所以先画进离屏 Graphics，
+  // 烘焙成一张世界尺寸的纹理再贴回去：静态层每帧只剩一次绘制调用。
+  // 纹理按「世界尺寸」做 key，同一局重开直接复用；生成失败自动落回 Graphics 直绘。
+  bakeFloor(T) {
+    const F = T.floor;
+    if (!F || typeof this.scene.make?.graphics !== 'function') return false;
+    const key = F.key + '-' + this.world.w + 'x' + this.world.h;
+    if (!this.scene.textures?.exists?.(key)) {
+      const bake = this.scene.make.graphics({ add: false });
+      if (!bake) return false;
+      const t0 = performance.now?.() ?? 0;
+      // 独立种子：地板纹理换了也不影响墓碑/枯树/蜡烛的分布
+      this.drawFlagstones(bake, makeRng(T.seed ^ 0x5eed), T);
+      bake.generateTexture(key, this.world.w, this.world.h);
+      bake.destroy();
+      // 烘焙耗时（毫秒）：验收脚本读它，确认开局没有明显卡顿
+      this.bakeMs = Math.round((performance.now?.() ?? 0) - t0);
+    }
+    if (!this.scene.textures.exists(key)) return false;
+    this.floorImg = this.scene.add.image(0, 0, key).setOrigin(0, 0).setDepth(-101);
+    return true;
+  }
+
+  // 横排错缝铺装：整张世界铺满，砖宽随机、排间错缝，偶尔一块长条石板
+  drawFlagstones(g, rng, T) {
+    const { w, h } = this.world;
+    const F = T.floor;
+    // 先整铺砖缝色：石板之间那 1px 露出来的就是缝
+    pxRect(g, 0, 0, w, h, F.grout, 1);
+    // 行高逐排随机（不是固定 ROW_H）：固定行高会让整片地板出现横向条带，
+    // 高度忽高忽低才有「大小石块拼起来」的感觉。
+    let y = -2;
+    for (let row = 0; y < h; row++) {
+      const rowH = row === 0 ? ROW_H : ROW_H - 5 + Math.floor(rng() * 10);
+      if (y + rowH > h) { this.fillRow(g, rng, T, y, h - y); break; }
+      this.fillRow(g, rng, T, y, rowH);
+      y += rowH;
+    }
+    this.drawLongCracks(g, rng, T);
+    this.drawFloorBlotches(g, rng, T);
+  }
+
+  // 铺一整排石板：排首随机左移做错缝，砖宽随机、偶尔一块长条石板
+  fillRow(g, rng, T, top, rowH) {
+    const w = this.world.w;
+    let x = -Math.floor(rng() * 44);
+    while (x < w) {
+      let sw = SLAB_MIN_W + Math.floor(rng() * (SLAB_MAX_W - SLAB_MIN_W));
+      if (rng() < 0.12) sw = Math.round(sw * 1.6);            // 长条石板
+      const cw = Math.min(sw, w - x);
+      if (cw < 6) break;
+      // 砖高比排高再矮 1~3px：底边留出不等宽的空隙 = 碎掉的石边
+      const sh = Math.max(4, rowH - 1 - (rng() < 0.28 ? 1 + Math.floor(rng() * 2) : 0));
+      this.drawSlab(g, rng, T, x, top, cw, sh);
+      x += cw + 1;                                            // 1px 竖缝
+    }
+  }
+
+  // 单块石板：五档石色 + 左上亮边/右下暗边 + 缺角 + 磨损 + 裂缝 + 缝里长苔
+  drawSlab(g, rng, T, x, y, w, h) {
+    const F = T.floor;
+    const tones = F.tones;
+    // 五档明度 + 两档换色：比例压在中间调，太散会抢角色
+    const r = rng();
+    const tone = r < 0.10 ? tones[0]
+      : r < 0.30 ? tones[1]
+        : r < 0.72 ? tones[2]
+          : r < 0.88 ? tones[3]
+            : r < 0.94 ? tones[4]
+              : r < 0.975 ? tones[5] : tones[6];
+    pxRect(g, x, y, w, h, tone, 1);
+    // 倒角：光源恒定在左上 → 顶边实亮、左边次级亮，底边实暗、右边次级暗，
+    // 再往内补一层 0.22 的亮边 / 0.35 的暗边，石板边缘就「圆过去」了，而不是一张纸。
+    // 倒角强度分两档：每块砖都打满高光会变成「一排排凸起的砖墙」，
+    // 让约三分之一是沉降下去的平石，地面才有高低。
+    const raised = rng() < 0.65;
+    const k = raised ? 1 : 0.4;
+    pxRect(g, x, y, w, 1, F.hi, k);
+    pxRect(g, x, y + 1, 1, Math.max(1, h - 1), F.hi, 0.6 * k);
+    pxRect(g, x + 1, y + 1, Math.max(1, w - 2), 1, F.hi, 0.22 * k);
+    pxRect(g, x, y + h - 1, w, 1, F.lo, raised ? 1 : 0.5);
+    pxRect(g, x + w - 1, y + 1, 1, Math.max(1, h - 1), F.lo, 0.85);
+    pxRect(g, x + 1, y + h - 2, Math.max(1, w - 2), 1, F.lo, 0.35);
+    // 啃边：底边/右边随机啃掉 1~2px 露出砖缝，缝线就不会一路笔直
+    if (rng() < 0.34 && w > 8) {
+      const bites = 1 + Math.floor(rng() * 2);
+      for (let i = 0; i < bites; i++) {
+        pxRect(g, x + 3 + Math.floor(rng() * (w - 7)), y + h - 1, 1 + Math.floor(rng() * 2), 1, F.grout, 1);
+      }
+    }
+    if (rng() < 0.22 && h > 8) {
+      pxRect(g, x + w - 1, y + 3 + Math.floor(rng() * (h - 7)), 1, 1 + Math.floor(rng() * 2), F.grout, 1);
+    }
+    // 缺角：啃掉 1~3×1~2px，露出底下的砖缝
+    if (rng() < 0.4) {
+      const cw = 1 + Math.floor(rng() * 3);
+      const ch = 1 + Math.floor(rng() * 2);
+      pxRect(g, rng() < 0.5 ? x : x + w - cw, rng() < 0.5 ? y : y + h - ch, cw, ch, F.grout, 1);
+    }
+    // 石面颗粒：±1 档的小点，远看就是石头的麻面
+    const grains = 3 + Math.floor(rng() * 4);
+    for (let i = 0; i < grains; i++) {
+      if (w < 5 || h < 5) break;
+      pxRect(g, x + 2 + Math.floor(rng() * (w - 4)), y + 2 + Math.floor(rng() * (h - 4)), 1, 1,
+        rng() < 0.55 ? F.hi : F.lo, 0.3);
+    }
+    // 砖面磨损：短横条暗斑/亮斑，破掉石色的纯块感
+    const spots = Math.floor(rng() * 3);
+    for (let i = 0; i < spots; i++) {
+      const sw = 2 + Math.floor(rng() * 5);
+      if (w - sw - 2 <= 0) break;
+      const sx = x + 1 + Math.floor(rng() * (w - sw - 2));
+      const sy = y + 2 + Math.floor(rng() * Math.max(1, h - 3));
+      pxRect(g, sx, sy, sw, 1, rng() < 0.55 ? F.lo : F.hi, 0.45);
+    }
+    // 裂缝：从缝往里爬的 1px 折线
+    if (rng() < 0.15 && h > 6) {
+      const cx = x + 2 + Math.floor(rng() * Math.max(1, w - 4));
+      const len = Math.min(h - 3, 3 + Math.floor(rng() * 9));
+      const dir = rng() < 0.5 ? -1 : 1;
+      for (let i = 0; i < len; i++) {
+        pxRect(g, cx + (i % 4 === 3 ? dir : 0), y + 1 + i, 1, 1, F.crack, 0.9);
+      }
+    }
+    // 大石板内部：一整块 60×40 的纯色在 4 倍放大下就是一块「贴上去的板子」，
+    // 用密集单像素点打散（点不会有直角，远看才是石头的麻面）。
+    if (w >= 40 && h >= 24) {
+      const specks = Math.min(120, Math.floor((w * h) / 55));
+      for (let i = 0; i < specks; i++) {
+        pxRect(g, x + 2 + Math.floor(rng() * (w - 4)), y + 2 + Math.floor(rng() * (h - 4)), 1, 1,
+          rng() < 0.5 ? F.hi : F.lo, 0.35);
+      }
+      // 第二处缺角：这块石头的四边不能是四条笔直的线
+      pxRect(g, rng() < 0.5 ? x : x + w - 3, rng() < 0.5 ? y : y + h - 2,
+        2 + Math.floor(rng() * 3), 1 + Math.floor(rng() * 2), F.grout, 1);
+    }
+    // 缝里的苔：压在砖底边的缝上，只长在少数几块砖下沿（成簇，别撒成孤零零的点）
+    if (rng() < 0.16) {
+      const mw = 3 + Math.floor(rng() * 5);
+      const mx = x + 1 + Math.floor(rng() * Math.max(1, w - mw - 1));
+      pxRect(g, mx, y + h, mw, 1, F.moss, 0.85);
+      pxRect(g, mx, y + h - 1, Math.max(1, mw - 1), 1, F.moss, 0.45);
+      pxRect(g, mx + 1, y + h - 2, Math.max(1, mw - 3), 1, F.mossDark, 0.55);
+      if (mw > 4 && rng() < 0.5) pxRect(g, mx + 2, y + h + 1, 2, 1, F.mossDark, 0.6);
+    }
+  }
+
+  // 贯穿多块砖的长裂缝：整块地板「年久失修」的关键笔触
+  drawLongCracks(g, rng, T) {
+    const { w, h } = this.world;
+    const F = T.floor;
+    // 主方向统一走横向小幅爬行：竖着乱窜会画成一根电线，反而破坏石料感
+    for (let k = 0; k < 3; k++) {
+      let cx = w * (0.05 + rng() * 0.55);
+      let cy = h * (0.1 + rng() * 0.8);
+      const steps = 6 + Math.floor(rng() * 10);
+      for (let i = 0; i < steps && cx < w - 10; i++) {
+        const nx = cx + 6 + rng() * 7;
+        const ny = cy + (rng() - 0.5) * 4;
+        pxLine(g, cx, cy, nx, ny, F.crack, 0.7, 1);
+        pxLine(g, cx, ny + 1, nx, cy + 1, F.hi, 0.18, 1);   // 缝下沿一道弱高光 = 深度
+        cx = nx; cy = ny;
+      }
+    }
+  }
+
+  // 大尺度暗斑：用像素抖动堆出来的阴影团（硬边像素里唯一不糊的做法），
+  // 打散石砖的规则排布，让地面有明暗起伏而不是一整片均匀灰紫。
+  drawFloorBlotches(g, rng, T) {
+    const { w, h } = this.world;
+    const F = T.floor;
+    for (let i = 0; i < 7; i++) {
+      const cx = w * (0.06 + rng() * 0.88);
+      const cy = h * (0.06 + rng() * 0.88);
+      const rx = 70 + rng() * 130;
+      const ry = 40 + rng() * 80;
+      for (let y = -ry; y <= ry; y += 4) {
+        for (let x = -rx; x <= rx; x += 4) {
+          const d = (x * x) / (rx * rx) + (y * y) / (ry * ry);
+          if (d > 1) continue;
+          if (rng() > (1 - d) * 0.55) continue;            // 越靠近中心越密
+          pxRect(g, cx + x, cy + y, 3, 1, F.lo, 0.5);
+        }
+      }
     }
   }
 
@@ -504,7 +721,7 @@ export default class Background {
     const T = this.theme;
     const rng = makeRng(T.seed);
 
-    this.drawTiles(g, rng, T);
+    this.drawFloor(g, rng, T);
     this.drawNoise(g, rng, T);
 
     let candleAnchors = [];

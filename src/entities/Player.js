@@ -13,6 +13,13 @@ export function staffTipOf(x, y, facing) {
 // 素材角色高 32px，脚底落在逻辑坐标 y+7（与旧程序化美术的脚底一致）
 const FEET_OFFSET = 7;
 
+// 精灵原图是「朝左」画的（player_sheet.png 里脸和兜帽开口都在画面左侧）。
+// 所以只有面朝右（facing > 0）时才需要水平翻转——这里是唯一判定点，
+// 别再按「facing < 0 才翻转」写，那会让走左却朝右（旧版就是这个 bug）。
+export function flipXForPlayer(facing) {
+  return facing > 0;
+}
+
 export default class Player {
   constructor(scene, x, y) {
     this.scene = scene;
@@ -99,7 +106,7 @@ export default class Player {
     const s = this.sprite;
     s.setPosition(x, y + FEET_OFFSET);
     s.setDepth(Math.floor(y));
-    s.setFlipX(this.facing < 0);
+    s.setFlipX(flipXForPlayer(this.facing));
     s.setAlpha(blink ? 0.45 : 1);
     if (!this.alive) {
       // 死亡：停在受击末帧并压暗，读作“倒下”
