@@ -130,18 +130,20 @@ export default class EffectsLayer {
 
       if (it.kind === 'trace') {
         const color = it.color ?? C.arcane;
+        // 起点法杖、终点目标：两端都是世界坐标，统一按镜头换算到屏幕
+        const fx = sx(it.from.x); const fy = sy(it.from.y);
         const tx = sx(it.to.x); const ty = sy(it.to.y);
-        // 格子上方 22px 的垂直光柱（2.5D 的第二根视觉支柱）
+        // 法杖上方的施法光柱（世界层直接画，随镜头滚动）
         pxRect(g, Math.round(it.from.x) - 1, Math.round(it.from.y) - 24, 3, 24, color, 0.28 * a);
         pxRect(g, Math.round(it.from.x), Math.round(it.from.y) - 28, 1, 6, color, 0.55 * a);
-        // 主光迹：从格指向战场方位。空区也画，只是终点是区域中心。
-        pxLine(sg, it.from.x, it.from.y, tx, ty, color, 0.42 * a, 1);
-        // 流动亮段：让「哪一格在打」有明确的指向感
+        // 主光迹：从法杖指向目标方位。空区也画，只是终点是区域中心。
+        pxLine(sg, fx, fy, tx, ty, color, 0.42 * a, 1);
+        // 流动亮段：让「哪一下在飞」有明确的指向感
         const flow = (this.clock / 420) % 1;
         for (let s = 0; s < 5; s++) {
           const u = (flow + s * 0.035) % 1;
-          const px = it.from.x + (tx - it.from.x) * u;
-          const py = it.from.y + (ty - it.from.y) * u;
+          const px = fx + (tx - fx) * u;
+          const py = fy + (ty - fy) * u;
           pxRect(sg, Math.round(px) - 1, Math.round(py) - 1, 3, 3, color, 0.7 * a);
         }
         // 终点标记：命中目标为实心菱形，空射为空心加十字

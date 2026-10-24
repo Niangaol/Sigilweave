@@ -2,6 +2,12 @@
 import { C, pxRect, pxDiamond } from '../ui/Palette.js';
 import { PLAYER } from '../data/roster.js';
 
+// 法杖尖端（世界坐标）：所有法术特效的统一出发位置。
+// 与 draw() 里的杖身像素严格对齐：杖头在朝向侧 +6/-7，尖端在头顶上方 15px。
+export function staffTipOf(x, y, facing) {
+  return { x: facing > 0 ? x + 6 : x - 7, y: y - 15 };
+}
+
 export default class Player {
   constructor(scene, x, y) {
     this.scene = scene;
@@ -58,6 +64,11 @@ export default class Player {
     return true;
   }
 
+  // 法杖尖端（世界坐标）：弹丸、光迹、起手微粒都从这里出发
+  staffTip() {
+    return staffTipOf(this.x, this.y, this.facing);
+  }
+
   draw(now) {
     const g = this.g;
     g.clear();
@@ -79,7 +90,7 @@ export default class Player {
       return;
     }
 
-    // 法杖：随朝向换边
+    // 法杖：随朝向换边（尖端位置由 staffTipOf 定义，特效从这里起手）
     const staffX = this.facing > 0 ? x + 6 : x - 7;
     pxRect(g, staffX, y - 12 - bob, 1, 17, 0x6b4a24, 1);
     pxRect(g, staffX - 1, y - 14 - bob, 3, 2, C.brass, 1);

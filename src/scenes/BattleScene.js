@@ -25,7 +25,7 @@ import Boss from '../entities/Boss.js';
 import EncounterPanel from '../ui/EncounterPanel.js';
 import {
   ACT1_CELLS, ACT1_SIGIL_BY_CELL, SIGILS, ENEMY_TYPES, SECTOR,
-  COMBO_NAMES, difficultyAt, PLAYER, cardVisual, pickEnemyType,
+  COMBO_NAMES, difficultyAt, PLAYER, cardVisual, pickEnemyType, RUNE_GLYPHS,
 } from '../data/roster.js';
 import Background from '../ui/Background.js';
 import SigilBoard, { cellCenter } from '../ui/SigilBoard.js';
@@ -36,7 +36,8 @@ import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
 import Projectile from '../entities/Projectile.js';
 import Shard from '../entities/Shard.js';
-import { C, HEX, addText, pxRect, pxFrame, pxDiamond, applyPixelZoom, getRenderScale, uiLayerOffset } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxDiamond, drawGlyph, applyPixelZoom, getRenderScale, uiLayerOffset } from '../ui/Palette.js';
+import { decoratePlan } from '../ui/board-decor.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
@@ -351,7 +352,8 @@ export default class BattleScene extends Phaser.Scene {
           break;
         }
         const def = this.sigilOf(cellId);
-        const center = cellCenter(cellId);
+        // 所有法术特效统一从法杖尖端起手（世界坐标）；罗盘格子只负责闪灯提示
+        const origin = this.player.staffTip();
         // 方位索敌：只打本格对应扇区内的最近敌人；空区也朝区域中心空射
         const result = resolveTarget(
           cellId,
@@ -359,13 +361,16 @@ export default class BattleScene extends Phaser.Scene {
           this.enemies,
         );
         this.board.flashTrigger(cellId);
-        // 设计稿 2.3 核心：从该格指向对应战场方位的高亮光迹（空区也画）
-        this.effects.directionTrace(center, result.aim, this.sectorRect(cellId), def.color, result.empty);
+        // 从法杖指向目标方位的光迹（空区也画，只是终点是区域中心）
+        this.effects.directionTrace(origin, result.aim, this.sectorRect(cellId), def.color, result.empty);
         if (SIGIL_DEFS[def.id]?.kind === 'ward') {
           this.applySigil(cellId, def.id);
         } else {
-          const projectile = this.fireProjectile(center.x, center.y, result.aim.x, result.aim.y, def, result.target);
-          if (projectile) projectile.cellId = cellId;
+          const projectile = this.fireProjectile(origin.x, origin.y, result.aim.x, result.aim.y, def, result.target);
+          if (projectile) {
+            projectile.cellId = cellId;
+            this.effects.burst(origin.x, origin.y, def.color, 5); // 起手微粒
+          }
         }
         break;
       }
@@ -771,37 +776,104 @@ export default class BattleScene extends Phaser.Scene {
       if (hit) hit.action();
     };
     this.input.on('pointerdown', this.editPointer);
+    // 悬停高亮独立成层（与幕间同一套交互语言）：移上去亮框 + 手型光标
+    // 屏幕固定元素必须挂 uiRoot（场景根上的 scrollFactor-0 会被镜头位移甩出屏幕）
+    this.editHoverG = this.add.graphics().setDepth(5001).setScrollFactor(0);
+    this.uiRoot?.add(this.editHoverG);
+    this.editHoverMove = (pointer) => {
+      if (!this.editOpen) return;
+      const scale = getRenderScale();
+      const lx = pointer.x / scale, ly = pointer.y / scale;
+      const hit = this.editRects?.find(r => lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h);
+      const hg = this.editHoverG;
+      hg.clear();
+      if (hit) {
+        pxRect(hg, hit.x, hit.y, hit.w, hit.h, C.stone, 0.35);
+        pxFrame(hg, hit.x, hit.y, hit.w, hit.h, C.brassLight, 1, 0.85);
+        this.game.canvas.style.cursor = 'pointer';
+      } else if (this.game.canvas.style.cursor !== '') {
+        this.game.canvas.style.cursor = '';
+      }
+    };
+    this.input.on('pointermove', this.editHoverMove);
     this.drawGridEdit();
   }
 
   editNames() { return { ...SIGIL_DEFS, ...AUX_DEFS }; }
 
+  // 编辑界面的分区面板：与幕间工作台同一套视觉语言
+  editPanel(g, x, y, w, h) {
+    pxRect(g, x, y, w, h, C.ink, 0.9);
+    pxFrame(g, x, y, w, h, C.brassDark);
+    pxFrame(g, x + 2, y + 2, w - 4, h - 4, C.brass, 1, 0.2);
+    for (const [sx, sy] of [[x, y], [x + w - 3, y], [x, y + h - 3], [x + w - 3, y + h - 3]]) {
+      pxRect(g, sx, sy, 3, 3, C.brass, 0.9);
+      pxRect(g, sx + 1, sy + 1, 1, 1, C.brassLight, 1);
+    }
+  }
+
+  editGlyphOf(defId) {
+    if (RUNE_GLYPHS[defId]) return RUNE_GLYPHS[defId];
+    const kind = SIGIL_DEFS[defId] ? 'sigil' : 'auxiliary';
+    return cardVisual({ kind, defId })?.glyph ?? null;
+  }
+
   drawGridEdit() {
     if (this.editUI) { this.editUI.destroy(true); this.editUI = null; }
+    this.editHoverG?.clear();
     const ui = this.add.container(0, 0).setDepth(3500).setScrollFactor(0);
     this.uiRoot?.add(ui);
+    // 容器内按插入序渲染：editUI 每次重建都会压住悬停层，必须重新带到最顶
+    this.uiRoot?.bringToTop(this.editHoverG);
     this.editUI = ui;
     this.editRects = [];
     const g = this.add.graphics();
     ui.add(g);
-    pxRect(g, 0, 0, 480, 270, C.void, 0.94);
+    // 背景：不透明压底（盖住暂停菜单文字）+ 硬边竖纹 + 双层外框（与幕间同一套语言）
+    pxRect(g, 0, 0, 480, 270, C.void);
+    for (let x = 0; x < 480; x += 24) pxRect(g, x, 0, 12, 270, C.ink, 0.22);
     pxFrame(g, 8, 8, 464, 254, C.brassDark, 2, 1);
-    ui.add(addText(this, 16, 12, '编辑法阵（暂停中 · 冷却保留）', 10, HEX.brassLight));
+    pxFrame(g, 11, 11, 458, 248, C.brass, 1, 0.18);
+    pxRect(g, 12, 12, 456, 15, C.ink, 0.95);
+    pxDiamond(g, 17, 19, 3, C.brass, 0.95, false);
+    ui.add(addText(this, 24, 13, '编辑法阵', 10, HEX.brassLight));
+    ui.add(addText(this, 96, 15, '暂停中 · 冷却保留', 8, HEX.mute));
     const names = this.editNames();
     const draft = this.editDraft;
+    this.editPanel(g, 14, 30, 380, 196);
     for (const id of draft.unlocked) {
       const x = 20 + (id % 4) * 92, y = 34 + Math.floor(id / 4) * 46;
       const slot = draft.slots?.[id];
-      const g2 = this.add.graphics();
-      pxRect(g2, x, y, 84, 38, slot ? C.stoneDark : C.nightDeep);
-      pxFrame(g2, x, y, 84, 38, this.editSelected === id ? C.teal : C.brassDark, 1, 1);
-      ui.add(g2);
-      ui.add(addText(this, x + 4, y + 4, (id + 1) + '号 ' + (slot ? names[slot.defId]?.name ?? slot.defId : '空'), 7, slot?.kind === 'auxiliary' ? HEX.teal : HEX.parchment));
-      if (slot) ui.add(addText(this, x + 4, y + 22, '点击收回', 7, HEX.mute));
-      else ui.add(addText(this, x + 4, y + 22, '空', 7, HEX.mute));
+      const selected = this.editSelected === id;
+      pxRect(g, x, y, 84, 38, slot ? C.stone : C.night);
+      if (slot) {
+        pxRect(g, x + 1, y + 1, 82, 1, C.groove, 0.3);
+        pxRect(g, x + 1, y + 36, 82, 1, C.nightDeep, 0.45);
+      }
+      // 区位装饰：与战斗罗盘/幕间同一份规则
+      const plan = decoratePlan(id, [{ x, y }, { x: x + 84, y }, { x: x + 84, y: y + 38 }, { x, y: y + 38 }], { inset: 1, arm: 6, centerInset: 1 });
+      if (plan) {
+        const dim = slot ? 1 : 0.6;
+        if (plan.wash) pxPoly(g, plan.wash.quad, C[plan.wash.color], plan.wash.alpha * dim);
+        for (const line of plan.lines) pxLine(g, line.a.x, line.a.y, line.b.x, line.b.y, C[line.color], line.alpha * dim, line.width ?? 1);
+        for (const dot of plan.dots) pxRect(g, Math.round(dot.x), Math.round(dot.y), dot.size ?? 1, dot.size ?? 1, C[dot.color], dot.alpha * dim);
+      }
+      pxFrame(g, x, y, 84, 38, selected ? C.teal : C.stoneLight, selected ? 2 : 1);
+      if (slot) {
+        const visual = cardVisual(slot);
+        if (visual.glyph) drawGlyph(g, x + 5, y + 5, visual.glyph, visual.color ?? C.arcaneLight, { scale: 2, alpha: 0.95 });
+        ui.add(addText(this, x + 24, y + 6, names[slot.defId]?.name ?? slot.defId, 8, slot?.kind === 'auxiliary' ? HEX.teal : HEX.parchment));
+        const target = draft.auxTargets?.[id];
+        ui.add(addText(this, x + 4, y + 26, (id + 1) + '号 · ' + (target !== undefined ? ('→ ' + (target + 1) + ' 号') : '点击收回'), 7, HEX.mute));
+      } else {
+        pxDiamond(g, x + 10, y + 12, 3, C.stoneDark, 0.9, false);
+        ui.add(addText(this, x + 24, y + 6, '空符位', 8, HEX.mute));
+        ui.add(addText(this, x + 4, y + 26, (id + 1) + '号 · 从手牌放入', 7, HEX.mute));
+      }
       this.editRects.push({ x, y, w: 84, h: 38, action: () => this.editCellClick(id) });
     }
-    ui.add(addText(this, 400, 34, '手牌', 9, HEX.brass));
+    this.editPanel(g, 392, 30, 82, 174);
+    ui.add(addText(this, 398, 33, '手牌', 8, HEX.brass));
     const hand = Object.entries(this.editHand).filter(([, count]) => count > 0);
     const lastPage = Math.max(0, Math.ceil(hand.length / 5) - 1);
     this.editHandPage = Math.min(this.editHandPage, lastPage);
@@ -810,15 +882,24 @@ export default class BattleScene extends Phaser.Scene {
       const defId = key.split(':')[1];
       const y = 52 + row * 24;
       const bg = this.add.graphics();
-      pxRect(bg, 396, y, 76, 20, C.stoneDark); pxFrame(bg, 396, y, 76, 20, this.editSelected === key ? C.teal : C.brassDark, 1, 1);
+      const isSel = this.editSelected === key;
+      pxRect(bg, 396, y, 76, 20, isSel ? C.nightSoft : C.night, 0.95);
+      pxFrame(bg, 396, y, 76, 20, isSel ? C.teal : C.stoneLight, 1, 1);
+      const glyph = this.editGlyphOf(defId);
+      if (glyph) drawGlyph(bg, 399, y + 6, glyph, isSel ? C.arcaneLight : C.parchment, { alpha: 0.95 });
       ui.add(bg);
-      ui.add(addText(this, 398, y + 3, (names[defId]?.name ?? defId) + '×' + count, 7, HEX.parchment));
+      ui.add(addText(this, 410, y + 7, (names[defId]?.name ?? defId) + '×' + count, 7, isSel ? HEX.arcaneLight : HEX.parchment));
       this.editRects.push({ x: 396, y, w: 76, h: 20, action: () => { this.editSelected = this.editSelected === key ? null : key; this.editNote = this.editSelected ? '选中，点符位放置' : ''; this.drawGridEdit(); } });
       row++;
     }
-    ui.add(addText(this, 396, 200, this.editNote, 7, HEX.arcaneLight, { wordWrap: { width: 76 } }));
+    if (!row) ui.add(addText(this, 400, 56, '没有手牌', 7, HEX.mute));
+    // 操作提示放底部横条：右栏太窄，长提示会溢出面板
+    ui.add(addText(this, 20, 234, this.editNote || '点手牌再点符位放置；点已放置的卡收回。', 8, HEX.arcaneLight));
     if (lastPage > 0) {
-      ui.add(addText(this, 398, 178, '◀ ' + (this.editHandPage + 1) + '/' + (lastPage + 1) + ' ▶', 8, HEX.teal));
+      pxRect(g, 396, 174, 76, 20, C.nightDeep, 0.9);
+      pxFrame(g, 396, 174, 76, 20, C.stoneLight, 1, 0.7);
+      pxLine(g, 434, 174, 434, 194, C.stoneLight, 0.7, 1);
+      ui.add(addText(this, 434, 184, '◀ ' + (this.editHandPage + 1) + '/' + (lastPage + 1) + ' ▶', 7, HEX.teal).setOrigin(0.5, 0.5));
       for (const [x, step] of [[396, -1], [434, 1]]) this.editRects.push({ x, y: 174, w: 38, h: 20, action: () => {
         this.editHandPage = (this.editHandPage + step + lastPage + 1) % (lastPage + 1); this.drawGridEdit();
       } });
@@ -886,6 +967,9 @@ export default class BattleScene extends Phaser.Scene {
     this.engine.setCombos(buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4']).filter(inst => inst.order.every(id => this.grid.cells[id].unlocked && this.grid.cells[id].slot?.kind === 'sigil' && !this.grid.cells[id].mutedOutput)));
     this.editOpen = false;
     if (this.editPointer) { this.input.off('pointerdown', this.editPointer); this.editPointer = null; }
+    if (this.editHoverMove) { this.input.off('pointermove', this.editHoverMove); this.editHoverMove = null; }
+    this.editHoverG?.destroy(true); this.editHoverG = null;
+    this.game.canvas.style.cursor = '';
     this.editUI?.destroy(true); this.editUI = null;
     this.openPause('menu');
   }
@@ -1322,7 +1406,8 @@ export default class BattleScene extends Phaser.Scene {
       while (this.shards.length < 200) this.spawnShard(this.player.x - 220 + this.combatRng.next() * 440, this.player.y - 105 + this.combatRng.next() * 210);
       while (this.projectiles.length < 300) {
         const def = cardVisual({ kind: 'sigil', defId: 'arcane_bolt' });
-        if (!this.fireProjectile(this.player.x, this.player.y, this.player.x - 220 + this.combatRng.next() * 440, this.player.y - 105 + this.combatRng.next() * 210, def, null)) break;
+        const o = this.player.staffTip();
+        if (!this.fireProjectile(o.x, o.y, this.player.x - 220 + this.combatRng.next() * 440, this.player.y - 105 + this.combatRng.next() * 210, def, null)) break;
       }
     };
     for (let i = 0; i < 6; i++) spawnWave();
