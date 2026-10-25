@@ -9,7 +9,7 @@ export const PLAYER = {
   hp: 100,
   speed: 96,          // 像素/秒
   radius: 6,
-  iframesMs: 900,     // 受击无敌
+  iframesMs: 1400,    // 受击无敌（割草密度上调后从 900 提到 1400：仿真里火焰起手包从 115s 阵亡变为满 180s 存活）
   hurtFlashMs: 180,
 };
 
@@ -29,13 +29,16 @@ export const ACT1_SIGIL_BY_CELL = {
 };
 
 // 符印定义：glyph 为 8×8 像素图案，'#' 为亮像素。
-// 颜色仍然守纪律：己方伤害一律暖金/羊皮纸，冷色只留给敌人。
+// 颜色：2026-10 割草版放开「己方一律暖金」的旧纪律——同屏 60~90 只怪 + 16 个法术时，
+// 只靠形状区分太吃力。现在每个法术一个元素主色（寒霜冰白 / 烈焰橙 / 噬魂紫 / 地裂土黄…），
+// 与 src/ui/spell-fx.js 的 SPELL_FX[defId].colors.body 保持一致，罗盘字模、方位光迹、
+// 触发闪光都吃这个色。青绿仍只留给增益/运行层。
 export const SIGILS = {
   frost_arrow: {
     id: 'frost_arrow',
     name: '寒霜箭',
     short: '寒霜',
-    color: 0xffd79a,
+    color: 0xaee4ff,
     damage: 5,
     speed: 460,
     glyph: [
@@ -71,7 +74,7 @@ export const SIGILS = {
     id: 'flame_burst',
     name: '烈焰喷涌',
     short: '烈焰',
-    color: 0xffb44d,
+    color: 0xff7a3c,
     damage: 9,
     speed: 330,
     glyph: [
@@ -107,7 +110,7 @@ export const SIGILS = {
     id: 'thorn_vine',
     name: '荆棘藤蔓',
     short: '荆棘',
-    color: 0xe0c35a,
+    color: 0x849c6c,
     damage: 8,
     speed: 360,
     glyph: [
@@ -162,7 +165,7 @@ export const SIGILS = {
     id: 'mana_siphon',
     name: '秘能汲取',
     short: '汲取',
-    color: 0xffd79a,
+    color: 0x9fe8ff,
     damage: 8,
     speed: 380,
     glyph: [
@@ -181,7 +184,7 @@ export const SIGILS = {
     id: 'chain_lightning',
     name: '连锁闪电',
     short: '连锁',
-    color: 0xffd79a,
+    color: 0xfff0a0,
     damage: 12,
     speed: 520,
     glyph: [
@@ -217,7 +220,7 @@ export const SIGILS = {
     id: 'echo_sigil',
     name: '回声符文',
     short: '回声',
-    color: 0xffb44d,
+    color: 0xffaa33,
     damage: 11,
     speed: 420,
     glyph: [
@@ -235,7 +238,7 @@ export const SIGILS = {
     id: 'ember_fan',
     name: '余烬扇',
     short: '余烬',
-    color: 0xffb44d,
+    color: 0xff8a4d,
     damage: 10,
     speed: 340,
     glyph: [
@@ -253,7 +256,7 @@ export const SIGILS = {
     id: 'quake_maw',
     name: '地裂之颚',
     short: '地裂',
-    color: 0xc9a227,
+    color: 0xcc9c6c,
     damage: 14,
     speed: 240,
     glyph: [
@@ -271,7 +274,7 @@ export const SIGILS = {
     id: 'soul_lance',
     name: '噬魂箭',
     short: '噬魂',
-    color: 0xffd79a,
+    color: 0xb8a0ff,
     damage: 15,
     speed: 500,
     glyph: [
@@ -289,7 +292,7 @@ export const SIGILS = {
     id: 'aegis_ring',
     name: '圣环',
     short: '圣环',
-    color: 0xf0d9a8,
+    color: 0xc8e8d0,
     damage: 8,
     speed: 300,
     glyph: [
@@ -307,7 +310,7 @@ export const SIGILS = {
     id: 'meteor_judgment',
     name: '陨星裁决',
     short: '陨星',
-    color: 0xffd79a,
+    color: 0xb08252,
     damage: 26,
     speed: 190,
     glyph: [
@@ -331,7 +334,7 @@ export const ENEMY_TYPES = {
     id: 'skeleton',
     name: '骷髅兵',
     radius: 6,
-    damage: 9,
+    damage: 2,
     shards: 1,
     behavior: 'march',
     hpMul: 1,
@@ -342,7 +345,7 @@ export const ENEMY_TYPES = {
     id: 'bat',
     name: '噬魂蝠',
     radius: 5,
-    damage: 5,
+    damage: 1,
     shards: 1,
     behavior: 'weave',
     hpMul: 0.6,
@@ -353,7 +356,7 @@ export const ENEMY_TYPES = {
     id: 'corpse',
     name: '腐尸',
     radius: 8,
-    damage: 15,
+    damage: 3,
     shards: 2,
     behavior: 'march',
     hpMul: 2.2,
@@ -364,7 +367,7 @@ export const ENEMY_TYPES = {
     id: 'cultist',
     name: '邪教徒',
     radius: 6,
-    damage: 8,
+    damage: 2,
     shards: 2,
     behavior: 'orbit',
     hpMul: 1.2,
@@ -375,7 +378,7 @@ export const ENEMY_TYPES = {
     id: 'knight',
     name: '亡灵骑士',
     radius: 8,
-    damage: 12,
+    damage: 2,
     shards: 3,
     behavior: 'charge',
     hpMul: 2,
@@ -387,7 +390,7 @@ export const ENEMY_TYPES = {
     id: 'stitch_abomination',
     name: '缝合尸魁',
     radius: 14,
-    damage: 14,
+    damage: 4,
     shards: 5,
     behavior: 'stomp',
     hpMul: 4.5,
@@ -400,7 +403,7 @@ export const ENEMY_TYPES = {
     id: 'oath_bishop',
     name: '咒誓主教',
     radius: 12,
-    damage: 10,
+    damage: 3,
     shards: 8,
     behavior: 'blink_caster',
     hpMul: 3.5,
@@ -435,29 +438,57 @@ export function pickEnemyType(act, roll) {
 }
 
 // ---------- 难度曲线（第一幕 3 分钟内的线性抬升） ----------
+// 【割草密度重做】下面这一组是「幸存者式割草」的设计值，不是旧曲线的小幅微调：
+// 旧版同屏 9→26 只、每 2.4s→1.55s 才刷 1 只，屏幕上根本凑不出怪堆；
+// 新版同屏 30→64 只（第三幕再 ×1.3，83）、0.7s→0.52s 一波，每波抽 1..2 只同刷。
+// 上限不是越高越好：纯逻辑仿真（scripts/density-sim.mjs）显示刷怪超过清怪速度时，屏幕会变成一堵推不动的墙。
+// 密度翻了约十倍后，接触伤害必须同步下调（见 ENEMY_TYPES），否则贴脸就是瞬间秒杀。
 export const DIFFICULTY = {
   rampMs: 180000,
-  hpStart: 5,
-  hpEnd: 16,
-  speedStart: 20,
-  speedEnd: 40,
-  spawnMsStart: 2400,
-  spawnMsEnd: 1550,
-  // 同屏上限小幅提高（7→9 / 22→26），拥挤感靠落点间距与分离控制，不靠压低数量
-  maxAliveStart: 9,
-  maxAliveEnd: 26,
-  damageStart: 8,
-  damageEnd: 12,
+  hpStart: 4,
+  hpEnd: 10,
+  // 刷怪环在屏幕外 275~380px：速度太低会让怪走 7~15 秒才到脸上，屏幕长期空着，
+  // 38→58 下 5~9 秒到位；蝙蝠 speedMul 1.6 也只有约 93px/s，仍略低于玩家 96，追不上人。
+  speedStart: 38,
+  speedEnd: 58,
+  // 刷怪节奏按「玩家实际清怪速度」定，不是拍脑袋往死里堆：
+  // 纯逻辑战斗仿真（scripts/density-sim.mjs）测得 2/3/3 脉流下第一幕击杀约 0.8/s、二三幕约 2.2~2.8/s，
+  // 所以末段刷怪定在约 2.9/s（520ms × 平均 1.5 只），让同屏稳定在 30~60 而不是顶满上限变成一堵墙。
+  spawnMsStart: 700,
+  spawnMsEnd: 520,
+  maxAliveStart: 30,
+  maxAliveEnd: 64,
+  // 兜底伤害：只有怪种没自带 damage 时才会用到
+  damageStart: 3,
+  damageEnd: 5,
+  // 每次刷怪波抽 1..wave 只（末段经常 1~2 只同刷）
+  waveStart: 1,
+  waveEnd: 2,
 };
 
-export function difficultyAt(elapsedMs) {
-  const k = Math.min(1, Math.max(0, elapsedMs / DIFFICULTY.rampMs));
+// 按幕放大的密度系数：第二幕略多略快，第三幕最密（同屏上限仍由 maxAlive 兜住）。
+export const ACT_DENSITY = {
+  1: { maxAlive: 1.00, spawnMs: 1.00 },
+  2: { maxAlive: 1.15, spawnMs: 0.92 },
+  3: { maxAlive: 1.30, spawnMs: 0.85 },
+};
+
+// 难度采样：difficultyAt(ms) 保持旧签名，不传 act 等价于第一幕（老调用点行为不变）。
+// wave 随 k 线性取整（k=0→1、k=1→3）；非法 act 回退第一幕，非法 ms 按 0 处理（保持既有 clamp 语义）。
+export function difficultyAt(elapsedMs, act = 1) {
+  const k = Number.isFinite(elapsedMs) ? Math.min(1, Math.max(0, elapsedMs / DIFFICULTY.rampMs)) : 0;
+  const density = Number.isInteger(act) && Object.hasOwn(ACT_DENSITY, act) ? ACT_DENSITY[act] : ACT_DENSITY[1];
+  const maxAlive = Math.round(DIFFICULTY.maxAliveStart + (DIFFICULTY.maxAliveEnd - DIFFICULTY.maxAliveStart) * k);
+  const spawnMs = DIFFICULTY.spawnMsStart + (DIFFICULTY.spawnMsEnd - DIFFICULTY.spawnMsStart) * k;
+  const wave = Math.round(DIFFICULTY.waveStart + (DIFFICULTY.waveEnd - DIFFICULTY.waveStart) * k);
   return {
     hp: Math.round(DIFFICULTY.hpStart + (DIFFICULTY.hpEnd - DIFFICULTY.hpStart) * k),
     speed: DIFFICULTY.speedStart + (DIFFICULTY.speedEnd - DIFFICULTY.speedStart) * k,
-    spawnMs: DIFFICULTY.spawnMsStart + (DIFFICULTY.spawnMsEnd - DIFFICULTY.spawnMsStart) * k,
-    maxAlive: Math.round(DIFFICULTY.maxAliveStart + (DIFFICULTY.maxAliveEnd - DIFFICULTY.maxAliveStart) * k),
+    // 幕密度只放大「同屏上限」和「刷怪间隔」，血量/速度/单波数量按同一套曲线走
+    spawnMs: spawnMs * density.spawnMs,
+    maxAlive: Math.round(maxAlive * density.maxAlive),
     damage: Math.round(DIFFICULTY.damageStart + (DIFFICULTY.damageEnd - DIFFICULTY.damageStart) * k),
+    wave,
   };
 }
 

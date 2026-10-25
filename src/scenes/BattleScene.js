@@ -5,10 +5,10 @@ import Phaser from 'phaser';
 import { SigilEngine } from '../logic/engine.js';
 import { createGrid, rebuildDerived, toId, toRC, manhattan, neighborsOf } from '../logic/grid.js';
 import { buildComboCatalog } from '../logic/combo.js';
-import { resolveTarget } from '../logic/sector.js';
+import { resolveTarget, resolveVolley, volleyLimit } from '../logic/sector.js';
 import { ACTS, WORLD_SIZES, ORTHO_DIRS } from '../logic/constants.js';
 import { applyDraft, snapshotBuild, draftFromGrid, validateDraft, AUX_TARGETED, missingAuxTargets, explainBuildErrors, auxTargetCandidates } from '../logic/build.js';
-import { SIGIL_DEFS, AUX_DEFS, resolveSigilTrigger, resolveComboBonus } from '../logic/effects.js';
+import { SIGIL_DEFS, AUX_DEFS, resolveSigilTrigger, resolveComboBonus, resolveDeathBursts } from '../logic/effects.js';
 import { createRun, recordAct } from '../logic/run.js';
 import { createProgression, grantExp, levelStats, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuff } from '../logic/progression.js';
 import { getEventPoints, findTriggeredPoint } from '../data/map-events.js';
@@ -17,7 +17,7 @@ import { Rng } from '../logic/rng.js';
 import { CARD_POOL } from '../logic/workshop.js';
 import { expNeeded } from '../logic/progression.js';
 import { Pool } from '../logic/pool.js';
-import { pickSpawnPoint, separateEnemies } from '../logic/spawn.js';
+import { pickSpawnPoint, pickWavePoints, separateEnemiesBucketed } from '../logic/spawn.js';
 import { getEncounterForAct } from '../data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../logic/encounters.js';
 import { resolveBossOnce } from '../logic/boss.js';
@@ -43,6 +43,9 @@ import { sfx, toggleSound } from '../audio/Sfx.js';
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
 const FREQ_WINDOW_MS = 5000;
+// 击杀经验折算：1 杀 1 点。这个常量保留成可调项——如果实机觉得升级三选一太频繁，
+// 把它调到 2/3 即可整体降速，不需要改任何结算代码。
+const KILL_EXP_PER_POINT = 1;
 
 export default class BattleScene extends Phaser.Scene {
   constructor() {
@@ -91,6 +94,12 @@ export default class BattleScene extends Phaser.Scene {
     this.freqBuckets = [0, 0, 0, 0, 0];
     this.freqStart = 0;
     this.spawnTimer = 900;
+    // 割草节奏：开场热身 + 连斩计数 + 击杀经验折算
+    this.warmupMs = 1600;
+    this.killStreak = 0;
+    this.streakBest = 0;
+    this.lastKillAt = -99999;
+    this.expKillAccum = 0;      // 密度上去后每 3 杀折 1 点经验，升级三选一不会一直打断割草
     this.sampleTimer = 2000;
     this.enemySeq = 1;
     this.hintUntil = 13000;
@@ -380,25 +389,38 @@ export default class BattleScene extends Phaser.Scene {
           break;
         }
         const def = this.sigilOf(cellId);
+        const kind = SIGIL_DEFS[def.id]?.kind;
         // 所有法术特效统一从法杖尖端起手（世界坐标）；罗盘格子只负责闪灯提示
         const origin = this.player.staffTip();
-        // 方位索敌：只打本格对应扇区内的最近敌人；空区也朝区域中心空射
-        const result = resolveTarget(
-          cellId,
-          { x: this.player.x, y: this.player.y },
-          this.enemies,
-        );
-        this.board.flashTrigger(cellId);
+        const owner = { x: this.player.x, y: this.player.y };
+        // 方位索敌：本格对应扇区；空区也朝区域中心空射（光迹与起手方向都用这一发）
+        const result = resolveTarget(cellId, owner, this.enemies);
+        // 罗盘格闪光用该法术主色：一眼能认出「刚才那一格打的是什么」
+        this.board.flashTrigger(cellId, def.color);
         // 从法杖指向目标方位的光迹（空区也画，只是终点是区域中心）
         this.effects.directionTrace(origin, result.aim, this.sectorRect(cellId), def.color, result.empty);
-        if (SIGIL_DEFS[def.id]?.kind === 'ward') {
+        // 每个法术自己的起手爆发（spell-fx 按 defId 分派）
+        const castAngle = Math.atan2(result.aim.y - origin.y, result.aim.x - origin.x);
+        this.effects.spellCast(def.id, origin.x, origin.y, castAngle);
+        if (kind === 'ward') {
           this.applySigil(cellId, def.id);
+          this.effects.spellWard(def.id, SIGIL_DEFS[def.id].radius ?? 40);
         } else {
-          const projectile = this.fireProjectile(origin.x, origin.y, result.aim.x, result.aim.y, def, result.target);
-          if (projectile) {
-            projectile.cellId = cellId;
-            this.effects.burst(origin.x, origin.y, def.color, 5); // 起手微粒
+          // 割草齐射：单次触发对扇区内最近的 N 个敌人各打一发（各类型 N 见 sector.VOLLEY_LIMITS）。
+          // 区域内没有敌人时回退成一发空射，光迹与起手方向不变。
+          const volley = resolveVolley(cellId, owner, this.enemies, { maxTargets: volleyLimit(kind) });
+          const shots = volley.targets.length
+            ? volley.targets.map((target, i) => ({ target, aim: volley.aims[i] }))
+            : [{ target: null, aim: result.aim }];
+          let fired = 0;
+          for (const shot of shots) {
+            const projectile = this.fireProjectile(origin.x, origin.y, shot.aim.x, shot.aim.y, def, shot.target);
+            if (projectile) {
+              projectile.cellId = cellId;
+              fired++;
+            }
           }
+          if (fired > 0) this.effects.burst(origin.x, origin.y, def.color, 3); // 起手微粒（法术本体已由 spell-fx 负责）
         }
         break;
       }
@@ -440,6 +462,7 @@ export default class BattleScene extends Phaser.Scene {
         this.effects.combo(centers, COMBO_NAMES[data.defId] || data.defId);
         sfx.combo();
         resolveComboBonus({ grid: this.grid, order: data.order, defId: data.defId, bonus: data.bonus, state: this.combatState(), enemies: this.enemies });
+        this.triggerDeathBursts();
         this.collectDefeated();
         break;
       }
@@ -626,27 +649,52 @@ export default class BattleScene extends Phaser.Scene {
     if (a <= 0.01) this.hint.setVisible(false);
   }
 
+  // 刷怪：幸存者式波次，密度直接取自 roster.difficultyAt(now, act)。
+  // 割草爽感的三个来源：①同屏上限高（30→64，按幕再放大）②间隔短（0.7s→0.52s）
+  // ③一次抽 1~2 只同刷。落点由纯逻辑 pickWavePoints 一次抽出，同波之间也保证间距。
+  // 上限按 scripts/density-sim.mjs 的清怪速度定标：刷怪快过清怪只会得到一堵墙，不是割草。
   updateSpawner(dt) {
     if (this.bossStarted) return;
     this.spawnTimer -= dt;
-    const dif = difficultyAt(this.engine.now);
-    if (this.spawnTimer <= 0 && this.enemies.length < dif.maxAlive) {
-      this.spawnEnemy(dif);
-      this.spawnTimer = dif.spawnMs * (0.85 + this.combatRng.next() * 0.3);
+    if (this.spawnTimer > 0) return;
+    const dif = difficultyAt(this.engine.now, this.act);
+    const warming = this.engine.now < this.warmupMs;
+    const room = dif.maxAlive - this.enemies.length;
+    if (room <= 0) {
+      // 满场：短暂停手等击杀腾位，避免每帧空转
+      this.spawnTimer = 160;
+      return;
     }
+    const wave = warming ? 1 : Math.max(1, Math.min(dif.wave ?? 1, room));
+    this.spawnWave(dif, wave);
+    const jitter = 0.85 + this.combatRng.next() * 0.3;
+    this.spawnTimer = Math.max(150, dif.spawnMs * jitter * (warming ? 2.2 : 1));
   }
 
-  spawnEnemy(dif) {
-    // 幸存者式：以玩家为中心、屏幕外环形生成。
-    // 落点由纯逻辑 pickSpawnPoint 决定：环更宽（230..430）+ 与已有敌人保持最小间距，避免扎堆。
-    const { x, y } = pickSpawnPoint({
+  // 一波怪：一次抽出 count 个互不重叠的落点（屏幕外 275~380，避免贴脸刷出来）
+  spawnWave(dif, count) {
+    const points = pickWavePoints({
       rng: () => this.combatRng.next(),
       player: this.player,
       world: this.world,
       enemies: this.enemies,
-      minDist: 230, maxDist: 430, minGap: 36,
+      count,
+      minDist: 275, maxDist: 380, minGap: 30,
+      nearDist: 250, farDist: 430,
     });
-    // 按幕权重抽敌人类型；腐尸更厚更慢、蝠更快更脆，伤害取各自定义
+    for (const point of points) this.spawnEnemy(dif, point);
+  }
+
+  spawnEnemy(dif, point = null) {
+    // 幸存者式：以玩家为中心、屏幕外环形生成；压测等调用方可直接传 dif 不传落点。
+    const { x, y } = point ?? pickSpawnPoint({
+      rng: () => this.combatRng.next(),
+      player: this.player,
+      world: this.world,
+      enemies: this.enemies,
+      minDist: 275, maxDist: 380, minGap: 30,
+      nearDist: 250, farDist: 430,
+    });
     // 按幕权重抽敌人类型；属性 = 难度基准 × 等级成长 × 敌种倍率
     const def = pickEnemyType(this.act, this.combatRng.next());
     const lv = levelStats(this.run.progression.level);
@@ -663,10 +711,10 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   updateEnemies(dt) {
-    // 逐帧轻量分离：数量上限提高了，靠这个把挤在一起的杂兵推开，避免视觉上堆成一坨。
-    // 上限 26 时是 325 次配对；压测把数量灌到 150 时跳过，避免 O(n²) 拖累采样
-    if (this.enemies.length > 1 && this.enemies.length <= 48) {
-      separateEnemies(this.enemies, { gap: 24, player: this.player, contactDist: 30 });
+    // 逐帧轻量分离：同屏已经到 60~90，旧版「>48 只就跳过」会直接叠成一坨；
+    // 改用空间分桶 O(n·k) 版本，压测灌到 150 只也不会退化成 O(n²)。
+    if (this.enemies.length > 1) {
+      separateEnemiesBucketed(this.enemies, { gap: 20, player: this.player, contactDist: 26 });
     }
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
@@ -748,17 +796,38 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   applySigil(cellId, defId, aimPoint) {
+    // 防御：没有格号的弹丸（调试/压测里手工造出来的）不能把整局打崩
+    const cell = this.grid.cells[cellId];
+    if (!cell) {
+      return { hits: 0, damage: 0, aim: null, empty: true, targets: [], sacrificeSpent: 0, sacrificeApplied: false };
+    }
     const result = resolveSigilTrigger({ grid: this.grid, cellId, defId, state: this.combatState(), enemies: this.enemies, aimPoint });
     if (result.sacrificeApplied) {
       const c = cellCenter(cellId);
       this.effects.text(c.x, c.y - 10, '献祭 -8盾 双倍', HEX.blood, true);
     }
+    // 命中反馈：单体/护盾给逐目标小火花；范围/贯穿/连锁交给 spellImpact 的整片图案，
+    // 否则一次扫 20 只会叠出 20 份描边，帧时间会崩。
+    const visual = this.sigilOf(cellId);
+    const perTarget = result.targets.length <= 3;
     for (const enemy of result.targets) {
       enemy.hitAt = this.engine.now;
-      this.effects.impact(enemy.x, enemy.y, this.sigilOf(cellId).color, false);
+      if (perTarget) this.effects.impact(enemy.x, enemy.y, visual.color, false);
     }
+    this.triggerDeathBursts();
     this.collectDefeated();
     return result;
+  }
+
+  // 割草连锁：被法术打死的怪炸开，按最大生命比例炸伤周围的怪；炸死的继续引爆（纯逻辑在 effects.js）。
+  // 奖励/经验/碎片统一走 onEnemyKilled，不在这里重复结算。
+  triggerDeathBursts() {
+    const seeds = this.enemies.filter((e) => !e.alive && e.hp === 0 && !e.rewarded);
+    if (!seeds.length) return 0;
+    const burst = resolveDeathBursts({ enemies: this.enemies, seeds });
+    // 连锁炸死 4 只以上给一层骨屑冲击（只画在第一个爆点，避免满屏叠加）
+    if (burst.killed >= 4) this.effects.burst(seeds[0].x, seeds[0].y, C.bone, 6);
+    return burst.killed;
   }
 
   // 精英践踏：圈内玩家受击（带无敌帧，不会连续吃满）
@@ -781,8 +850,34 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   resolveProjectile(p) {
+    if (!Number.isInteger(p.cellId)) return;   // 没有格号的弹丸不结算，见 applySigil 的防御
     const result = this.applySigil(p.cellId, p.def.id, { x: p.tx, y: p.ty });
+    const def = SIGIL_DEFS[p.def.id];
+    const radius = Number.isFinite(def?.radius) ? def.radius
+      : p.def.id === 'meteor_judgment' ? 95
+        : p.def.id === 'quake_maw' ? 80
+          : p.def.id === 'starfall' ? 70
+            : 14;
+    const impactAngle = Math.atan2(p.ty - p.sy, p.tx - p.sx);
+    this.effects.spellImpact(p.def.id, p.tx, p.ty, radius, impactAngle);
+    this.spellLinkFx(p.def.id, p, result);
     if (!result.hits) this.effects.impact(p.x, p.y, p.def.color, true);
+  }
+
+  // 法术的「连接关系」表现：连锁逐跳电弧、贯穿光柱、回声对侧、噬魂/汲取的丝线
+  spellLinkFx(defId, p, result) {
+    const targets = result.targets ?? [];
+    if (!targets.length) return;
+    if (defId === 'chain_lightning') {
+      let prev = { x: this.player.x, y: this.player.y };
+      targets.forEach((t, i) => { this.effects.spellLink(defId, prev, t, i); prev = t; });
+    } else if (defId === 'pierce_lance') {
+      this.effects.spellLink(defId, this.player, targets[targets.length - 1], 0);
+    } else if (defId === 'echo_sigil') {
+      for (const t of targets) this.effects.spellLink(defId, this.player, t, 0);
+    } else if (defId === 'soul_lance' || defId === 'mana_siphon') {
+      for (const t of targets) this.effects.spellLink(defId, t, this.player, 0);
+    }
   }
 
   // ---------- 暂停编辑法阵（保留冷却；战斗实时不可改，暂停可改） ----------
@@ -1218,21 +1313,47 @@ export default class BattleScene extends Phaser.Scene {
     }
     e.rewarded = true;
     this.kills++;
-    // 经验：普通+1、精英+6；4% 掉宝箱（人物本体增益）
+    this.bumpKillStreak(e);
+    // 经验：普通 1 点、精英 6 点；每 KILL_EXP_PER_POINT 点折算一次授予，保持升级节奏
     const expMul = this.run.compassBuffs.expMul * (this.quickMode ? 4 : 1);
-    const gained = grantExp(this.run.progression, e.def?.elite ? 6 : 1, expMul);
-    if (!this.stressRunning && gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
-    if (this.combatRng.next() < 0.04 && this.chests.length < 6) this.spawnChest(e.x, e.y);
-    this.effects.burst(e.x, e.y, C.bone, 10);
-    this.effects.dissipate(e.x, e.y, C.groove);
-    // 按敌种掉落：腐尸/邪教徒/骑士更值钱；18% 额外一颗保持稀有惊喜
-    const drop = Math.max(1, Math.round(e.def?.shards ?? 1));
-    for (let i = 0; i < drop; i++) this.spawnShard(e.x + (i - (drop - 1) / 2) * 4, e.y - (i % 2) * 3);
-    if (this.combatRng.next() < 0.18) this.spawnShard(e.x + 5, e.y - 3);
+    this.expKillAccum += e.def?.elite ? 6 : 1;
+    while (this.expKillAccum >= KILL_EXP_PER_POINT) {
+      this.expKillAccum -= KILL_EXP_PER_POINT;
+      const gained = grantExp(this.run.progression, 1, expMul);
+      if (!this.stressRunning && gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
+    }
+    // 宝箱：击杀量涨了约 10 倍，掉率同步压到 0.8%、同屏最多 4 个，否则增益会糊满地图
+    if (this.combatRng.next() < 0.008 && this.chests.length < 4) this.spawnChest(e.x, e.y);
+    // 割草死亡反馈：轻量骨屑爆点 + 血雾，量大也扛得住（重的 deathBurst 留给 Boss/玩家）
+    this.effects.killBurst(e.x, e.y);
+    // 碎片：密度 ×10 后按概率掉（精英必掉 4 颗），避免工作台经济被瞬间刷爆
+    if (e.def?.elite || this.combatRng.next() < 0.45) {
+      const drop = e.def?.elite ? 4 : 1;
+      for (let i = 0; i < drop; i++) this.spawnShard(e.x + (i - (drop - 1) / 2) * 4, e.y - (i % 2) * 3);
+    }
     e.alive = false;
     e.destroy();
     const idx = this.enemies.indexOf(e);
     if (idx >= 0) this.enemies.splice(idx, 1);
+  }
+
+  // 连斩：1.5 秒内连续击杀累计，超过就断。每 12 连斩回 1 点血，
+  // 20/40/60 连斩给一次极轻震屏 —— 割草的手感反馈，不改变任何结算数值。
+  bumpKillStreak(e) {
+    const now = this.engine.now;
+    if (now - this.lastKillAt > 1500) this.killStreak = 0;
+    this.lastKillAt = now;
+    this.killStreak++;
+    if (this.killStreak > this.streakBest) this.streakBest = this.killStreak;
+    this.effects.killStreak(this.killStreak);
+    sfx.kill(this.killStreak);
+    if (this.killStreak % 12 === 0 && this.player.alive && this.player.hp < this.player.maxHp) {
+      this.player.hp = Math.min(this.player.maxHp, this.player.hp + 1);
+      this.effects.text(this.player.x, this.player.y - 16, '连斩回复 +1', HEX.teal);
+    }
+    if (this.killStreak === 20 || this.killStreak === 40 || this.killStreak === 60) {
+      this.cameras.main.shake(70, 0.0025);
+    }
   }
 
   updateShards(dt) {

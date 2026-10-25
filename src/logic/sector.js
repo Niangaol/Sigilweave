@@ -42,6 +42,52 @@ export function regionCenter(regionId, px, py) {
   return { x: cx, y: cy };
 }
 
+// ---------- 割草「齐射」：一格一次打多个 ----------
+// 设计动机：只打「本区域最近一只」时，玩家的清怪速度上限约 2 只/秒，刷怪一多就变成推不动的墙。
+// 齐射让同一格在一次触发里对区域内最近的 N 个敌人各打一发，清怪速度随密度线性上升，才有割草感。
+// 各结算类型的 N 不同（单体 3、扇形/连锁/贯穿 2、回声/区域 1），见 VOLLEY_LIMITS。
+export const VOLLEY_LIMITS = Object.freeze({
+  single: 3, fan3: 2, chain: 2, pierce: 2, echo: 1, ward: 0, area: 1,
+});
+export function volleyLimit(kind) {
+  return Number.isInteger(VOLLEY_LIMITS[kind]) ? VOLLEY_LIMITS[kind] : 1;
+}
+
+// 取本区域最近的 N 个敌人（按距离、再按 id 升序，结果确定）。
+// 区域里一个敌人都没有时回退成 resolveTarget：保留补射/空射行为，不让齐射把空区的指向提示弄丢。
+export function resolveVolley(cellId, player, enemies, options = {}) {
+  const limit = Number.isFinite(options.maxTargets)
+    ? Math.max(1, Math.min(8, Math.floor(options.maxTargets)))
+    : 3;
+  const px = player.x;
+  const py = player.y;
+  const picked = [];
+  for (const e of enemies) {
+    if (!e || !e.alive) continue;
+    if (regionOf(e.x, e.y, px, py) !== cellId) continue;
+    const dx = e.x - px;
+    const dy = e.y - py;
+    picked.push({ e, d2: dx * dx + dy * dy });
+  }
+  if (!picked.length) {
+    const one = resolveTarget(cellId, player, enemies, options);
+    return {
+      targets: one.target ? [one.target] : [],
+      aims: [one.aim],
+      empty: one.empty,
+      assisted: !!one.assisted,
+    };
+  }
+  picked.sort((a, b) => a.d2 - b.d2 || ((a.e.id ?? 0) - (b.e.id ?? 0)));
+  const chosen = picked.slice(0, limit);
+  return {
+    targets: chosen.map((p) => p.e),
+    aims: chosen.map((p) => ({ x: p.e.x, y: p.e.y })),
+    empty: false,
+    assisted: false,
+  };
+}
+
 // 优先打本区域最近敌人；区域为空时补射「离本区参考点最近的敌人」，
 // 一个敌人都没有才朝参考点空射。补射会在返回值里标记 assisted，便于统计。
 export function resolveTarget(cellId, player, enemies, options = {}) {
@@ -51,7 +97,7 @@ export function resolveTarget(cellId, player, enemies, options = {}) {
   let best = null;
   let bestD = Infinity;
   for (const e of enemies) {
-    if (!e.alive) continue;
+    if (!e || !e.alive) continue;
     if (regionOf(e.x, e.y, px, py) !== cellId) continue;
     const dx = e.x - px;
     const dy = e.y - py;
@@ -69,7 +115,7 @@ export function resolveTarget(cellId, player, enemies, options = {}) {
     let near = null;
     let nearD = Infinity;
     for (const e of enemies) {
-      if (!e.alive) continue;
+      if (!e || !e.alive) continue;
       const d = (e.x - center.x) ** 2 + (e.y - center.y) ** 2;
       if (d < nearD || (d === nearD && near && e.id < near.id)) { nearD = d; near = e; }
     }

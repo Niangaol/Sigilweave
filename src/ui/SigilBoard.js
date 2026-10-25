@@ -237,11 +237,12 @@ export default class SigilBoard {
     }
   }
 
-  flash(cellId, kind, dur) {
-    this.flashes.set(cellId, { kind, start: this.scene.time.now, dur });
+  flash(cellId, kind, dur, color = null) {
+    this.flashes.set(cellId, { kind, start: this.scene.time.now, dur, color });
   }
 
-  flashTrigger(cellId) { this.flash(cellId, 'trigger', 170); }
+  // 触发闪光按法术主色走：玩家能从罗盘上直接认出「刚才那一格打的是什么法术」
+  flashTrigger(cellId, color = null) { this.flash(cellId, 'trigger', 170, color); }
   flashBlocked(cellId) { this.flash(cellId, 'blocked', 380); }
   flashDissipate(cellId) { this.flash(cellId, 'dissipate', 320); }
   flashCombo(cellId) { this.flash(cellId, 'combo', 420); }
@@ -282,8 +283,10 @@ export default class SigilBoard {
         } else {
           const a = 1 - k;
           if (flash.kind === 'trigger') {
-            pxPoly(g, quad, C.arcane, 0.38 * a);
-            pxLine(g, quad[0].x, quad[0].y, quad[1].x, quad[1].y, C.arcaneLight, a, 1);
+            const tint = flash.color ?? C.arcane;
+            pxPoly(g, quad, tint, 0.38 * a);
+            pxLine(g, quad[0].x, quad[0].y, quad[1].x, quad[1].y, tint, a, 1);
+            pxRect(g, cx - 1, cy - 1, 2, 2, C.white, a);
           } else if (flash.kind === 'combo') {
             pxPoly(g, quad, C.arcane, 0.5 * a);
             pxPolyLine(g, quad, C.white, a, 1, true);

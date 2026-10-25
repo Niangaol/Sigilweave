@@ -57,12 +57,13 @@ function bareShard(x, y) {
 }
 
 describe('人物宝箱 · 受击无敌帧', () => {
-  it('无增益时保持 900ms 默认值', () => {
+  it('无增益时保持 1400ms 默认值', () => {
     const p = barePlayer();
+    expect(PLAYER.iframesMs).toBe(1400);
     expect(p.takeDamage(10, 1000)).toBe(true);
     expect(p.invulnUntil).toBe(1000 + PLAYER.iframesMs);
-    expect(p.takeDamage(10, 1899)).toBe(false);
-    expect(p.takeDamage(10, 1900)).toBe(true);
+    expect(p.takeDamage(10, 1000 + PLAYER.iframesMs - 1)).toBe(false);
+    expect(p.takeDamage(10, 1000 + PLAYER.iframesMs)).toBe(true);
   });
 
   it('iframesBonus 以秒为单位叠加（0.15 秒 = 150ms）', () => {

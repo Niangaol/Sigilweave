@@ -3,6 +3,7 @@
 let ctx = null;
 let failed = false;
 let enabled = true;
+let lastKillAt = 0;
 
 function ensure() {
   if (failed) return null;
@@ -51,6 +52,15 @@ export const sfx = {
   enemyShot: () => tone({ freq: 210, dur: 0.14, type: 'sawtooth', gain: 0.012, to: 140 }),
   hurt: () => tone({ freq: 150, dur: 0.12, gain: 0.022, to: 90 }),
   pick: () => tone({ freq: 900, dur: 0.04, gain: 0.01 }),
+  // 割草击杀：短促骨裂声，连斩越高音越亮；内部按 45ms 节流，
+  // 同帧扫掉一片怪时不会叠成噪音墙。
+  kill: (streak = 0) => {
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (now - lastKillAt < 45) return;
+    lastKillAt = now;
+    const step = Math.min(6, Math.floor((streak ?? 0) / 8));
+    tone({ freq: 300 + step * 26, dur: 0.045, type: 'square', gain: 0.009, to: 150 + step * 18 });
+  },
   tick: () => tone({ freq: 1100, dur: 0.025, gain: 0.008 }),
   tick: () => tone({ freq: 1100, dur: 0.025, gain: 0.008 }),
   quiz: () => tone({ freq: 460, dur: 0.16, type: 'triangle', gain: 0.018 }),

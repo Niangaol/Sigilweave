@@ -1,6 +1,7 @@
 // 特效层：方位光迹（设计稿 2.3 核心）、冷却折线、消散、联组链带、受击红边
 // 所有特效按内部时钟推进，暂停时 dt=0 即冻结，不依赖 Phaser tween。
 import { C, HEX, addText, pxRect, pxLine, pxDiamond } from './Palette.js';
+import { drawCastFx, drawImpactFx, drawWardFx, drawLinkFx } from './spell-fx.js';
 
 const BATTLE = { top: 20, bottom: 158, left: 2, right: 478 };
 
@@ -21,6 +22,10 @@ export default class EffectsLayer {
     this.vg = scene.add.graphics().setDepth(940).setScrollFactor(0);
     this.comboLabel = addText(scene, 240, 143, '', 9, HEX.brassLight)
       .setOrigin(0.5, 0.5).setDepth(910).setVisible(false).setScrollFactor(0);
+    // 连斩字幕：割草的即时反馈。战斗层只上报连斩数，1.5 秒没有新击杀就自然断掉。
+    this.streakLabel = addText(scene, 240, 46, '', 10, HEX.brassLight)
+      .setOrigin(0.5, 0.5).setDepth(912).setVisible(false).setScrollFactor(0);
+    this.streak = { n: 0, until: -1, shown: -1 };
     this.items = [];
     this.texts = [];
     this.clock = 0;
@@ -78,6 +83,66 @@ export default class EffectsLayer {
 
   hurt() {
     this.push({ kind: 'hurt', dur: 320 });
+  }
+
+  // ---------- 法术专属特效：全部按 defId 分派给 spell-fx ----------
+  // 起手：法杖尖端的小爆发，让「是谁打出去的」有落点
+  spellCast(defId, x, y, angle = 0) {
+    this.push({ kind: 'spellCast', defId, x, y, angle, dur: 320 });
+  }
+
+  // 命中/落点：16 个法术各自的爆点图案；陨星/地裂给更长寿命
+  // angle 供贯穿/回声/噬魂/余烬这类有方向的命中图案用（不传＝0，朝右）
+  spellImpact(defId, x, y, radius = 14, angle = 0) {
+    const dur = defId === 'meteor_judgment' ? 900 : defId === 'quake_maw' ? 700 : 520;
+    this.push({ kind: 'spellImpact', defId, x, y, radius, angle, dur });
+  }
+
+  // 护盾类：光圈跟着玩家走，不在施法点留残影
+  spellWard(defId, radius = 40) {
+    const p = this.scene.player;
+    this.push({
+      kind: 'spellWard', defId, radius, dur: 640,
+      x: p?.x ?? 240, y: p?.y ?? 135,
+    });
+  }
+
+  // 连锁/回声/噬魂的连接线：世界坐标，两端都是实体
+  spellLink(defId, from, to, index = 0) {
+    this.push({
+      kind: 'spellLink', defId, index, dur: 240,
+      from: { x: from.x, y: from.y }, to: { x: to.x, y: to.y },
+    });
+  }
+
+  // 割草死亡反馈：比 deathBurst 轻得多，同屏几十个也不掉帧
+  killBurst(x, y, color) {
+    this.push({ kind: 'killBurst', x, y, color: color ?? C.bone, dur: 420 });
+  }
+
+  // 连斩上报：n>=2 才显示，1.5 秒内没有新击杀自动消失
+  killStreak(n) {
+    if (!Number.isFinite(n) || n < 2) { this.streak.n = 0; return; }
+    this.streak.n = n;
+    this.streak.until = this.clock + 1500;
+  }
+
+  // 轻量死亡爆点：白闪菱形 + 6 枚骨屑，方向用坐标做确定性抖动（不用 Math.random）
+  drawKillBurst(g, it, k, a) {
+    const x = Math.round(it.x);
+    const y = Math.round(it.y);
+    if (k < 0.35) {
+      const s = 2 + Math.round(k * 6);
+      pxDiamond(g, x, y, s + 1, C.outline, a * 0.9, false);
+      pxDiamond(g, x, y, s, it.color, a, false);
+      pxRect(g, x - 1, y, 3, 1, C.white, a);
+      pxRect(g, x, y - 1, 1, 3, C.white, a);
+    }
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2 + (it.x * 0.013) % 1;
+      const dist = 3 + k * 13;
+      pxRect(g, Math.round(x + Math.cos(ang) * dist), Math.round(y + Math.sin(ang) * dist) - Math.round(k * k * 4), 1, 1, it.color, a * 0.85);
+    }
   }
 
   text(x, y, str, color, fixed = false) {
@@ -222,6 +287,21 @@ export default class EffectsLayer {
           pxRect(vg, 0, 20, 5, 250, C.void, 0.35);
           pxRect(vg, 475, 20, 5, 250, C.void, 0.35);
         }
+      } else if (it.kind === 'spellCast') {
+        drawCastFx(g, it.defId, { x: it.x, y: it.y, angle: it.angle, k, clock: this.clock });
+      } else if (it.kind === 'spellImpact') {
+        drawImpactFx(g, it.defId, {
+          x: it.x, y: it.y, k, clock: this.clock, radius: it.radius, angle: it.angle ?? 0,
+        });
+      } else if (it.kind === 'spellWard') {
+        const p = this.scene.player;
+        drawWardFx(g, it.defId, {
+          x: p?.x ?? it.x, y: p?.y ?? it.y, k, clock: this.clock, radius: it.radius,
+        });
+      } else if (it.kind === 'spellLink') {
+        drawLinkFx(g, it.defId, { from: it.from, to: it.to, k, clock: this.clock, index: it.index });
+      } else if (it.kind === 'killBurst') {
+        this.drawKillBurst(g, it, k, a);
       } else if (it.kind === 'impact') {
         const rr = 2 + k * 5;
         // 命中：描边菱形扩张 + 本色环 + 白核十字
@@ -270,6 +350,21 @@ export default class EffectsLayer {
       this.comboLabel.setText('联组 · ' + comboActive.label).setVisible(true).setAlpha(1 - k);
     } else {
       this.comboLabel.setVisible(false);
+    }
+
+    // 连斩字幕
+    const st = this.streak;
+    if (st.n >= 2 && this.clock < st.until) {
+      if (st.shown !== st.n) {
+        st.shown = st.n;
+        this.streakLabel.setText('连斩 ×' + st.n);
+        this.streakLabel.setColor(st.n >= 40 ? HEX.white : st.n >= 20 ? HEX.arcaneLight : HEX.brassLight);
+      }
+      this.streakLabel.setVisible(true).setAlpha(Math.min(1, (st.until - this.clock) / 380));
+      this.streakLabel.setScale(st.n >= 20 ? 1.12 : 1);
+    } else if (st.shown !== -1) {
+      st.shown = -1;
+      this.streakLabel.setVisible(false);
     }
 
     // 漂浮文字（拾取、起点迁移等）

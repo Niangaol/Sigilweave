@@ -612,11 +612,11 @@ describe('roster：敌人数据与三幕权重', () => {
   it('两种精英的数值、体型与 elite 标记符合设定', () => {
     expect(ENEMY_TYPES.stitch_abomination).toMatchObject({
       id: 'stitch_abomination', name: '缝合尸魁', behavior: 'stomp',
-      hpMul: 4.5, speedMul: 0.5, damage: 14, shards: 5, radius: 14, elite: true,
+      hpMul: 4.5, speedMul: 0.5, damage: 4, shards: 5, radius: 14, elite: true,
     });
     expect(ENEMY_TYPES.oath_bishop).toMatchObject({
       id: 'oath_bishop', name: '咒誓主教', behavior: 'blink_caster',
-      hpMul: 3.5, damage: 10, shards: 8, radius: 12, elite: true,
+      hpMul: 3.5, damage: 3, shards: 8, radius: 12, elite: true,
     });
     expect(ENEMY_TYPES.stitch_abomination.elite).toBe(true);
     expect(ENEMY_TYPES.oath_bishop.elite).toBe(true);

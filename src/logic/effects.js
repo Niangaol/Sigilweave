@@ -273,6 +273,69 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
   return { hits: targets.length, damage: total, aim: t.aim, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
 }
 
+// ---------- 割草版「尸爆」：让密集怪群能被一次范围法术连环清掉 ----------
+// 只由战斗层在结算完一次触发/联组后调用，不改 resolveSigilTrigger 的既有结算契约。
+// 规则：被法术打死的敌人炸开，对半径内还活着的敌人造成「按目标最大生命比例」的真实伤害；
+// 被炸死的敌人继续引爆（连锁），但同一只只爆一次、总命中数有上限，避免无限循环。
+// damageRatio 默认 0.5：单次爆炸打不死同血量的怪，但同一片怪吃到两次就死 → 形成连锁清场。
+export const DEATH_BURST = Object.freeze({ damageRatio: 0.5, radius: 30, maxHits: 80 });
+
+export function resolveDeathBursts({
+  enemies, seeds, damageRatio = DEATH_BURST.damageRatio,
+  radius = DEATH_BURST.radius, maxHits = DEATH_BURST.maxHits,
+} = {}) {
+  const empty = { hits: 0, killed: 0, positions: [] };
+  if (!Array.isArray(enemies) || !Array.isArray(seeds) || seeds.length === 0) return empty;
+  const ratio = Number.isFinite(damageRatio) ? Math.min(2, Math.max(0, damageRatio)) : DEATH_BURST.damageRatio;
+  const rad = Number.isFinite(radius) ? Math.max(0, radius) : DEATH_BURST.radius;
+  const cap = Number.isFinite(maxHits) ? Math.max(0, Math.floor(maxHits)) : DEATH_BURST.maxHits;
+  if (ratio === 0 || rad === 0 || cap === 0) return empty;
+
+  const r2 = rad * rad;
+  const exploded = new Set();
+  const queue = [];
+  for (const seed of seeds) {
+    if (!seed || !Number.isFinite(seed.x) || !Number.isFinite(seed.y)) continue;
+    if (seed.id !== undefined) {
+      if (exploded.has(seed.id)) continue;
+      exploded.add(seed.id);
+    }
+    queue.push({ x: seed.x, y: seed.y });
+  }
+  if (!queue.length) return empty;
+
+  const positions = [];
+  let hits = 0;
+  let killed = 0;
+  // 固定按 id 升序结算：同一次触发的爆炸顺序与结果可复现
+  const ordered = enemies
+    .filter((e) => e && Number.isFinite(e.x) && Number.isFinite(e.y))
+    .sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+
+  for (let qi = 0; qi < queue.length && hits < cap; qi++) {
+    const origin = queue[qi];
+    for (const e of ordered) {
+      if (hits >= cap) break;
+      if (!e.alive || !Number.isFinite(e.hp) || !Number.isFinite(e.maxHp)) continue;
+      if (e.id !== undefined && exploded.has(e.id)) continue;
+      const dx = e.x - origin.x;
+      const dy = e.y - origin.y;
+      if (dx * dx + dy * dy > r2) continue;
+      const amount = Math.max(1, Math.ceil(e.maxHp * ratio));
+      const wasAlive = e.hp > 0;
+      applyDamage(e, amount);
+      hits++;
+      if (wasAlive && e.hp === 0) {
+        killed++;
+        positions.push({ x: e.x, y: e.y });
+        if (e.id !== undefined) exploded.add(e.id);
+        if (queue.length < cap) queue.push({ x: e.x, y: e.y });
+      }
+    }
+  }
+  return { hits, killed, positions };
+}
+
 // 联组成立时的追加结算：对组内各格追加一次按比例的伤害
 export function resolveComboBonus({ grid, order, bonus, state, enemies, defId }) {
   let total = 0;
