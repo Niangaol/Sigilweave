@@ -40,6 +40,7 @@ import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxDiamond, drawGlyph,
 import { decoratePlan } from '../ui/board-decor.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
+import { playCutscene } from '../ui/transition.js';
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
 const FREQ_WINDOW_MS = 5000;
@@ -54,6 +55,8 @@ export default class BattleScene extends Phaser.Scene {
 
   create(data = {}) {
     applyPixelZoom(this);
+    // 由过场进入时，过场负责揭开，战斗不再自己从黑场淡入
+    this.__cine = !!data.__cine;
     const params = new URLSearchParams(window.location.search);
     this.run = data.run ?? createRun(params.get('seed') ?? ('sigil-' + Date.now()));
     this.act = this.run.act;
@@ -116,8 +119,8 @@ export default class BattleScene extends Phaser.Scene {
     // 暂停菜单的每一项都挂真实动作，鼠标点击与键盘快捷键走同一条路径
     this.pauseMenu = new PauseMenu(this, {
       resume: () => this.closePause(),
-      restart: () => { if (this.menuOpen || this.editOpen) this.scene.restart(); },
-      title: () => { if (this.menuOpen) this.scene.start('TitleScene'); },
+      restart: () => { if (this.menuOpen || this.editOpen) playCutscene(this, { kind: 'retry', to: 'BattleScene', payload: { run: this.run, __cine: true }, act: this.act }); },
+      title: () => { if (this.menuOpen) playCutscene(this, { kind: 'return', to: 'TitleScene', payload: { __cine: true }, act: this.act }); },
       edit: () => { if (this.menuOpen && !this.editOpen) this.openGridEdit(); },
       mute: () => { if (this.menuOpen) this.onMute(); },
     });
@@ -232,14 +235,14 @@ export default class BattleScene extends Phaser.Scene {
       else this.openPause('menu');
     };
     this.onRestart = () => {
-      if (this.menuOpen) this.scene.restart();
+      if (this.menuOpen) playCutscene(this, { kind: 'retry', to: 'BattleScene', payload: { run: this.run, __cine: true }, act: this.act });
     };
     this.onMute = () => {
       const on = toggleSound();
       this.effects.text(240, 150, on ? '音效已开启' : '音效已关闭', HEX.arcaneLight, true);
     };
     this.onTitle = () => {
-      if (this.menuOpen) this.scene.start('TitleScene');
+      if (this.menuOpen) playCutscene(this, { kind: 'return', to: 'TitleScene', payload: { __cine: true }, act: this.act });
     };
     this.handleBlur = () => {
       if (this.phase !== 'play') return;
@@ -287,7 +290,7 @@ export default class BattleScene extends Phaser.Scene {
     // UI 收进固定屏幕容器：世界由摄像机 zoom 放大，UI 靠容器补偿维持逻辑坐标。
     this.mountUiLayer();
 
-    this.cameras.main.fadeIn(220, 0, 0, 0);
+    if (!this.__cine) this.cameras.main.fadeIn(220, 0, 0, 0);
 
     // 调试：?pause=1 直接打开暂停菜单，便于截图验收
     if (params.get('pause') === '1') {
@@ -1290,7 +1293,11 @@ export default class BattleScene extends Phaser.Scene {
     this.run.draft = snapshotBuild(this.grid, { act: this.act });
     if (this.act < 3) {
       this.run.act++;
-      this.scene.start('IntermissionScene', { run: this.run, report });
+      // 通关一幕：先播「契约解除」标题卡与本幕数据，再落到幕间工作台
+      playCutscene(this, {
+        kind: 'clear', act: this.act, report, to: 'IntermissionScene',
+        payload: { run: this.run, report, __cine: true },
+      });
     } else {
       const totals = this.run.reports.reduce((out, report) => ({
         elapsedMs: out.elapsedMs + report.elapsedMs,
@@ -1300,7 +1307,11 @@ export default class BattleScene extends Phaser.Scene {
         blocked: out.blocked + report.blocked,
         peakRate: Math.max(out.peakRate, report.peakRate),
       }), { elapsedMs: 0, kills: 0, triggers: 0, combos: 0, blocked: 0, peakRate: 0 });
-      this.scene.start('GameOverScene', { ...this.buildSummary(), ...totals, victory: true, bossResolutions: structuredClone(this.run.bossResolutions) });
+      // 终局：三道契约环碎裂，再落到胜利结算
+      playCutscene(this, {
+        kind: 'victory', act: this.act, report: totals, to: 'GameOverScene',
+        payload: { ...this.buildSummary(), ...totals, victory: true, bossResolutions: structuredClone(this.run.bossResolutions), __cine: true },
+      });
     }
   }
 
@@ -1536,6 +1547,10 @@ export default class BattleScene extends Phaser.Scene {
     this.hostileShots = []; this.hostileG.clear();
     for (const enemy of this.enemies) enemy.destroy(); this.enemies = [];
     this.releaseProjectiles();
+    // 通幕瞬间的余韵：白闪 + 杖尖余波，再交给过场接住
+    this.cameras.main.flash(160, 255, 246, 224);
+    this.cameras.main.shake(120, 0.003);
+    this.effects.burst(this.player.x, this.player.y, C.arcaneLight, 24);
     this.effects.text(240, 115, '契约解除 · Boss 已击败', HEX.arcaneLight, true);
   }
 
@@ -1577,7 +1592,8 @@ export default class BattleScene extends Phaser.Scene {
     this.cameras.main.shake(240, 0.006);
     const summary = this.buildSummary();
     this.time.delayedCall(1000, () => {
-      if (this.phase === 'dying') this.scene.start('GameOverScene', summary);
+      // 死亡：先演魂火熄灭，再揭开结算页；合计约 2.1 秒，仍可按键跳过
+      if (this.phase === 'dying') playCutscene(this, { kind: 'death', act: this.act, to: 'GameOverScene', payload: { ...summary, __cine: true }, report: summary });
     });
   }
 

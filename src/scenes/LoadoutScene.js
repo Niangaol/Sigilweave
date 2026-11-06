@@ -4,6 +4,7 @@ import { C, HEX, addText, pxRect, pxFrame, pxDiamond, applyPixelZoom } from '../
 import { STARTING_KITS, createRun } from '../logic/run.js';
 import { SIGIL_DEFS } from '../logic/effects.js';
 import { sectorLabel } from '../data/roster.js';
+import { playCutscene } from '../ui/transition.js';
 
 const CARD = Object.freeze({ left: 12, gap: 12, width: 144, top: 48, height: 164 });
 const ACCENT = Object.freeze({ bolt: C.brassLight, flame: C.arcane, ward: C.parchment });
@@ -11,6 +12,10 @@ const ACCENT = Object.freeze({ bolt: C.brassLight, flame: C.arcane, ward: C.parc
 export default class LoadoutScene extends Phaser.Scene {
   constructor() {
     super('LoadoutScene');
+  }
+
+  init(data = {}) {
+    this.__cine = !!data.__cine;
   }
 
   create() {
@@ -21,7 +26,7 @@ export default class LoadoutScene extends Phaser.Scene {
     this.kitId = STARTING_KITS[0].id;
     this.started = false;
     this.view = this.add.container(0, 0);
-    this.cameras.main.fadeIn(180, 0, 0, 0);
+    if (!this.__cine) this.cameras.main.fadeIn(180, 0, 0, 0);
     window.__SIGILWEAVE_LOADOUT__ = { kitId: this.kitId, started: false };
 
     this.keyHandlers = [
@@ -64,9 +69,10 @@ export default class LoadoutScene extends Phaser.Scene {
     window.__SIGILWEAVE_LOADOUT__ = { kitId: this.kitId, started: true };
     this.paint();
     const run = createRun(this.seed, this.kitId);
-    this.cameras.main.fadeOut(140, 0, 0, 0);
-    this.cameras.main.once('camerafadeoutcomplete', () => {
-      this.scene.start('BattleScene', { run });
+    // 选套 → 第一幕：整局第一次亮幕名，走完整标题卡
+    playCutscene(this, {
+      kind: 'act', act: 1, to: 'BattleScene',
+      payload: { run, __cine: true },
     });
   }
 

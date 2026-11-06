@@ -9,6 +9,7 @@ import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS } from '../logic/effects.js'
 import { neighborsOf } from '../logic/grid.js';
 import { createWorkshop, chooseReward, placeCard, removeCard, installRune, removeRune, canDepart } from '../logic/workshop.js';
 import { ACTS, ORTHO_DIRS } from '../logic/constants.js';
+import { playCutscene } from '../ui/transition.js';
 
 const names = { ...SIGIL_DEFS, ...AUX_DEFS, ...RUNE_DEFS };
 const hints = {
@@ -29,7 +30,7 @@ const OATH_LIST = [['lone_star', '孤星'], ['watcher', '守夜'], ['martyr', '�
 
 export default class IntermissionScene extends Phaser.Scene {
   constructor() { super('IntermissionScene'); }
-  init(data) { this.run = data.run; this.report = data.report ?? {}; }
+  init(data) { this.run = data.run; this.report = data.report ?? {}; this.__cine = !!data.__cine; }
   create() {
     applyPixelZoom(this);
     const preview = createGrid();
@@ -481,7 +482,11 @@ export default class IntermissionScene extends Phaser.Scene {
     this.run.shards = this.workshop.shards;
     this.run.hand = { ...this.workshop.hand };
     this.run.runeCosts = structuredClone(this.workshop.runeCosts);
-    this.scene.start('BattleScene', { run: this.run });
+    // 幕间 → 下一幕：先亮幕名标题卡，再落到新地图
+    playCutscene(this, {
+      kind: 'act', act: this.run.act, to: 'BattleScene',
+      payload: { run: this.run, __cine: true },
+    });
   }
 
   addRune(id) {

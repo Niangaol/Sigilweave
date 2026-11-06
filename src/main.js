@@ -10,6 +10,7 @@ import LoadoutScene from './scenes/LoadoutScene.js';
 import BattleScene from './scenes/BattleScene.js';
 import GameOverScene from './scenes/GameOverScene.js';
 import IntermissionScene from './scenes/IntermissionScene.js';
+import CutsceneScene from './scenes/CutsceneScene.js';
 import { setRenderScale, setPortrait, setTouchUI, CANVAS_H_PORTRAIT, BASE_W, BASE_H } from './ui/Palette.js';
 
 // 竖屏判定：高明显大于宽（含手机竖持与窄窗口）
@@ -49,7 +50,8 @@ const game = new Phaser.Game({
     pixelArt: true,
     roundPixels: true,
   },
-  scene: [BootScene, TitleScene, LoadoutScene, BattleScene, IntermissionScene, GameOverScene],
+  // CutsceneScene 必须排在最后：它是覆盖层，渲染顺序在后才能盖住所有正式场景
+  scene: [BootScene, TitleScene, LoadoutScene, BattleScene, IntermissionScene, GameOverScene, CutsceneScene],
 });
 
 // 方便调试与验收时查看实例；不影响正式流程

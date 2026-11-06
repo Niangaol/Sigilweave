@@ -1,6 +1,7 @@
 // 死亡结算：羊皮纸面板 + 本局数据 + R/Enter 重开，Esc 回标题
 import Phaser from 'phaser';
 import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, fmtTime, applyPixelZoom, FONT_DISPLAY } from '../ui/Palette.js';
+import { playCutscene } from '../ui/transition.js';
 
 const SAMPLE = {
   elapsedMs: 0, act: 1, kills: 0, shards: 0, triggers: 0, combos: 0,
@@ -15,11 +16,12 @@ export default class GameOverScene extends Phaser.Scene {
   init(data) {
     this.data = Object.assign({}, SAMPLE, data || {});
     this.started = false;
+    this.__cine = !!data?.__cine;
   }
 
   create() {
     applyPixelZoom(this);
-    this.cameras.main.fadeIn(240, 0, 0, 0);
+    if (!this.__cine) this.cameras.main.fadeIn(240, 0, 0, 0);
     this.drawBackdrop();
     this.drawPanel();
     this.writeStats();
@@ -40,13 +42,14 @@ export default class GameOverScene extends Phaser.Scene {
   restart() {
     if (this.started) return;
     this.started = true;
-    this.scene.start('BattleScene');
+    // 再战：短转场，不重复整张幕名卡，避免每死一次都要多等一秒
+    playCutscene(this, { kind: 'retry', to: 'BattleScene', payload: { __cine: true }, act: 1 });
   }
 
   toTitle() {
     if (this.started) return;
     this.started = true;
-    this.scene.start('TitleScene');
+    playCutscene(this, { kind: 'return', to: 'TitleScene', payload: { __cine: true }, act: this.data.act ?? 1 });
   }
 
   drawBackdrop() {

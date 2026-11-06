@@ -1,0 +1,319 @@
+// 过场覆盖层：盖住旧场景 → 在完全盖住时启动目标场景 → 目标场景在底下就绪并暂停 → 揭开。
+// 设计约束：
+//   1) 任何时刻画面上都有内容（底色是祭坛暗紫 + 当幕主题色，不是纯黑）；
+//   2) 目标场景在揭开前已经 create 完成，杜绝「切场后闪一帧空场景」；
+//   3) 转场期间旧场景暂停、新场景暂停，输入只用于跳过，不会穿透；
+//   4) 全流程 0.9–1.6 秒，任意键/点击可跳过，跳过路径同样先换场再揭开。
+import Phaser from 'phaser';
+import {
+  C, HEX, addText, pxRect, pxFrame, pxDiamond, getRenderScale, isPortrait,
+  CANVAS_H_PORTRAIT, BASE_W, BASE_H, FONT_DISPLAY,
+} from '../ui/Palette.js';
+import { buildTimeline, phaseAt, skipResult, buildCard } from '../data/cinematics.js';
+import {
+  clamp01, easeOutCubic, easeInOutCubic, buildDust, drawVeil, drawStage,
+  drawSeal, drawSparkBurst, drawDust,
+} from '../ui/cinematic-art.js';
+import { sfx } from '../audio/Sfx.js';
+
+const hexOf = (value) => '#' + (Number(value) >>> 0).toString(16).padStart(6, '0').slice(-6);
+
+export default class CutsceneScene extends Phaser.Scene {
+  constructor() {
+    super({ key: 'CutsceneScene', active: false, visible: false });
+  }
+
+  init(data = {}) {
+    this.options = { kind: 'sigil', from: null, to: null, payload: {}, act: 1, report: null, ...data };
+    this.timeline = buildTimeline(this.options.kind);
+    this.elapsed = 0;
+    this.swapped = false;
+    this.targetReady = false;
+    this.targetPaused = false;
+    this.resumed = false;
+    this.finished = false;
+    this.skipped = false;
+    this.pausedSource = false;
+    this.lastPhase = null;
+  }
+
+  create() {
+    const W = BASE_W;
+    const H = isPortrait() ? CANVAS_H_PORTRAIT : BASE_H;
+    this.W = W;
+    this.H = H;
+    this.cx = Math.round(W / 2);
+    // 竖屏时标题卡放在上方地图区，别压住底部触控台
+    this.cy = Math.round(H * (isPortrait() ? 0.4 : 0.5));
+
+    const cam = this.cameras.main;
+    cam.setZoom(getRenderScale());
+    cam.centerOn(W / 2, H / 2);
+
+    // 旧场景冻结：仍渲染，但不推进，避免转场的第一帧还在跑
+    const from = this.options.from;
+    if (from && this.scene.isActive(from) && !this.scene.isPaused(from)) {
+      this.scene.pause(from);
+      this.pausedSource = true;
+    }
+
+    this.veilG = this.add.graphics().setDepth(0);
+    this.stageG = this.add.graphics().setDepth(1);
+    this.sealG = this.add.graphics().setDepth(2);
+    this.dustG = this.add.graphics().setDepth(3);
+
+    this.cardData = buildCard(this.options.kind, this.options.act, this.options.report);
+    this.card = this.buildCardView(this.cardData);
+    this.dust = buildDust(0x51c7 + this.options.act * 131, 44, W, H);
+
+    this.input.keyboard.on('keydown', this.onSkipInput, this);
+    this.input.on('pointerdown', this.onSkipInput, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.keyboard.off('keydown', this.onSkipInput, this);
+      this.input.off('pointerdown', this.onSkipInput, this);
+      window.__SIGILWEAVE_CUTSCENE__ = {
+        kind: this.options.kind, phase: 'done', elapsed: Math.round(this.elapsed),
+        duration: this.timeline.totalMs, from: this.options.from, to: this.options.to,
+        skipped: this.skipped,
+      };
+    });
+
+    // 保证覆盖层在目标场景之上；bringToTop 是幂等的，换场后再调一次更稳
+    this.scene.bringToTop();
+    this.publish('cover');
+    sfx.cineIn?.(this.options.kind);
+  }
+
+  // ---------- 卡片 ----------
+  buildCardView(card) {
+    if (!card) return null;
+    const container = this.add.container(this.cx, this.cy).setDepth(4);
+    const g = this.add.graphics();
+    container.add(g);
+
+    const accent = hexOf(card.accent);
+    const compact = card.compact;
+    const halfW = compact ? 132 : 170;
+    const top = compact ? -30 : -86;
+    const bottom = compact ? 30 : (card.stats.length ? 96 : 62);
+    const height = bottom - top;
+
+    pxRect(g, -halfW, top, halfW * 2, height, C.void, 0.56);
+    pxRect(g, -halfW, top, halfW * 2, 1, C.brass, 0.55);
+    pxRect(g, -halfW, bottom - 1, halfW * 2, 1, C.brass, 0.42);
+    pxFrame(g, -halfW, top, halfW * 2, height, C.brassDark, 1, 0.75);
+    for (const [x, y] of [[-halfW, top], [halfW - 3, top], [-halfW, bottom - 3], [halfW - 3, bottom - 3]]) {
+      pxRect(g, x, y, 3, 3, C.brass, 0.8);
+    }
+    pxDiamond(g, 0, top, 3, card.accent, 0.9, true);
+    pxDiamond(g, 0, bottom, 2, card.accent, 0.7, true);
+
+    if (compact) {
+      const title = addText(this, 0, -9, card.title, 15, HEX.parchment, {
+        fontFamily: FONT_DISPLAY, letterSpacing: 3, stroke: HEX.inkDark, strokeThickness: 2,
+      }).setOrigin(0.5, 0);
+      container.add(title);
+      return container;
+    }
+
+    const eyebrow = addText(this, 0, top + 12, card.eyebrow, 8, accent, {
+      letterSpacing: 2,
+    }).setOrigin(0.5, 0);
+    container.add(eyebrow);
+
+    const title = addText(this, 0, top + 28, card.title, 26, HEX.parchment, {
+      fontFamily: FONT_DISPLAY, letterSpacing: 6, stroke: HEX.inkDark, strokeThickness: 3,
+      shadow: { offsetX: 2, offsetY: 2, color: '#0d0a17', blur: 0, fill: true },
+    }).setOrigin(0.5, 0);
+    container.add(title);
+
+    const ruleY = top + 66;
+    pxRect(g, -132, ruleY, 88, 1, C.brassDark, 0.9);
+    pxRect(g, 44, ruleY, 88, 1, C.brassDark, 0.9);
+    pxDiamond(g, 0, ruleY, 2, card.accent, 0.85, true);
+
+    const subtitle = addText(this, 0, top + 78, card.subtitle, 9, HEX.parchment, {
+      align: 'center', wordWrap: { width: halfW * 2 - 28 }, lineSpacing: 4,
+    }).setOrigin(0.5, 0);
+    container.add(subtitle);
+
+    if (card.stats.length) {
+      const cols = card.stats.length;
+      const startX = -((cols - 1) * 84) / 2;
+      card.stats.forEach((stat, i) => {
+        const x = startX + i * 84;
+        const label = addText(this, x, bottom - 42, stat.label, 7, HEX.mute, { align: 'center' })
+          .setOrigin(0.5, 0);
+        const value = addText(this, x, bottom - 31, stat.value, 12, HEX.brassLight, { align: 'center' })
+          .setOrigin(0.5, 0);
+        container.add(label); container.add(value);
+      });
+    }
+
+    const hint = addText(this, 0, bottom - 20, card.hint, 7, HEX.mute, { align: 'center' })
+      .setOrigin(0.5, 0);
+    container.add(hint);
+    return container;
+  }
+
+  // ---------- 换场 ----------
+  swapScenes() {
+    if (this.swapped) return;
+    this.swapped = true;
+    const { from, to, payload } = this.options;
+    if (!to) return;
+
+    if (from && this.scene.isActive(from)) this.scene.stop(from);
+
+    const target = this.scene.get(to);
+    this.targetReady = false;
+    if (target) {
+      target.events.once(Phaser.Scenes.Events.CREATE, () => {
+        this.targetReady = true;
+        // 目标 create 完成后先冻结；揭开时再放行，避免标题卡停留期间战斗/输入抢先开始
+        this.time.delayedCall(0, () => this.freezeTarget());
+      });
+    }
+
+    if (this.scene.isActive(to)) this.scene.stop(to);
+    this.scene.launch(to, payload ?? {});
+    this.scene.bringToTop();
+    // 兜底：目标场景若因异常没有派发 create，也不要把玩家永远锁在覆盖层里
+    this.time.delayedCall(1500, () => { if (!this.targetReady && !this.finished) this.targetReady = true; });
+    sfx.cineSwap?.();
+  }
+
+  freezeTarget() {
+    const { to } = this.options;
+    if (!to || this.finished || this.resumed) return;
+    if (this.scene.isActive(to) && !this.scene.isPaused(to)) {
+      this.scene.pause(to);
+      this.targetPaused = true;
+    }
+  }
+
+  resumeTarget() {
+    if (this.resumed) return;
+    this.resumed = true;
+    const { to } = this.options;
+    if (!to) return;
+    if (this.scene.isPaused(to)) this.scene.resume(to);
+    this.targetPaused = false;
+    sfx.cineReveal?.(this.options.kind);
+  }
+
+  finish() {
+    if (this.finished) return;
+    this.finished = true;
+    this.resumeTarget();
+    this.publish('done');
+    this.scene.stop();
+  }
+
+  // ---------- 输入 ----------
+  onSkipInput(event) {
+    if (this.finished) return;
+    if (event && event.type === 'keydown' && event.repeat) return;
+    const result = skipResult(this.elapsed, this.timeline, this.swapped);
+    if (!result.allowed) return;
+    this.skipped = true;
+    this.elapsed = result.elapsed;
+    sfx.tick?.();
+    if (result.action === 'finish') this.finish();
+  }
+
+  publish(phase) {
+    this.lastPhase = phase;
+    window.__SIGILWEAVE_CUTSCENE__ = {
+      kind: this.options.kind,
+      phase,
+      elapsed: Math.round(this.elapsed),
+      duration: this.timeline.totalMs,
+      from: this.options.from,
+      to: this.options.to,
+      act: this.options.act,
+      swapped: this.swapped,
+      targetReady: this.targetReady,
+      skipped: this.skipped,
+    };
+  }
+
+  // ---------- 每帧 ----------
+  update(time, delta) {
+    if (this.finished) return;
+    const tl = this.timeline;
+    this.elapsed += Math.min(64, Number(delta) || 16);
+
+    if (this.elapsed >= tl.coverMs && !this.swapped) this.swapScenes();
+    // 目标场景还没 create 完就卡在揭开起点，保持满覆盖，不暴露空帧
+    if (!this.targetReady && this.elapsed > tl.revealAt) this.elapsed = tl.revealAt;
+
+    const phase = phaseAt(this.elapsed, tl);
+    const cover = phase.phase === 'cover' ? phase.p
+      : phase.phase === 'hold' ? 1
+        : phase.phase === 'reveal' ? 1 - phase.p : 0;
+    const veil = easeInOutCubic(cover);
+
+    const accent = this.cardData?.accent ?? 0xc9a227;
+    const tint = this.cardData?.tint ?? 0x241c3a;
+    const kind = this.options.kind;
+    const act = this.options.act ?? 1;
+
+    drawVeil(this.veilG, { w: this.W, h: this.H, cover, tint, kind });
+    drawStage(this.stageG, { w: this.W, h: this.H, kind, act, veil, t: this.elapsed, accent });
+
+    // 中央符环：盖场时收拢，停留时缓转，揭开时扩张
+    let radius = 210;
+    let sealAlpha = veil;
+    if (phase.phase === 'cover') radius = 340 - 130 * easeOutCubic(phase.p);
+    else if (phase.phase === 'hold') radius = 210 + Math.sin(this.elapsed * 0.0022) * 2;
+    else if (phase.phase === 'reveal') { radius = 210 + 360 * easeOutCubic(phase.p); sealAlpha = (1 - phase.p) * 0.9; }
+    else sealAlpha = 0;
+    this.sealG.clear();
+    drawSeal(this.sealG, {
+      cx: this.cx, cy: this.cy, r: radius, t: this.elapsed, accent,
+      alpha: sealAlpha * (kind === 'victory' ? 0.6 : 0.95),
+    });
+    drawSparkBurst(this.sealG, {
+      cx: this.cx, cy: this.cy, t: this.elapsed, startT: tl.revealAt, accent, alpha: 1,
+    });
+    // 揭开起点的短促亮光，遮住两层画面交叠的那一瞬
+    const revealMs = this.elapsed - tl.revealAt;
+    if (revealMs >= 0 && revealMs < 140) {
+      const flash = (1 - revealMs / 140) * (kind === 'victory' ? 0.28 : 0.12);
+      pxRect(this.sealG, 0, 0, this.W, this.H, kind === 'victory' ? C.brassLight : C.parchment, flash);
+    }
+
+    this.dustG.clear();
+    drawDust(this.dustG, this.dust, { h: this.H, t: this.elapsed, accent, alpha: veil });
+
+    if (this.card) {
+      let alpha = 1;
+      let dy = 0;
+      if (phase.phase === 'cover') {
+        const p = easeOutCubic(clamp01((this.elapsed - tl.coverMs * 0.42) / Math.max(1, tl.coverMs * 0.58)));
+        alpha = p;
+        dy = (1 - p) * 12;
+      } else if (phase.phase === 'reveal') {
+        const p = easeOutCubic(phase.p);
+        alpha = Math.max(0, 1 - p * 1.35);
+        dy = -p * 10;
+      } else if (phase.phase === 'done') {
+        alpha = 0;
+      }
+      this.card.setAlpha(alpha);
+      this.card.setY(this.cy + dy);
+    }
+
+    // 目标场景没就绪前绝不揭开/放行；提前 resume 会让随后 freezeTarget 把目标永久暂停（跳过路径曾踩到）
+    if (this.elapsed >= tl.revealAt && this.targetReady) this.resumeTarget();
+
+    if (this.lastPhase !== phase.phase) this.publish(phase.phase);
+
+    if (this.elapsed >= tl.totalMs) {
+      this.finish();
+    } else {
+      this.publish(phase.phase);
+    }
+  }
+}

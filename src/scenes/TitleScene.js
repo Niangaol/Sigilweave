@@ -1,10 +1,16 @@
 // 标题页：像素祭坛、旋转符环、操作说明；Enter/空格/点击开始
 import Phaser from 'phaser';
 import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, applyPixelZoom, FONT_DISPLAY } from '../ui/Palette.js';
+import { playCutscene } from '../ui/transition.js';
 
 export default class TitleScene extends Phaser.Scene {
   constructor() {
     super('TitleScene');
+  }
+
+  init(data = {}) {
+    // 由过场进入时，过场负责揭开，标题页不再自己从黑场淡入
+    this.__cine = !!data.__cine;
   }
 
   create() {
@@ -28,7 +34,7 @@ export default class TitleScene extends Phaser.Scene {
     this.started = false;
     this.lastRingStep = -1;
     this.ringStep = 0;
-    this.cameras.main.fadeIn(220, 0, 0, 0);
+    if (!this.__cine) this.cameras.main.fadeIn(220, 0, 0, 0);
 
     this.drawBackdrop();
     this.embers = this.buildEmbers();
@@ -114,8 +120,8 @@ export default class TitleScene extends Phaser.Scene {
   begin() {
     if (this.started) return;
     this.started = true;
-    this.cameras.main.fadeOut(180, 0, 0, 0);
-    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('LoadoutScene'));
+    // 标题 → 选套：符文收拢的无缝转场（不压大标题，避免和标题页重复）
+    playCutscene(this, { kind: 'sigil', to: 'LoadoutScene', payload: { __cine: true } });
   }
 
   buildEmbers() {
