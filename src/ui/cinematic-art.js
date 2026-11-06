@@ -1,6 +1,6 @@
 // 过场演出的程序化像素美术：只画硬边色块，不用图片、不用渐变、不用滤镜。
 // 所有函数都是「清空由调用方负责」的纯绘制：CutsceneScene 每帧决定阶段，这里决定画什么。
-import { C, pxRect, pxLine, pxRing, pxDiamond, drawGlyph } from './Palette.js';
+import { C, pxRect, pxLine, pxDiamond, drawGlyph } from './Palette.js';
 
 export const clamp01 = v => Math.max(0, Math.min(1, Number(v) || 0));
 export const easeOutCubic = t => 1 - Math.pow(1 - clamp01(t), 3);
@@ -8,6 +8,24 @@ export const easeInOutCubic = t => {
   const x = clamp01(t);
   return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
 };
+
+// 长线走 1px 矢量线：一帧几十条，比 Bresenham 逐像素 fillRect 便宜两个数量级。
+// 短装饰线仍用 pxLine 保留像素楼梯。
+function thinLine(g, x1, y1, x2, y2, color, alpha = 1) {
+  g.lineStyle(1, color, alpha);
+  g.lineBetween(Math.round(x1), Math.round(y1), Math.round(x2), Math.round(y2));
+}
+
+// 椭圆环用 48 段折线一次描边，替代逐个像素点环。
+function strokeRing(g, cx, cy, r, color, alpha, segments = 48) {
+  const points = [];
+  for (let i = 0; i <= segments; i++) {
+    const a = (i / segments) * Math.PI * 2;
+    points.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r * 0.86 });
+  }
+  g.lineStyle(1, color, alpha);
+  g.strokePoints(points, true);
+}
 
 export function makeRng(seed) {
   let s = (seed >>> 0) || 2;
@@ -64,10 +82,10 @@ export function drawStage(g, { w, h, kind, act, veil, t, accent }) {
   pxRect(g, 0, horizon, w, 2, C.groove, 0.55 * A);
   for (let i = 1; i <= 5; i++) {
     const y = Math.round(horizon + (h - horizon) * (i / 6));
-    pxLine(g, 0, y, w, y, C.stoneDark, 0.28 * A, 1);
+    pxRect(g, 0, y, w, 1, C.stoneDark, 0.28 * A);
   }
   for (let i = -6; i <= 6; i++) {
-    pxLine(g, w / 2 + i * 30, horizon, w / 2 + i * 96, h, C.stoneDark, 0.16 * A, 1);
+    thinLine(g, w / 2 + i * 30, horizon, w / 2 + i * 96, h, C.stoneDark, 0.16 * A);
   }
 
   if (act === 2) drawSwampChurch(g, w, h, horizon, t, A, accent);
@@ -241,8 +259,8 @@ function drawKindEvent(g, { w, h, kind, act, t, horizon, A, accent }) {
     const centers = [[w / 2 - 108, horizon - 96, 30], [w / 2, horizon - 132, 40], [w / 2 + 108, horizon - 96, 30]];
     centers.forEach(([cx, cy, r], i) => {
       const rot = t * 0.0004 * (i % 2 === 0 ? 1 : -1) + i;
-      pxRing(g, cx, cy, r, C.brass, 0.55 * A, 2);
-      pxRing(g, cx, cy, Math.round(r * 0.72), accent, 0.4 * A, 2);
+      strokeRing(g, cx, cy, r, C.brass, 0.55 * A);
+      strokeRing(g, cx, cy, Math.round(r * 0.72), accent, 0.4 * A);
       for (let k = 0; k < 6; k++) {
         const a = rot + k * Math.PI / 3;
         pxDiamond(g, cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.9, 2, C.brassLight, 0.8 * A, true);
@@ -254,7 +272,7 @@ function drawKindEvent(g, { w, h, kind, act, t, horizon, A, accent }) {
     // 契约封印碎裂：碎片沿放射方向飞散
     const p = clamp01((t - 900) / 700);
     const cx = w / 2, cy = horizon - 88;
-    pxRing(g, cx, cy, 58, accent, 0.25 * (1 - p) * A, 2);
+    strokeRing(g, cx, cy, 58, accent, 0.25 * (1 - p) * A);
     for (let i = 0; i < 14; i++) {
       const a = (i / 14) * Math.PI * 2 + 0.3;
       const d = 18 + p * 180;
@@ -269,16 +287,16 @@ function drawKindEvent(g, { w, h, kind, act, t, horizon, A, accent }) {
 export function drawSeal(g, { cx, cy, r, t, accent, alpha, runes = true, spokes = 12, core = true }) {
   if (alpha <= 0.01) return;
   const rot = t * 0.00036;
-  pxRing(g, cx, cy, r, accent, 0.26 * alpha, 3);
-  pxRing(g, cx, cy, Math.round(r * 0.76), C.brassDark, 0.34 * alpha, 3);
-  pxRing(g, cx, cy, Math.round(r * 0.42), accent, 0.15 * alpha, 3);
+  strokeRing(g, cx, cy, r, accent, 0.26 * alpha);
+  strokeRing(g, cx, cy, r * 0.76, C.brassDark, 0.34 * alpha);
+  strokeRing(g, cx, cy, r * 0.42, accent, 0.15 * alpha);
   for (let i = 0; i < spokes; i++) {
     const a = rot + (i / spokes) * Math.PI * 2;
     const x1 = cx + Math.cos(a) * r * 0.46;
     const y1 = cy + Math.sin(a) * r * 0.46 * 0.86;
     const x2 = cx + Math.cos(a) * r * 0.94;
     const y2 = cy + Math.sin(a) * r * 0.94 * 0.86;
-    pxLine(g, x1, y1, x2, y2, C.brass, 0.3 * alpha, 1);
+    thinLine(g, x1, y1, x2, y2, C.brass, 0.3 * alpha);
     pxDiamond(g, Math.round(x2), Math.round(y2), i % 3 === 0 ? 3 : 2, accent, 0.55 * alpha, true);
   }
   if (core) {
@@ -307,7 +325,7 @@ export function drawSparkBurst(g, { cx, cy, t, startT, accent, alpha }) {
     const y1 = cy + Math.sin(a) * d * 0.8;
     const x2 = cx + Math.cos(a) * (d + 18);
     const y2 = cy + Math.sin(a) * (d + 18) * 0.8;
-    pxLine(g, x1, y1, x2, y2, accent, (1 - p) * 0.55 * alpha, 1);
+    thinLine(g, x1, y1, x2, y2, accent, (1 - p) * 0.55 * alpha);
   }
 }
 

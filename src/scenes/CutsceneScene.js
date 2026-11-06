@@ -95,10 +95,11 @@ export default class CutsceneScene extends Phaser.Scene {
     const compact = card.compact;
     const halfW = compact ? 132 : 170;
     const top = compact ? -30 : -86;
-    const bottom = compact ? 30 : (card.stats.length ? 96 : 62);
+    const bottom = compact ? 30 : (card.stats.length ? 110 : 62);
     const height = bottom - top;
 
-    pxRect(g, -halfW, top, halfW * 2, height, C.void, 0.56);
+    // 面板不能太透：符环与剪影会从字缝里穿出来，标题卡会显得脏
+    pxRect(g, -halfW, top, halfW * 2, height, C.void, 0.78);
     pxRect(g, -halfW, top, halfW * 2, 1, C.brass, 0.55);
     pxRect(g, -halfW, bottom - 1, halfW * 2, 1, C.brass, 0.42);
     pxFrame(g, -halfW, top, halfW * 2, height, C.brassDark, 1, 0.75);
@@ -142,15 +143,15 @@ export default class CutsceneScene extends Phaser.Scene {
       const startX = -((cols - 1) * 84) / 2;
       card.stats.forEach((stat, i) => {
         const x = startX + i * 84;
-        const label = addText(this, x, bottom - 42, stat.label, 7, HEX.mute, { align: 'center' })
+        const label = addText(this, x, bottom - 58, stat.label, 7, HEX.mute, { align: 'center' })
           .setOrigin(0.5, 0);
-        const value = addText(this, x, bottom - 31, stat.value, 12, HEX.brassLight, { align: 'center' })
+        const value = addText(this, x, bottom - 46, stat.value, 12, HEX.brassLight, { align: 'center' })
           .setOrigin(0.5, 0);
         container.add(label); container.add(value);
       });
     }
 
-    const hint = addText(this, 0, bottom - 20, card.hint, 7, HEX.mute, { align: 'center' })
+    const hint = addText(this, 0, bottom - 14, card.hint, 7, HEX.mute, { align: 'center' })
       .setOrigin(0.5, 0);
     container.add(hint);
     return container;
@@ -272,7 +273,9 @@ export default class CutsceneScene extends Phaser.Scene {
     this.sealG.clear();
     drawSeal(this.sealG, {
       cx: this.cx, cy: this.cy, r: radius, t: this.elapsed, accent,
-      alpha: sealAlpha * (kind === 'victory' ? 0.6 : 0.95),
+      alpha: sealAlpha * (kind === 'victory' ? 0.55 : 0.8),
+      // 有标题卡时不画中央菱形核心：它会正好压在字幕上，透出来显脏
+      core: !this.cardData,
     });
     drawSparkBurst(this.sealG, {
       cx: this.cx, cy: this.cy, t: this.elapsed, startT: tl.revealAt, accent, alpha: 1,

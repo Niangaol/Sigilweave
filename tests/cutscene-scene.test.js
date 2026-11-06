@@ -38,6 +38,7 @@ function makeGraphics() {
     fillStyle() { return g; },
     fillRect() { return g; },
     lineStyle() { return g; },
+    lineBetween() { return g; },
     strokePoints() { return g; },
     fillPoints() { return g; },
     setDepth(d) { g.depth = d; return g; },
