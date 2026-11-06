@@ -5,19 +5,18 @@ import { C, pxRect } from '../ui/Palette.js';
 import { PLAYER } from '../data/roster.js';
 
 // 法杖尖端（世界坐标）：所有法术特效的统一出发位置。
-// 与 drawStaff() 里的杖身像素严格对齐：杖头在朝向侧 +6/-7，尖端在头顶上方 15px。
+// 美术升级后立绘高 42px，法杖随之上移：杖头在朝向侧 +10/-11，尖端在 y-27。
 export function staffTipOf(x, y, facing) {
-  return { x: facing > 0 ? x + 6 : x - 7, y: y - 15 };
+  return { x: facing > 0 ? x + 10 : x - 11, y: y - 27 };
 }
 
 // 素材角色高 32px，脚底落在逻辑坐标 y+7（与旧程序化美术的脚底一致）
 const FEET_OFFSET = 7;
 
-// 精灵原图是「朝左」画的（player_sheet.png 里脸和兜帽开口都在画面左侧）。
-// 所以只有面朝右（facing > 0）时才需要水平翻转——这里是唯一判定点，
-// 别再按「facing < 0 才翻转」写，那会让走左却朝右（旧版就是这个 bug）。
+// 新美术包（64×56）的立绘是「朝右」画的；只有面朝左（facing < 0）才需要水平翻转。
+// 这里是唯一判定点，旧 32px 素材是朝左的，换包时已同步翻转过判断。
 export function flipXForPlayer(facing) {
-  return facing > 0;
+  return facing <= 0;
 }
 
 export default class Player {
@@ -140,10 +139,11 @@ export default class Player {
     pxRect(g, x - 3, y + 8, 7, 1, C.void, 0.35);
     if (!this.alive) return;
     const bob = this.moving ? (Math.floor(this.walkPhase / 110) % 2) : 0;
-    const staffX = this.facing > 0 ? x + 6 : x - 7;
-    pxRect(g, staffX, y - 12 - bob, 1, 19, 0x6b4a24, 1);
-    pxRect(g, staffX - 1, y - 14 - bob, 3, 2, C.brass, 1);
-    pxRect(g, staffX, y - 15 - bob, 1, 1, C.teal, 1);
+    const staffX = this.facing > 0 ? x + 10 : x - 11;
+    pxRect(g, staffX, y - 24 - bob, 1, 31, 0x6b4a24, 1);
+    pxRect(g, staffX - 1, y - 26 - bob, 3, 2, C.brass, 1);
+    pxRect(g, staffX, y - 27 - bob, 1, 1, C.teal, 1);
+    pxRect(g, staffX - 2, y - 27 - bob, 5, 1, C.brassDark, 0.55);
   }
 
   // ---------- 程序化回退（素材缺失时） ----------

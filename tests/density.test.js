@@ -158,7 +158,7 @@ describe('敌人接触伤害：密度上调后同步下调', () => {
     expect(ENEMY_TYPES.knight.damage).toBeGreaterThanOrEqual(ENEMY_TYPES.skeleton.damage);
   });
 
-  it('只动伤害：hpMul / speedMul / radius / 权重一个都没改', () => {
+  it('美术升级包只加新怪，旧怪 hpMul / speedMul / radius 保持不变', () => {
     expect(ENEMY_TYPES.bat.speedMul).toBeCloseTo(1.6, 6);
     expect(ENEMY_TYPES.corpse.speedMul).toBeCloseTo(0.55, 6);
     expect(ENEMY_TYPES.corpse.hpMul).toBeCloseTo(2.2, 6);
@@ -166,9 +166,11 @@ describe('敌人接触伤害：密度上调后同步下调', () => {
     expect(ENEMY_TYPES.oath_bishop.hpMul).toBeCloseTo(3.5, 6);
     expect(ENEMY_TYPES.stitch_abomination.radius).toBe(14);
     expect(ENEMY_TYPES.oath_bishop.radius).toBe(12);
-    expect(ACT_ENEMY_WEIGHTS[1]).toEqual([['skeleton', 0.875], ['bat', 0.125]]);
+    expect(ACT_ENEMY_WEIGHTS[1]).toEqual([
+      ['skeleton', 0.46], ['bat', 0.18], ['rune_spider', 0.24], ['stone_gargoyle', 0.12],
+    ]);
     for (const act of [1, 2, 3]) {
-      expect(ACT_ENEMY_WEIGHTS[act].reduce((sum, [, w]) => sum + w, 0)).toBe(1);
+      expect(ACT_ENEMY_WEIGHTS[act].reduce((sum, [, w]) => sum + w, 0)).toBeCloseTo(1, 12);
     }
   });
 });

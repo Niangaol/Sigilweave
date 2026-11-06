@@ -82,6 +82,11 @@ export default class Background {
     this.act = act;
     this.world = { w: Math.round(world.w), h: Math.round(world.h) };
     this.theme = THEMES[act] || THEMES[1];
+    // 美术升级包：三幕各一张 512 无缝石砖，铺在世界底层；有图时跳过程序化地砖
+    const floorKey = 'floor_act' + act;
+    this.floorArt = scene.textures?.exists(floorKey) && typeof scene.add?.tileSprite === 'function'
+      ? scene.add.tileSprite(0, 0, this.world.w, this.world.h, floorKey).setOrigin(0, 0).setDepth(-102).setAlpha(0.65).setTileScale(0.5, 0.5)
+      : null;
     this.staticG = scene.add.graphics().setDepth(-100);
     this.flickerG = scene.add.graphics().setDepth(-90);
     // 一幕地板烘焙成纹理后挂在这里（见 bakeFloor）；二/三幕恒为 null
@@ -721,7 +726,7 @@ export default class Background {
     const T = this.theme;
     const rng = makeRng(T.seed);
 
-    this.drawFloor(g, rng, T);
+    if (!this.floorArt) this.drawFloor(g, rng, T);
     this.drawNoise(g, rng, T);
 
     let candleAnchors = [];

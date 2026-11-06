@@ -1,8 +1,12 @@
 import { C, pxRect, pxLine, pxDiamond, pxRing } from '../ui/Palette.js';
 import { createBossModel, stepBoss } from '../logic/boss.js';
 
-// 小 Boss（守墓傀儡）用石像鬼素材，幕 Boss 用巫妖素材；脚底对齐旧程序化美术的 y+21
-const BOSS_TEXTURE = { mini: 'gargoyle', final: 'lich' };
+// 美术升级包：每幕小 Boss / 幕 Boss 各一张立绘；脚底仍对齐 y+21
+const BOSS_TEXTURE = {
+  mini: { 1: 'boss_gargoyle', 2: 'boss_ghoul', 3: 'boss_skeleton_mage' },
+  final: { 1: 'boss_death_knight', 2: 'boss_wraith', 3: 'boss_void' },
+};
+const BOSS_DISPLAY_HEIGHT = { mini: 72, final: 104 };
 const BOSS_FEET = 21;
 
 export default class Boss {
@@ -13,11 +17,19 @@ export default class Boss {
     this.alive = true; this.rewarded = false; this.damage = 12; this.hitAt = -9999;
     this.model = createBossModel(act);
     this.g = scene.add.graphics().setDepth(200);
-    // 素材精灵：tier=mini 的石卫用石像鬼，其余幕 Boss 用巫妖
-    const texKey = BOSS_TEXTURE[definition?.tier === 'mini' ? 'mini' : 'final'];
+    // 素材精灵：按幕与 tier 选立绘；统一缩放到 72px（小 Boss）/ 104px（幕 Boss）
+    const tierKey = definition?.tier === 'mini' ? 'mini' : 'final';
+    const safeAct = [1, 2, 3].includes(Number(act)) ? Number(act) : 1;
+    const texKey = BOSS_TEXTURE[tierKey][safeAct];
     this.sprite = scene.textures?.exists(texKey) && typeof scene.add?.sprite === 'function'
       ? scene.add.sprite(Math.round(this.x), Math.round(this.y) + BOSS_FEET, texKey).setOrigin(0.5, 1)
       : null;
+    if (this.sprite) {
+      const h = this.sprite.frame.height || this.sprite.height || 1;
+      const w = this.sprite.frame.width || this.sprite.width || 1;
+      const target = BOSS_DISPLAY_HEIGHT[tierKey];
+      this.sprite.setDisplaySize(Math.round(w * target / h), target);
+    }
     // 素材预警条（attack_warning.png）：Boss 读条时平铺在落点地面，兑现素材交付用途
     this.warningSprite = scene.textures?.exists('attack_warning') && typeof scene.add?.image === 'function'
       ? scene.add.image(0, 0, 'attack_warning').setOrigin(0.5, 0.5).setVisible(false).setDepth(860)
@@ -37,8 +49,10 @@ export default class Boss {
       this.y += dy / d * 14 * factor * dtMs / 1000;
     }
     const W = this.scene.world ?? { w: 480, h: 270 };
+    // 大体型 Boss 不能只按旧 32px 美术的 y=42 下限：否则 72/104px 立绘会顶出 HUD/画面。
+    const minY = 42 + (this.sprite?.displayHeight ?? 0) - BOSS_FEET;
     this.x = Math.max(28, Math.min(W.w - 28, this.x));
-    this.y = Math.max(42, Math.min(W.h - 28, this.y));
+    this.y = Math.max(minY, Math.min(W.h - 28, this.y));
     for (const shot of stepBoss(this.model, dtMs, this, p)) this.scene.addHostileShot(shot);
     this.draw(now);
     this.g.setDepth(Math.floor(this.y) + 0.5);

@@ -5,14 +5,16 @@ import { applyPixelZoom } from '../ui/Palette.js';
 import { playCutscene } from '../ui/transition.js';
 
 // 精灵表：key 与文稿参数总表一致；frameWidth/Height 即文稿规定的单帧像素尺寸
+// 2026-11 美术升级包：三张精灵表统一为 64×56 / 12 帧（原 32/28/30px）
 const SPRITE_SHEETS = {
-  player:   { url: 'assets/sprites/player_sheet.png',   frameWidth: 32, frameHeight: 32 },
-  skeleton: { url: 'assets/sprites/skeleton_sheet.png', frameWidth: 28, frameHeight: 28 },
-  corpse:   { url: 'assets/sprites/corpse_sheet.png',   frameWidth: 30, frameHeight: 30 },
+  player:   { url: 'assets/sprites/player_sheet.png',   frameWidth: 64, frameHeight: 56 },
+  skeleton: { url: 'assets/sprites/skeleton_sheet.png', frameWidth: 64, frameHeight: 56 },
+  corpse:   { url: 'assets/sprites/corpse_sheet.png',   frameWidth: 64, frameHeight: 56 },
 };
 
 // 单帧图：怪物与特效
 const SPRITE_IMAGES = {
+  // 旧素材保留作兜底；新美术包用 imp / skeleton_mage 等替换主要怪物立绘
   undead_bat: 'assets/sprites/undead_bat.png',
   gargoyle: 'assets/sprites/gargoyle.png',
   cultist: 'assets/sprites/cultist.png',
@@ -20,6 +22,26 @@ const SPRITE_IMAGES = {
   death_knight: 'assets/sprites/death_knight.png',
   lesser_demon: 'assets/sprites/lesser_demon.png',
   lich: 'assets/sprites/lich.png',
+  imp: 'assets/sprites/imp.png',
+  skeleton_mage: 'assets/sprites/skeleton_mage.png',
+  stone_gargoyle: 'assets/sprites/stone_gargoyle.png',
+  crystal_dryad: 'assets/sprites/crystal_dryad.png',
+  clockwork_doll: 'assets/sprites/clockwork_doll.png',
+  void_elemental: 'assets/sprites/void_elemental.png',
+  wraith: 'assets/sprites/wraith.png',
+  rune_spider: 'assets/sprites/rune_spider.png',
+  brass_warden: 'assets/sprites/brass_warden.png',
+  boss_gargoyle: 'assets/sprites/boss_gargoyle.png',
+  boss_ghoul: 'assets/sprites/boss_ghoul.png',
+  boss_skeleton_mage: 'assets/sprites/boss_skeleton_mage.png',
+  boss_death_knight: 'assets/sprites/boss_death_knight.png',
+  boss_wraith: 'assets/sprites/boss_wraith.png',
+  boss_void: 'assets/sprites/boss_void.png',
+  floor_act1: 'assets/textures/floor_act1.png',
+  floor_act2: 'assets/textures/floor_act2.png',
+  floor_act3: 'assets/textures/floor_act3.png',
+  title_wall: 'assets/ui/title_wall.png',
+  hero_title: 'assets/ui/hero_title.png',
   rune_shard: 'assets/effects/rune_shard.png',
   attack_warning: 'assets/effects/attack_warning.png',
 };

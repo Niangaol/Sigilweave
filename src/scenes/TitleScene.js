@@ -61,12 +61,16 @@ export default class TitleScene extends Phaser.Scene {
     pxDiamond(rule, 74, 94, 2, C.brass, 0.7, true);
     pxDiamond(rule, 406, 94, 2, C.brass, 0.7, true);
 
-    this.prompt = addText(this, 240, 201, '按 Enter / 空格 开始　·　选择初始套装', 10, HEX.arcaneLight)
-      .setOrigin(0.5, 0).setDepth(10);
-    addText(this, 240, 220, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 暂停菜单', 8, HEX.mute)
-      .setOrigin(0.5, 0).setDepth(10);
-    addText(this, 240, 236, 'H 查看玩法说明　·　沿途问答 · 幕间构筑 · 识破契约', 7, HEX.brassDark)
-      .setOrigin(0.5, 0).setDepth(10);
+    // 有主角立绘时提示左对齐到 166，避免压住左侧人物；无立绘时保持居中。
+    const hasHero = this.textures.exists('hero_title');
+    const px = hasHero ? 166 : 240;
+    const ox = hasHero ? 0 : 0.5;
+    this.prompt = addText(this, px, 201, '按 Enter / 空格 开始　·　选择初始套装', 10, HEX.arcaneLight)
+      .setOrigin(ox, 0).setDepth(10);
+    addText(this, px, 220, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 暂停菜单', 8, HEX.mute)
+      .setOrigin(ox, 0).setDepth(10);
+    addText(this, px, 236, 'H 查看玩法说明　·　沿途问答 · 幕间构筑 · 识破契约', 7, HEX.brassDark)
+      .setOrigin(ox, 0).setDepth(10);
     this.buildHelp();
 
     // 输入：三种方式都能开始
@@ -146,6 +150,10 @@ export default class TitleScene extends Phaser.Scene {
   }
 
   drawBackdrop() {
+    if (this.textures.exists('title_wall')) {
+      this.drawArtBackdrop();
+      return;
+    }
     const g = this.add.graphics().setDepth(0);
     pxRect(g, 0, 0, 480, 270, C.nightDeep, 1);
     // 三层硬边地面色带
@@ -194,6 +202,28 @@ export default class TitleScene extends Phaser.Scene {
       pxRect(g, x - 1, y - 12, 3, 3, C.arcane, 0.35);
       pxRect(g, x, y - 15, 1, 1, C.arcaneLight, 1);
     }
+  }
+
+  // 美术升级包标题：紫金地牢墙 + 主角立绘站左侧；保留上方标题、符环与操作提示。
+  drawArtBackdrop() {
+    this.add.image(240, 135, 'title_wall').setDisplaySize(480, 270).setDepth(0);
+    const g = this.add.graphics().setDepth(1);
+    pxRect(g, 0, 0, 480, 108, C.void, 0.38);
+    pxRect(g, 0, 92, 480, 1, C.brassDark, 0.45);
+    pxRect(g, 0, 184, 480, 86, C.void, 0.58);
+    pxRect(g, 0, 251, 480, 19, C.ink, 0.82);
+    pxRect(g, 0, 250, 480, 1, C.brassDark, 0.6);
+    for (let i = 0; i < 10; i++) {
+      pxRect(g, 0, i * 14, 12, 14, C.void, 0.05 + i * 0.01);
+      pxRect(g, 468, i * 14, 12, 14, C.void, 0.05 + i * 0.01);
+    }
+    pxRect(g, 18, 257, 116, 2, C.void, 0.55);
+    pxRect(g, 28, 259, 96, 1, C.void, 0.35);
+    for (let i = 48; i >= 28; i -= 8) pxRect(g, 76 - i, 254, i * 2, 1, C.brassDark, 0.2);
+    pxRect(g, 48, 252, 56, 1, C.arcane, 0.1);
+    this.add.image(76, 258, 'hero_title').setOrigin(0.5, 1).setDepth(3).setScale(0.9);
+    pxRect(g, 44, 242, 1, 1, C.arcaneLight, 0.8);
+    pxRect(g, 110, 232, 1, 1, C.arcane, 0.55);
   }
 
   drawArch(g, cx, baseW, topY, bottomY, fill, edge) {

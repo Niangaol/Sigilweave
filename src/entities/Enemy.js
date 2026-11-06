@@ -15,23 +15,34 @@ const CHARGE_DAMAGE_MUL = 2.5;
 const ENEMY_TEXTURE = {
   skeleton: 'skeleton',
   corpse: 'corpse',
-  bat: 'undead_bat',
-  cultist: 'cultist',
+  bat: 'imp',
+  cultist: 'skeleton_mage',
   knight: 'death_knight',
   stitch_abomination: 'ghoul',
-  oath_bishop: 'cultist',
+  oath_bishop: 'skeleton_mage',
+  rune_spider: 'rune_spider',
+  stone_gargoyle: 'stone_gargoyle',
+  crystal_dryad: 'crystal_dryad',
+  clockwork_doll: 'clockwork_doll',
+  void_elemental: 'void_elemental',
+  wraith: 'wraith',
+  brass_warden: 'brass_warden',
 };
 // 精灵脚底相对逻辑坐标 y 的偏移（对齐各旧程序化美术的脚底）
+// 美术升级包实测脚底偏移（与 64×56 新立绘对齐；旧图已不再使用）
 const ENEMY_FEET = {
-  skeleton: 7, corpse: 7, bat: 4, cultist: 6, knight: 7,
+  skeleton: 7, corpse: 7, bat: 8, cultist: 7, knight: 7,
   stitch_abomination: 9, oath_bishop: 8,
+  rune_spider: 6, stone_gargoyle: 7, crystal_dryad: 7,
+  clockwork_doll: 7, void_elemental: 9, wraith: 9, brass_warden: 8,
 };
 // 走/攻动画前缀（只有两张表有动画；单帧图只做朝向翻转）
 const ENEMY_ANIM = { skeleton: 'skeleton', corpse: 'corpse' };
 // 精英放大/提色，让大体积敌人撑住半径
 const ENEMY_STYLE = {
   stitch_abomination: { scale: 1.15 },
-  oath_bishop: { scale: 1.2, tint: 0x9a86d8 },
+  oath_bishop: { scale: 1.2, tint: 0x9a86b8 },
+  brass_warden: { scale: 1.1 },
 };
 
 export default class Enemy {
