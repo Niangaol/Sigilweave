@@ -193,12 +193,44 @@ describe('CutsceneScene 换场状态机', () => {
     expect(overlay.resumed).toBe(false);
     target.events.emit('create', target);
     runZeroTimers(timers);
-    expect(manager.isPaused('IntermissionScene')).toBe(true);
+    // 跳过时已经进入揭开阶段：freezeTarget 不应再补暂停，否则 resume 可能被排队顺序吃掉
+    expect(manager.isPaused('IntermissionScene')).toBe(false);
     advance(overlay, 32);
     expect(manager.isPaused('IntermissionScene')).toBe(false);
+    expect(overlay.resumed).toBe(true);
 
     overlay.onSkipInput({ type: 'keydown' });
     expect(overlay.finished).toBe(true);
+  });
+
+  it('跳过时 pause 排队晚到，看门狗会把目标重新拉回运行', () => {
+    vi.useFakeTimers();
+    try {
+      const { overlay, target, state, timers } = makeHarness();
+      const mgr = overlay.scene;
+      const deferred = new Set();
+      mgr.pause = (key) => { deferred.add(key); };
+      mgr.isPaused = (key) => state.paused.has(key);
+      mgr.resume = (key) => { state.paused.delete(key); };
+      mgr.manager = mgr;
+
+      // 正常停留阶段：目标 create 后把 pause 排进队列（尚未落地）
+      advance(overlay, overlay.timeline.coverMs + 20);
+      target.events.emit('create', target);
+      runZeroTimers(timers);
+      expect(deferred.has('IntermissionScene')).toBe(true);
+
+      // 跳过：进入揭开，resume 此时看不到已生效的 pause
+      overlay.onSkipInput({ type: 'keydown' });
+      advance(overlay, 16);
+
+      // 模拟 pause 在 resume 之后才落地
+      state.paused.add('IntermissionScene');
+      vi.advanceTimersByTime(500);
+      expect(state.paused.has('IntermissionScene')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('按键重复与已完成状态不会触发第二次跳过', () => {

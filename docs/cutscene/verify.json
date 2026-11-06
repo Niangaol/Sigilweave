@@ -1,0 +1,168 @@
+{
+  "ok": true,
+  "shots": [
+    "01-boot",
+    "02-title",
+    "03-title-to-loadout",
+    "04-loadout",
+    "05-act1-card",
+    "05b-act1-reveal",
+    "06-act1-battle",
+    "07-clear-card",
+    "08-intermission",
+    "09-act2-card",
+    "10-death-card",
+    "11-gameover",
+    "12-victory-card",
+    "13-victory-panel",
+    "14-portrait-act1",
+    "15-act3-card"
+  ],
+  "timings": [
+    {
+      "kind": "boot",
+      "phase": "hold",
+      "duration": 960,
+      "act": 1,
+      "elapsed": 306
+    },
+    {
+      "kind": "sigil",
+      "phase": "hold",
+      "duration": 920,
+      "act": 1,
+      "elapsed": 308
+    },
+    {
+      "kind": "act",
+      "phase": "hold",
+      "duration": 1460,
+      "act": 1,
+      "elapsed": 325
+    },
+    {
+      "kind": "clear",
+      "phase": "hold",
+      "duration": 1420,
+      "act": 1,
+      "elapsed": 327
+    },
+    {
+      "kind": "act",
+      "phase": "hold",
+      "duration": 1460,
+      "act": 2,
+      "elapsed": 325
+    },
+    {
+      "kind": "death",
+      "phase": "hold",
+      "duration": 1120,
+      "act": 2,
+      "elapsed": 387
+    },
+    {
+      "kind": "retry",
+      "phase": "hold",
+      "duration": 920,
+      "act": 1,
+      "elapsed": 308
+    },
+    {
+      "kind": "victory",
+      "phase": "hold",
+      "duration": 1600,
+      "act": 3,
+      "elapsed": 367
+    },
+    {
+      "kind": "return",
+      "phase": "hold",
+      "duration": 920,
+      "act": 3,
+      "elapsed": 307
+    }
+  ],
+  "errors": [],
+  "checks": [
+    {
+      "name": "boot 时长 900–1600ms",
+      "pass": true,
+      "detail": "960"
+    },
+    {
+      "name": "sigil 时长 900–1600ms",
+      "pass": true,
+      "detail": "920"
+    },
+    {
+      "name": "act 时长 900–1600ms",
+      "pass": true,
+      "detail": "1460"
+    },
+    {
+      "name": "第一幕卡片属于第 1 幕",
+      "pass": true,
+      "detail": "1"
+    },
+    {
+      "name": "标题卡停留时目标场景已在底下创建",
+      "pass": true,
+      "detail": "{\"battleCreated\":true,\"battleStatus\":6,\"cutActive\":true}"
+    },
+    {
+      "name": "clear 时长 900–1600ms",
+      "pass": true,
+      "detail": "1420"
+    },
+    {
+      "name": "解除卡属于刚完成的一幕",
+      "pass": true,
+      "detail": "1"
+    },
+    {
+      "name": "act 时长 900–1600ms",
+      "pass": true,
+      "detail": "1460"
+    },
+    {
+      "name": "第二幕卡片属于第 2 幕",
+      "pass": true,
+      "detail": "2"
+    },
+    {
+      "name": "death 时长 900–1600ms",
+      "pass": true,
+      "detail": "1120"
+    },
+    {
+      "name": "retry 时长 900–1600ms",
+      "pass": true,
+      "detail": "920"
+    },
+    {
+      "name": "victory 时长 900–1600ms",
+      "pass": true,
+      "detail": "1600"
+    },
+    {
+      "name": "return 时长 900–1600ms",
+      "pass": true,
+      "detail": "920"
+    },
+    {
+      "name": "跳过后仍落到目标场景",
+      "pass": true
+    },
+    {
+      "name": "竖屏画布为高窗",
+      "pass": true,
+      "detail": "{\"w\":390,\"h\":844,\"cut\":{\"kind\":\"act\",\"phase\":\"hold\",\"elapsed\":590,\"duration\":1460,\"from\":\"LoadoutScene\",\"to\":\"BattleScene\",\"act\":1,\"swapped\":true,\"targetReady\":true,\"skipped\":false}}"
+    },
+    {
+      "name": "第三幕卡片属于第 3 幕",
+      "pass": true,
+      "detail": "3"
+    }
+  ]
+}

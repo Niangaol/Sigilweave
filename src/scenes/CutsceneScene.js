@@ -80,6 +80,8 @@ export default class CutsceneScene extends Phaser.Scene {
 
     // 保证覆盖层在目标场景之上；bringToTop 是幂等的，换场后再调一次更稳
     this.scene.bringToTop();
+    // 旧的 resume 看门狗只允许服务自己这一层；新过场一开，旧狗自动停
+    window.__SIGILWEAVE_CUTSCENE_OWNER__ = this;
     this.publish('cover');
     sfx.cineIn?.(this.options.kind);
   }
@@ -93,6 +95,14 @@ export default class CutsceneScene extends Phaser.Scene {
 
     const accent = hexOf(card.accent);
     const compact = card.compact;
+    // 竖屏画布会被 FIT 缩到约 0.8 倍，标题卡字号要相应放大，否则字幕读不清
+    const tall = isPortrait();
+    const eyebrowSize = tall ? 9 : 8;
+    const titleSize = tall ? 28 : 26;
+    const subtitleSize = tall ? 10 : 9;
+    const hintSize = tall ? 8 : 7;
+    const statLabelSize = tall ? 8 : 7;
+    const statValueSize = tall ? 14 : 12;
     const halfW = compact ? 132 : 170;
     const top = compact ? -30 : -86;
     const bottom = compact ? 30 : (card.stats.length ? 110 : 62);
@@ -110,19 +120,19 @@ export default class CutsceneScene extends Phaser.Scene {
     pxDiamond(g, 0, bottom, 2, card.accent, 0.7, true);
 
     if (compact) {
-      const title = addText(this, 0, -9, card.title, 15, HEX.parchment, {
+      const title = addText(this, 0, -9, card.title, tall ? 17 : 15, HEX.parchment, {
         fontFamily: FONT_DISPLAY, letterSpacing: 3, stroke: HEX.inkDark, strokeThickness: 2,
       }).setOrigin(0.5, 0);
       container.add(title);
       return container;
     }
 
-    const eyebrow = addText(this, 0, top + 12, card.eyebrow, 8, accent, {
+    const eyebrow = addText(this, 0, top + 12, card.eyebrow, eyebrowSize, accent, {
       letterSpacing: 2,
     }).setOrigin(0.5, 0);
     container.add(eyebrow);
 
-    const title = addText(this, 0, top + 28, card.title, 26, HEX.parchment, {
+    const title = addText(this, 0, top + 28, card.title, titleSize, HEX.parchment, {
       fontFamily: FONT_DISPLAY, letterSpacing: 6, stroke: HEX.inkDark, strokeThickness: 3,
       shadow: { offsetX: 2, offsetY: 2, color: '#0d0a17', blur: 0, fill: true },
     }).setOrigin(0.5, 0);
@@ -133,7 +143,7 @@ export default class CutsceneScene extends Phaser.Scene {
     pxRect(g, 44, ruleY, 88, 1, C.brassDark, 0.9);
     pxDiamond(g, 0, ruleY, 2, card.accent, 0.85, true);
 
-    const subtitle = addText(this, 0, top + 78, card.subtitle, 9, HEX.parchment, {
+    const subtitle = addText(this, 0, top + 78, card.subtitle, subtitleSize, HEX.parchment, {
       align: 'center', wordWrap: { width: halfW * 2 - 28 }, lineSpacing: 4,
     }).setOrigin(0.5, 0);
     container.add(subtitle);
@@ -143,15 +153,15 @@ export default class CutsceneScene extends Phaser.Scene {
       const startX = -((cols - 1) * 84) / 2;
       card.stats.forEach((stat, i) => {
         const x = startX + i * 84;
-        const label = addText(this, x, bottom - 58, stat.label, 7, HEX.mute, { align: 'center' })
+        const label = addText(this, x, bottom - 58, stat.label, statLabelSize, HEX.mute, { align: 'center' })
           .setOrigin(0.5, 0);
-        const value = addText(this, x, bottom - 46, stat.value, 12, HEX.brassLight, { align: 'center' })
+        const value = addText(this, x, bottom - 46, stat.value, statValueSize, HEX.brassLight, { align: 'center' })
           .setOrigin(0.5, 0);
         container.add(label); container.add(value);
       });
     }
 
-    const hint = addText(this, 0, bottom - 14, card.hint, 7, HEX.mute, { align: 'center' })
+    const hint = addText(this, 0, bottom - 14, card.hint, hintSize, HEX.mute, { align: 'center' })
       .setOrigin(0.5, 0);
     container.add(hint);
     return container;
@@ -186,7 +196,8 @@ export default class CutsceneScene extends Phaser.Scene {
 
   freezeTarget() {
     const { to } = this.options;
-    if (!to || this.finished || this.resumed) return;
+    // 跳过路径可能在目标 create 的同一帧就进入揭开；此时不能再补一次暂停
+    if (!to || this.finished || this.resumed || this.elapsed >= this.timeline.revealAt) return;
     if (this.scene.isActive(to) && !this.scene.isPaused(to)) {
       this.scene.pause(to);
       this.targetPaused = true;
@@ -198,15 +209,37 @@ export default class CutsceneScene extends Phaser.Scene {
     this.resumed = true;
     const { to } = this.options;
     if (!to) return;
-    if (this.scene.isPaused(to)) this.scene.resume(to);
+    // 不能只看 isPaused：pause 是排队操作，跳过时 pause 可能尚未生效。
+    // 这里直接排一个 resume，并用短计时器补几次，保证最终状态一定是运行。
+    if (this.scene.isActive(to)) this.scene.resume(to);
     this.targetPaused = false;
+    this.ensureTargetRunning();
     sfx.cineReveal?.(this.options.kind);
+  }
+
+  // SceneManager 的 pause/resume 是排队操作：如果 resume 先于 pause 落地，
+  // 目标会永久停在暂停态（跳过路径实测踩到）。用与场景生命周期无关的短计时器兜底，
+  // 连续补 resume 约 400ms，直到目标真正运行。
+  ensureTargetRunning() {
+    const to = this.options.to;
+    if (!to) return;
+    const manager = this.scene.manager;
+    let attempts = 0;
+    const owner = this;
+    const tick = () => {
+      if (!manager || attempts++ > 12) return;
+      if (window.__SIGILWEAVE_CUTSCENE_OWNER__ && window.__SIGILWEAVE_CUTSCENE_OWNER__ !== owner) return;
+      if (manager.isPaused(to)) manager.resume(to);
+      setTimeout(tick, 32);
+    };
+    setTimeout(tick, 0);
   }
 
   finish() {
     if (this.finished) return;
     this.finished = true;
     this.resumeTarget();
+    this.ensureTargetRunning();
     this.publish('done');
     this.scene.stop();
   }
