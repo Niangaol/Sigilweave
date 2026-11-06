@@ -49,9 +49,34 @@ export const OATH_RULE = Object.freeze({
   shotLifeMs: 3200,
 });
 
+// 晶棘树妖：保持 92px，每 3s 蓄力 650ms，然后扇形三连弹。
+export const VOLLEY_RULE = Object.freeze({
+  holdDist: 92,
+  retreatDist: 56,
+  attackMs: 3000,
+  windupMs: 650,
+  shots: 3,
+  spreadRad: 0.3,
+  shotSpeed: 92,
+  shotLifeMs: 3600,
+});
+
+// 虚空符灵：保持 86px，每 3.6s 瞬移侧翼，停顿 480ms 后两连弹。
+export const PHASE_RULE = Object.freeze({
+  holdDist: 86,
+  blinkMs: 3600,
+  pauseMs: 480,
+  burstShots: 2,
+  burstGapMs: 170,
+  shotSpeed: 115,
+  shotLifeMs: 3200,
+});
+
 const KNOWN_DEFS = new Set([
   'skeleton', 'bat', 'corpse', 'cultist', 'knight',
   'stitch_abomination', 'oath_bishop',
+  'rune_spider', 'stone_gargoyle', 'crystal_dryad',
+  'clockwork_doll', 'void_elemental', 'wraith', 'brass_warden',
 ]);
 const TAU = Math.PI * 2;
 const MAX_STEP_MS = 10000;   // 单步上限：手滑传入超大 dt 也只前进 10s，不把坐标推到天边
@@ -183,16 +208,24 @@ export function createBrain(defId, options = {}) {
     charges: 0,
   };
 
-  if (def === 'bat') brain.wobbleSign = nextRandom(brain) < 0.5 ? -1 : 1;
+  if (def === 'bat' || def === 'rune_spider' || def === 'wraith') brain.wobbleSign = nextRandom(brain) < 0.5 ? -1 : 1;
   if (def === 'cultist') {
     brain.orbitDir = nextRandom(brain) < 0.5 ? -1 : 1;
     brain.attackIn = CULTIST_RULE.attackMs;
   }
-  if (def === 'knight') brain.chargeIn = KNIGHT_RULE.intervalMs;
+  if (def === 'knight' || def === 'stone_gargoyle' || def === 'brass_warden') brain.chargeIn = KNIGHT_RULE.intervalMs;
   if (def === 'stitch_abomination') brain.stompIn = STITCH_RULE.stompMs;
   if (def === 'oath_bishop') {
     brain.orbitDir = nextRandom(brain) < 0.5 ? -1 : 1;
     brain.blinkIn = OATH_RULE.blinkMs;
+  }
+  if (def === 'crystal_dryad') {
+    brain.orbitDir = nextRandom(brain) < 0.5 ? -1 : 1;
+    brain.attackIn = VOLLEY_RULE.attackMs;
+  }
+  if (def === 'void_elemental') {
+    brain.orbitDir = nextRandom(brain) < 0.5 ? -1 : 1;
+    brain.blinkIn = PHASE_RULE.blinkMs;
   }
   return brain;
 }
@@ -464,6 +497,128 @@ function stepOath(brain, ctx) {
   return makeResult(brain, [], false, false);
 }
 
+function makeVolleyShots(brain, self, player, opts) {
+  const aim = finitePoint(brain.aim) ? brain.aim : player;
+  const base = Math.atan2(aim.y - self.y, aim.x - self.x);
+  const damage = Math.max(1, Math.round(finiteOr(opts?.damage, 10)));
+  const shots = [];
+  for (let i = 0; i < VOLLEY_RULE.shots; i++) {
+    const a = base + (i - (VOLLEY_RULE.shots - 1) / 2) * VOLLEY_RULE.spreadRad;
+    shots.push({
+      x: self.x + Math.cos(a) * 6,
+      y: self.y + Math.sin(a) * 6,
+      vx: Math.cos(a) * VOLLEY_RULE.shotSpeed,
+      vy: Math.sin(a) * VOLLEY_RULE.shotSpeed,
+      damage,
+      lifeMs: VOLLEY_RULE.shotLifeMs,
+    });
+  }
+  return shots;
+}
+
+// 晶棘树妖：中距离站桩 → 650ms 蓄力（预警锁玩家）→ 扇形三连弹。
+function stepVolley(brain, ctx) {
+  const { self, player, dt, bounds, opts } = ctx;
+  brain.attackIn -= dt;
+
+  if (brain.mode === 'windup') {
+    brain.x = self.x;
+    brain.y = self.y;
+    brain.windupLeft -= dt;
+    if (brain.windupLeft <= 0) {
+      brain.mode = 'walk';
+      brain.attackIn = VOLLEY_RULE.attackMs;
+      return makeResult(brain, makeVolleyShots(brain, self, player, opts), false, false);
+    }
+    return makeResult(brain, [], false, true);
+  }
+
+  const dx = player.x - self.x;
+  const dy = player.y - self.y;
+  const dist = Math.hypot(dx, dy);
+  const nx = dist > 1e-6 ? dx / dist : 0;
+  const ny = dist > 1e-6 ? dy / dist : 1;
+  const radial = Math.max(-self.speed * 0.7, Math.min(self.speed * 0.7, (dist - VOLLEY_RULE.holdDist) * 1.5));
+  const tangential = self.speed * 0.28 * (brain.orbitDir < 0 ? -1 : 1);
+  brain.x = self.x + (-ny * tangential + nx * radial) * (dt / 1000);
+  brain.y = self.y + (nx * tangential + ny * radial) * (dt / 1000);
+  clampToBounds(brain, bounds);
+
+  if (brain.attackIn <= 0) {
+    brain.mode = 'windup';
+    brain.windupLeft = VOLLEY_RULE.windupMs;
+    brain.aim = { x: player.x, y: player.y };
+    brain.windups += 1;
+    return makeResult(brain, [], false, true);
+  }
+  return makeResult(brain, [], false, false);
+}
+
+function makePhaseShot(self, player, opts) {
+  const dir = unitVector(player.x - self.x, player.y - self.y) ?? { x: 0, y: 1 };
+  return {
+    x: self.x + dir.x * 6,
+    y: self.y + dir.y * 6,
+    vx: dir.x * PHASE_RULE.shotSpeed,
+    vy: dir.y * PHASE_RULE.shotSpeed,
+    damage: Math.max(1, Math.round(finiteOr(opts?.damage, 8))),
+    lifeMs: PHASE_RULE.shotLifeMs,
+  };
+}
+
+// 虚空符灵：维持 86px；每 3.6s 瞬移侧翼，停顿 480ms 后两连弹。
+function stepPhase(brain, ctx) {
+  const { self, player, dt, bounds, opts } = ctx;
+  brain.blinkIn -= dt;
+
+  if (brain.pauseLeft > 0) {
+    brain.pauseLeft -= dt;
+    brain.x = self.x;
+    brain.y = self.y;
+    if (brain.pauseLeft > 0) return makeResult(brain, [], false, true);
+    brain.pauseLeft = 0;
+    brain.burstLeft = PHASE_RULE.burstShots - 1;
+    brain.burstIn = PHASE_RULE.burstGapMs;
+    return makeResult(brain, [makePhaseShot(self, player, opts)], false, false);
+  }
+
+  if (brain.burstLeft > 0) {
+    brain.burstIn -= dt;
+    brain.x = self.x;
+    brain.y = self.y;
+    if (brain.burstIn <= 0) {
+      brain.burstLeft -= 1;
+      brain.burstIn = PHASE_RULE.burstGapMs;
+      return makeResult(brain, [makePhaseShot(self, player, opts)], false, false);
+    }
+    return makeResult(brain, [], false, false);
+  }
+
+  const dx = player.x - self.x;
+  const dy = player.y - self.y;
+  const dist = Math.hypot(dx, dy);
+  const nx = dist > 1e-6 ? dx / dist : 0;
+  const ny = dist > 1e-6 ? dy / dist : 1;
+  const radial = Math.max(-self.speed, Math.min(self.speed, (dist - PHASE_RULE.holdDist) * 1.8));
+  const tangential = self.speed * 0.55 * (brain.orbitDir < 0 ? -1 : 1);
+  brain.x = self.x + (-ny * tangential + nx * radial) * (dt / 1000);
+  brain.y = self.y + (nx * tangential + ny * radial) * (dt / 1000);
+  clampToBounds(brain, bounds);
+
+  if (brain.blinkIn <= 0) {
+    const side = nextRandom(brain) < 0.5 ? -1 : 1;
+    brain.x = player.x + -ny * side * PHASE_RULE.holdDist;
+    brain.y = player.y + nx * side * PHASE_RULE.holdDist;
+    clampToBounds(brain, bounds);
+    brain.pauseLeft = PHASE_RULE.pauseMs;
+    brain.blinkIn = PHASE_RULE.blinkMs;
+    brain.blinks += 1;
+    return makeResult(brain, [], false, true);
+  }
+
+  return makeResult(brain, [], false, false);
+}
+
 // ---------- 单步 ----------
 export function stepBrain(brain, rawInput) {
   const input = rawInput && typeof rawInput === 'object' ? rawInput : {};
@@ -494,12 +649,19 @@ export function stepBrain(brain, rawInput) {
   const ctx = { dt, self, player, bounds, opts };
 
   switch (brain.defId) {
-    case 'bat': return stepBat(brain, ctx);
-    case 'corpse': return stepMarch(brain, ctx);
+    case 'bat':
+    case 'rune_spider':
+    case 'wraith': return stepBat(brain, ctx);
+    case 'corpse':
+    case 'clockwork_doll': return stepMarch(brain, ctx);
     case 'cultist': return stepCultist(brain, ctx);
-    case 'knight': return stepKnight(brain, ctx);
+    case 'knight':
+    case 'stone_gargoyle':
+    case 'brass_warden': return stepKnight(brain, ctx);
     case 'stitch_abomination': return stepStitch(brain, ctx);
     case 'oath_bishop': return stepOath(brain, ctx);
+    case 'crystal_dryad': return stepVolley(brain, ctx);
+    case 'void_elemental': return stepPhase(brain, ctx);
     case 'skeleton':
     default: return stepMarch(brain, ctx);
   }

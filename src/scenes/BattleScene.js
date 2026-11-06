@@ -600,7 +600,7 @@ export default class BattleScene extends Phaser.Scene {
       if (this.introLeft <= 0) {
         this.phase = 'play'; this.paused = false; this.engine.paused = false;
         this.player.invulnUntil = this.engine.now + 900;
-        this.resumeFollow();
+        this.resumeFollow(this.bossCamOffset ?? 0);
       }
     } else if (this.phase === 'dying') {
       this.effects.update(dt);
@@ -1164,6 +1164,9 @@ export default class BattleScene extends Phaser.Scene {
     const mini = def?.tier === 'mini';
     const dur = mini ? 900 : 1600;
     this.phase = 'intro'; this.paused = true; this.engine.paused = true;
+    // 大立绘需要更多上方取景：镜头整体上移，玩家被推到画面下半区，Boss 完整落在 HUD 下方。
+    this.bossCamOffset = mini ? 50 : 80;
+    this.resumeFollow(this.bossCamOffset);
     this.introDur = dur; this.introLeft = dur;
     if (this.boss) {
       this.introToY = this.boss.y;
@@ -1455,7 +1458,9 @@ export default class BattleScene extends Phaser.Scene {
       this.bossStarted = true;
       this.boss = new Boss(this, definition, this.act, this.enemySeq++);
       this.boss.x = this.player.x;
-      this.boss.y = Math.max(60, this.player.y - 110);
+      // 新 Boss 立绘 72/104px：下限按实际显示高度算，保证整只 Boss 落在 HUD 下方。
+      const bossMinY = 42 + (this.boss.sprite?.displayHeight ?? 0) - 21 + 4;
+      this.boss.y = Math.max(bossMinY, this.player.y - 110);
       this.enemies.push(this.boss);
     }
     this.encounterPanel.show(this.run.encounters.active);
@@ -1533,16 +1538,22 @@ export default class BattleScene extends Phaser.Scene {
       sfx.bossDown();
       this.enemies = this.enemies.filter(e => e !== this.boss);
     }
+    // 小 Boss 打完不经过通幕，镜头立刻回到常规取景；大 Boss 由 startBossClearTransition 复位。
+    if (tier === 'mini') { this.bossCamOffset = 0; this.resumeFollow(); }
   }
 
-  resumeFollow() {
+  resumeFollow(offsetY = 0) {
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setDeadzone(60, 40);
+    // 竖屏原本就有 190 的取景偏移；Boss 战再把镜头往上抬，避免 72/104px 立绘顶出 HUD。
+    const base = isPortrait() ? 190 : 0;
+    this.cameras.main.setFollowOffset(0, base + offsetY);
   }
 
   startBossClearTransition() {
     if (this.phase === 'bossDefeated' || this.phase === 'intermission') return;
     this.phase = 'bossDefeated'; this.paused = true; this.engine.paused = true; this.transitionLeft = 800;
+    this.bossCamOffset = 0;
     this.resumeFollow();
     this.hostileShots = []; this.hostileG.clear();
     for (const enemy of this.enemies) enemy.destroy(); this.enemies = [];

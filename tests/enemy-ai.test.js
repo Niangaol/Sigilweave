@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   createBrain, stepBrain, DEFAULT_BATTLE,
   BAT_RULE, CULTIST_RULE, KNIGHT_RULE, STITCH_RULE, OATH_RULE,
+  VOLLEY_RULE, PHASE_RULE,
 } from '../src/logic/enemy-ai.js';
 import { ENEMY_TYPES, ACT_ENEMY_WEIGHTS, pickEnemyType } from '../src/data/roster.js';
 import Enemy from '../src/entities/Enemy.js';
@@ -11,6 +12,8 @@ const OPTS = { BATTLE: DEFAULT_BATTLE, damage: 8 };
 const ALL_DEFS = [
   'skeleton', 'bat', 'corpse', 'cultist', 'knight',
   'stitch_abomination', 'oath_bishop',
+  'rune_spider', 'stone_gargoyle', 'crystal_dryad',
+  'clockwork_doll', 'void_elemental', 'wraith', 'brass_warden',
 ];
 
 // 按固定步长连续推进，喂回上一帧坐标（和 BattleScene / Enemy 的用法一致）
@@ -32,6 +35,26 @@ function simulate(brain, start, player = PLAYER, dtMs = 100, steps = 1, opts = O
 }
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+// 美术升级包新增行为：至少保证 6.4 秒连续推进不产生 NaN/越界，并让两个远程新怪真的打出弹。
+describe('新怪行为冒烟', () => {
+  it('volley / phase / weave / charge / march 都能稳定推进', () => {
+    for (const id of ['rune_spider', 'stone_gargoyle', 'crystal_dryad', 'clockwork_doll', 'void_elemental', 'wraith', 'brass_warden']) {
+      const brain = createBrain(id, { now: 0, seed: 3 });
+      const { trace } = simulate(brain, { x: 240, y: 80, speed: 30, radius: 6 }, PLAYER, 16, 400);
+      let shots = 0;
+      for (const r of trace) {
+        expect(Number.isFinite(r.x) && Number.isFinite(r.y)).toBe(true);
+        // 直线推进的怪允许冲出战斗边界（由战斗层退场判定清退），这里只防 NaN/无限大
+        expect(Math.abs(r.x)).toBeLessThan(1e5);
+        expect(Math.abs(r.y)).toBeLessThan(1e5);
+        shots += r.shots.length;
+      }
+      if (id === 'crystal_dryad') expect(shots).toBeGreaterThanOrEqual(VOLLEY_RULE.shots);
+      if (id === 'void_elemental') expect(shots).toBeGreaterThanOrEqual(PHASE_RULE.burstShots - 1);
+    }
+  });
+});
 
 describe('确定性：同 seed 同轨迹', () => {
   it.each(ALL_DEFS)('%s 两次同 seed 模拟逐帧完全一致', (defId) => {
@@ -623,58 +646,52 @@ describe('roster：敌人数据与三幕权重', () => {
     expect(ENEMY_TYPES.skeleton.elite).toBeUndefined();  // 普通杂兵不带精英标记
   });
 
-  it.each([1, 2, 3])('第 %i 幕权重和精确为 1', (act) => {
+  it.each([1, 2, 3])('第 %i 幕权重和约为 1', (act) => {
     const table = ACT_ENEMY_WEIGHTS[act];
     expect(Array.isArray(table)).toBe(true);
     expect(table.length).toBeGreaterThanOrEqual(2);
     expect(table.every(([id, weight]) => ENEMY_TYPES[id] && weight > 0)).toBe(true);
     const sum = table.reduce((acc, [, weight]) => acc + weight, 0);
-    expect(sum).toBe(1);
+    expect(sum).toBeCloseTo(1, 12);
   });
 
-  it('幕次构成：二幕缝合尸魁 8%、三幕咒誓主教 12%，其余权重相应缩减', () => {
-    expect(weightOf(1, 'skeleton')).toBeGreaterThan(0.7);
-    expect(weightOf(1, 'bat')).toBeGreaterThan(0);
+  it('幕次构成：新怪按美术包权重加入，旧精英只在指定幕出现', () => {
+    expect(weightOf(1, 'skeleton')).toBeCloseTo(0.46, 10);
+    expect(weightOf(1, 'bat')).toBeCloseTo(0.18, 10);
+    expect(weightOf(1, 'rune_spider')).toBeCloseTo(0.24, 10);
+    expect(weightOf(1, 'stone_gargoyle')).toBeCloseTo(0.12, 10);
     for (const id of ['corpse', 'cultist', 'knight', 'stitch_abomination', 'oath_bishop']) {
       expect(weightOf(1, id)).toBe(0);
     }
 
-    for (const id of ['bat', 'corpse', 'skeleton']) expect(weightOf(2, id)).toBeGreaterThan(0);
+    for (const id of ['bat', 'corpse', 'skeleton', 'rune_spider', 'crystal_dryad', 'clockwork_doll', 'stone_gargoyle']) {
+      expect(weightOf(2, id)).toBeGreaterThan(0);
+    }
     expect(weightOf(2, 'stitch_abomination')).toBeCloseTo(0.08, 10);
-    expect(weightOf(2, 'skeleton')).toBeLessThan(0.25);            // 其余缩减
+    expect(weightOf(2, 'skeleton')).toBeLessThan(0.25);
     expect(weightOf(2, 'cultist')).toBe(0);
     expect(weightOf(2, 'knight')).toBe(0);
     expect(weightOf(2, 'oath_bishop')).toBe(0);
 
-    for (const id of ['skeleton', 'bat', 'corpse', 'cultist', 'knight']) expect(weightOf(3, id)).toBeGreaterThan(0);
-    expect(weightOf(3, 'oath_bishop')).toBeCloseTo(0.12, 10);
-    expect(weightOf(3, 'knight')).toBeLessThan(0.25);              // 其余缩减
-    expect(weightOf(3, 'knight') + weightOf(3, 'cultist')).toBeGreaterThanOrEqual(0.4);
-    expect(weightOf(3, 'stitch_abomination')).toBe(0);             // 二幕精英不在三幕出现
-    expect(weightOf(3, 'knight')).toBeGreaterThan(weightOf(1, 'knight'));
-    expect(weightOf(3, 'cultist')).toBeGreaterThan(weightOf(2, 'cultist'));
+    for (const id of ['skeleton', 'bat', 'corpse', 'cultist', 'knight', 'rune_spider', 'crystal_dryad', 'clockwork_doll', 'stone_gargoyle', 'wraith', 'void_elemental', 'brass_warden', 'oath_bishop']) {
+      expect(weightOf(3, id)).toBeGreaterThan(0);
+    }
+    expect(weightOf(3, 'oath_bishop')).toBeCloseTo(0.06, 10);
+    expect(weightOf(3, 'brass_warden')).toBeCloseTo(0.06, 10);
+    expect(weightOf(3, 'knight')).toBeCloseTo(0.1, 10);
+    expect(weightOf(3, 'stitch_abomination')).toBe(0);
   });
 
-  it('roll 落入哪个区间就返回哪种敌人（含边界）', () => {
-    expect(pickEnemyType(1, 0).id).toBe('skeleton');
-    expect(pickEnemyType(1, 0.5).id).toBe('skeleton');
-    expect(pickEnemyType(1, 0.874999).id).toBe('skeleton');
-    expect(pickEnemyType(1, 0.875).id).toBe('bat');
-    expect(pickEnemyType(1, 0.999999).id).toBe('bat');
-    expect(pickEnemyType(2, 0.1).id).toBe('bat');
-    expect(pickEnemyType(2, 0.5).id).toBe('corpse');
-    expect(pickEnemyType(2, 0.7).id).toBe('skeleton');
-    expect(pickEnemyType(2, 0.919999).id).toBe('skeleton');
-    expect(pickEnemyType(2, 0.92).id).toBe('stitch_abomination');
-    expect(pickEnemyType(2, 0.999999).id).toBe('stitch_abomination');
-    expect(pickEnemyType(3, 0.1).id).toBe('skeleton');
-    expect(pickEnemyType(3, 0.2).id).toBe('bat');
-    expect(pickEnemyType(3, 0.3).id).toBe('corpse');
-    expect(pickEnemyType(3, 0.5).id).toBe('cultist');
-    expect(pickEnemyType(3, 0.7).id).toBe('knight');
-    expect(pickEnemyType(3, 0.879999).id).toBe('knight');
-    expect(pickEnemyType(3, 0.88).id).toBe('oath_bishop');
-    expect(pickEnemyType(3, 0.999999).id).toBe('oath_bishop');
+  it('roll 落入哪个区间就返回哪种敌人（按当前权重逐段验证）', () => {
+    for (const act of [1, 2, 3]) {
+      let acc = 0;
+      for (const [id, weight] of ACT_ENEMY_WEIGHTS[act]) {
+        expect(pickEnemyType(act, acc + weight / 2).id).toBe(id);
+        acc += weight;
+      }
+      expect(pickEnemyType(act, 0).id).toBe(ACT_ENEMY_WEIGHTS[act][0][0]);
+      expect(pickEnemyType(act, 0.999999).id).toBe(ACT_ENEMY_WEIGHTS[act].at(-1)[0]);
+    }
   });
 
   it('同 act/roll 永远返回同一种敌人对象', () => {
@@ -688,7 +705,7 @@ describe('roster：敌人数据与三幕权重', () => {
     }
   });
 
-  it('三幕遍历覆盖全部七种敌人，且从不返回表外敌人', () => {
+  it('三幕遍历覆盖全部十四种敌人，且从不返回表外敌人', () => {
     const appeared = new Set();
     for (const act of [1, 2, 3]) {
       for (let i = 0; i < 200; i++) {
@@ -698,7 +715,9 @@ describe('roster：敌人数据与三幕权重', () => {
       }
     }
     expect([...appeared].sort()).toEqual([
-      'bat', 'corpse', 'cultist', 'knight', 'oath_bishop', 'skeleton', 'stitch_abomination',
+      'bat', 'brass_warden', 'clockwork_doll', 'corpse', 'crystal_dryad', 'cultist',
+      'knight', 'oath_bishop', 'rune_spider', 'skeleton', 'stitch_abomination',
+      'stone_gargoyle', 'void_elemental', 'wraith',
     ]);
   });
 
