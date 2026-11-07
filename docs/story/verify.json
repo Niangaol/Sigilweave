@@ -1,0 +1,76 @@
+{
+  "ok": true,
+  "shots": [
+    "01-opening-skyfall",
+    "02-opening-contracts",
+    "03-opening-graveyard",
+    "04-opening-altar",
+    "05-opening-awaken",
+    "06-opening-title",
+    "07-boot-handoff",
+    "08-title",
+    "09-journey-act2",
+    "09b-journey-act2-reveal",
+    "10-act2-battle",
+    "11-journey-act3",
+    "12-portrait-opening",
+    "13-portrait-title"
+  ],
+  "errors": [],
+  "checks": [
+    {
+      "name": "开场总时长 36000ms",
+      "pass": true,
+      "detail": "36000"
+    },
+    {
+      "name": "boot 停留时标题页已在底下创建并冻结",
+      "pass": true,
+      "detail": "{\"titleStatus\":6,\"cutActive\":true}"
+    },
+    {
+      "name": "开场跳过后仍落到标题页",
+      "pass": true
+    },
+    {
+      "name": "第一幕仍是 act 标题卡",
+      "pass": true,
+      "detail": "{\"kind\":\"act\",\"phase\":\"hold\",\"elapsed\":321,\"duration\":1460,\"from\":\"LoadoutScene\",\"to\":\"BattleScene\",\"act\":1,\"swapped\":true,\"targetReady\":false,\"skipped\":false}"
+    },
+    {
+      "name": "journey 属于第 2 幕且时长 5840ms",
+      "pass": true,
+      "detail": "{\"kind\":\"journey\",\"phase\":\"hold\",\"elapsed\":340,\"duration\":5840,\"from\":\"IntermissionScene\",\"to\":\"BattleScene\",\"act\":2,\"swapped\":true,\"targetReady\":true,\"skipped\":false}"
+    },
+    {
+      "name": "journey 演出期间战斗已在底下冻结",
+      "pass": true,
+      "detail": "6"
+    },
+    {
+      "name": "揭开后战斗正常运行",
+      "pass": true,
+      "detail": "5"
+    },
+    {
+      "name": "第二段 journey 属于第 3 幕",
+      "pass": true,
+      "detail": "3"
+    },
+    {
+      "name": "journey 跳过后战斗正常运行（不软锁）",
+      "pass": true,
+      "detail": "5"
+    },
+    {
+      "name": "?cine=0 开场不播",
+      "pass": true,
+      "detail": "true"
+    },
+    {
+      "name": "0 个 pageerror",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}
