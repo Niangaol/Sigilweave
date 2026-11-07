@@ -15,6 +15,9 @@ import {
   drawSeal, drawSparkBurst, drawDust,
 } from '../ui/cinematic-art.js';
 import { sfx } from '../audio/Sfx.js';
+import { JOURNEYS } from '../data/story.js';
+import { JOURNEY_STAGES, buildStars } from '../ui/story-art.js';
+import { startMusic, stopMusic } from '../audio/CineMusic.js';
 
 const hexOf = (value) => '#' + (Number(value) >>> 0).toString(16).padStart(6, '0').slice(-6);
 
@@ -66,11 +69,27 @@ export default class CutsceneScene extends Phaser.Scene {
     this.card = this.buildCardView(this.cardData);
     this.dust = buildDust(0x51c7 + this.options.act * 131, 44, W, H);
 
+    // journey：不压标题卡，改播单镜头演出 + 角标/字幕
+    if (this.options.kind === 'journey') {
+      this.journey = JOURNEYS[this.options.act] ?? JOURNEYS[2];
+      this.stars = buildStars(0x9e37 + this.options.act, 46, W, H);
+      const tall = isPortrait();
+      this.jLabel = addText(this, 14, tall ? 14 : 12, this.journey.label, tall ? 9 : 8, hexOf(this.journey.accent), {
+        letterSpacing: 2,
+      }).setOrigin(0, 0).setDepth(4).setAlpha(0);
+      this.jSubtitle = addText(this, this.cx, Math.round(H * (tall ? 0.6 : 0.84)), this.journey.subtitle, tall ? 11 : 10, HEX.parchment, {
+        align: 'center', wordWrap: { width: W - 90 }, lineSpacing: 4,
+        stroke: '#0d0a17', strokeThickness: 2,
+      }).setOrigin(0.5, 0).setDepth(4).setAlpha(0);
+      startMusic('journey');
+    }
+
     this.input.keyboard.on('keydown', this.onSkipInput, this);
     this.input.on('pointerdown', this.onSkipInput, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.keyboard.off('keydown', this.onSkipInput, this);
       this.input.off('pointerdown', this.onSkipInput, this);
+      stopMusic();
       window.__SIGILWEAVE_CUTSCENE__ = {
         kind: this.options.kind, phase: 'done', elapsed: Math.round(this.elapsed),
         duration: this.timeline.totalMs, from: this.options.from, to: this.options.to,
@@ -214,6 +233,7 @@ export default class CutsceneScene extends Phaser.Scene {
     if (this.scene.isActive(to)) this.scene.resume(to);
     this.targetPaused = false;
     this.ensureTargetRunning();
+    stopMusic();
     sfx.cineReveal?.(this.options.kind);
   }
 
@@ -288,12 +308,33 @@ export default class CutsceneScene extends Phaser.Scene {
         : phase.phase === 'reveal' ? 1 - phase.p : 0;
     const veil = easeInOutCubic(cover);
 
-    const accent = this.cardData?.accent ?? 0xc9a227;
-    const tint = this.cardData?.tint ?? 0x241c3a;
+    const accent = this.cardData?.accent ?? this.journey?.accent ?? 0xc9a227;
+    const tint = this.cardData?.tint ?? this.journey?.tint ?? 0x241c3a;
     const kind = this.options.kind;
     const act = this.options.act ?? 1;
 
     drawVeil(this.veilG, { w: this.W, h: this.H, cover, tint, kind });
+
+    // journey：hold 阶段是单镜头演出，不画中央符环与标题卡
+    if (kind === 'journey' && this.journey) {
+      const jt = Math.max(0, this.elapsed - tl.coverMs);
+      const jp = clamp01(jt / tl.holdMs);
+      this.stageG.clear();
+      JOURNEY_STAGES[this.journey.stage](this.stageG, {
+        w: this.W, h: this.H, t: jt, p: jp, accent, stars: this.stars,
+      });
+      this.dustG.clear();
+      drawDust(this.dustG, this.dust, { h: this.H, t: this.elapsed, accent, alpha: veil });
+      const ta = clamp01((veil - 0.55) / 0.45);
+      this.jLabel.setAlpha(ta);
+      this.jSubtitle.setAlpha(ta);
+      if (this.elapsed >= tl.revealAt && this.targetReady) this.resumeTarget();
+      if (this.lastPhase !== phase.phase) this.publish(phase.phase);
+      if (this.elapsed >= tl.totalMs) this.finish();
+      else this.publish(phase.phase);
+      return;
+    }
+
     drawStage(this.stageG, { w: this.W, h: this.H, kind, act, veil, t: this.elapsed, accent });
 
     // 中央符环：盖场时收拢，停留时缓转，揭开时扩张

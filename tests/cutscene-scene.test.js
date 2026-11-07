@@ -29,6 +29,9 @@ vi.mock('../src/audio/Sfx.js', () => ({
   sfx: { cineIn: () => {}, cineSwap: () => {}, cineReveal: () => {}, tick: () => {} },
 }));
 
+const music = vi.hoisted(() => ({ startMusic: vi.fn(), stopMusic: vi.fn(), musicCue: vi.fn() }));
+vi.mock('../src/audio/CineMusic.js', () => music);
+
 import CutsceneScene from '../src/scenes/CutsceneScene.js';
 
 function makeGraphics() {
@@ -65,7 +68,8 @@ function makeHarness(data) {
     paused: new Set(),
     calls: [],
   };
-  const target = { key: 'IntermissionScene', events: new EventEmitter() };
+  const targetKey = data?.to ?? 'IntermissionScene';
+  const target = { key: targetKey, events: new EventEmitter() };
   const manager = {
     key: 'CutsceneScene',
     isActive(key) { return state.active.has(key); },
@@ -75,7 +79,7 @@ function makeHarness(data) {
     stop(key) { const k = key ?? 'CutsceneScene'; state.active.delete(k); state.calls.push(['stop', k]); },
     launch(key, payload) { state.active.add(key); state.calls.push(['launch', key, payload]); },
     bringToTop() { state.calls.push(['bringToTop']); },
-    get(key) { return key === 'IntermissionScene' ? target : { key, events: new EventEmitter() }; },
+    get(key) { return key === targetKey ? target : { key, events: new EventEmitter() }; },
   };
 
   const overlay = new CutsceneScene();
@@ -269,5 +273,45 @@ describe('CutsceneScene 换场状态机', () => {
     expect([270, 760]).toContain(overlay.H);
     expect(overlay.cy).toBeGreaterThan(0);
     expect(overlay.cy).toBeLessThan(overlay.H);
+  });
+});
+
+describe('journey 幕间演出', () => {
+  it('不压标题卡，创建角标/字幕并起配乐', () => {
+    const { overlay } = makeHarness({ kind: 'journey', act: 2, from: 'IntermissionScene', to: 'BattleScene' });
+    expect(overlay.cardData).toBeNull();
+    expect(overlay.journey.label).toBe('第贰幕 · 腐沼教堂');
+    expect(music.startMusic).toHaveBeenCalledWith('journey');
+  });
+
+  it('演出期间目标战斗在底下冻结，揭开才放行，全程不软锁', () => {
+    const { overlay, target, manager, timers } = makeHarness({ kind: 'journey', act: 2, from: 'IntermissionScene', to: 'BattleScene' });
+    advance(overlay, overlay.timeline.coverMs + 20);
+    target.events.emit('create', target);
+    runZeroTimers(timers);
+    expect(manager.isPaused('BattleScene')).toBe(true);
+    advance(overlay, 3000);
+    expect(manager.isPaused('BattleScene')).toBe(true);
+    expect(overlay.finished).toBe(false);
+    advance(overlay, 3000);
+    expect(overlay.finished).toBe(true);
+    expect(manager.isPaused('BattleScene')).toBe(false);
+    expect(music.stopMusic).toHaveBeenCalled();
+  });
+
+  it('跳过 journey：先换场钉到揭开点，第二次直接结束', () => {
+    const { overlay, target, manager, timers } = makeHarness({ kind: 'journey', act: 3, from: 'IntermissionScene', to: 'BattleScene' });
+    advance(overlay, 200);
+    overlay.onSkipInput({ type: 'keydown' });
+    expect(overlay.skipped).toBe(true);
+    expect(overlay.elapsed).toBe(overlay.timeline.revealAt);
+    advance(overlay, 32);
+    target.events.emit('create', target);
+    runZeroTimers(timers);
+    advance(overlay, 32);
+    expect(overlay.resumed).toBe(true);
+    overlay.onSkipInput({ type: 'keydown' });
+    expect(overlay.finished).toBe(true);
+    expect(manager.isPaused('BattleScene')).toBe(false);
   });
 });
