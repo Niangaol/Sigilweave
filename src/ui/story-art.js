@@ -193,3 +193,112 @@ export const OPENING_STAGES = {
   awaken: drawAwaken,
   title: drawTitleSeal,
 };
+
+// 幕间 journey · 二幕：横移长镜头。墓碑群滚动离场，沼水反光渐起，教堂彩窗逐格亮灯，主角剪影前行。
+function drawJourneySwamp(g, { w, h, t, p, accent }) {
+  pxRect(g, 0, 0, w, h, C.nightDeep, 1);
+  const horizon = Math.round(h * 0.6);
+  const pan = Math.round(p * 160);
+  pxRect(g, 0, horizon, w, h - horizon, C.ink, 0.95);
+  pxRect(g, 0, horizon, w, 2, C.groove, 0.4);
+  // 沼水反光
+  for (let i = 0; i < 4; i++) {
+    const y = horizon + 12 + i * 14;
+    const ox = Math.round((t * (0.02 + i * 0.005)) % (w + 120)) - 120;
+    pxRect(g, ox, y, 84, 1, C.swampGlint, 0.16);
+    pxRect(g, ox + 130, y + 4, 52, 1, C.swampGlint, 0.1);
+  }
+  // 左侧墓碑群离场
+  for (const [x, gh] of [[30, 26], [80, 18], [140, 30], [200, 22]]) {
+    const sx = x - pan;
+    if (sx < -30) continue;
+    pxRect(g, sx, horizon - gh, 14, gh, C.stoneDark, 0.95);
+    pxRect(g, sx, horizon - gh, 14, 2, C.stoneLight, 0.5);
+  }
+  // 右侧教堂尖窗（视差慢移），彩窗逐格亮灯
+  const cx = Math.round(400 - pan * 0.3);
+  const bw = 72, top = horizon - 110;
+  for (let i = 0; i < 7; i++) {
+    const sw = Math.round(bw * (0.35 + i * 0.09));
+    pxRect(g, cx - Math.round(sw / 2), top + i * 6, sw, 6, C.stoneDark, 0.95);
+  }
+  const litRows = Math.floor(clamp01((p - 0.35) / 0.5) * 5);
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 3; c++) {
+      const lit = r < litRows;
+      pxRect(g, cx - 22 + c * 15, top + 38 + r * 12, 11, 9,
+        lit ? ((r + c) % 2 === 0 ? C.glassRed : C.glassBlue) : C.stoneDark, lit ? 0.8 : 0.6);
+    }
+  }
+  // 吊钟轻摆
+  const swing = Math.round(Math.sin(t * 0.0016) * 4);
+  pxLine(g, cx - 90, 30, cx - 90 + swing, horizon - 100, C.brassDark, 0.7, 1);
+  pxRect(g, cx - 90 + swing - 10, horizon - 100, 21, 4, C.brass, 0.85);
+  pxRect(g, cx - 90 + swing - 7, horizon - 96, 15, 5, C.brassDark, 0.9);
+  // 主角剪影前行（步行上下颠簸）
+  const hx = Math.round(110 + p * 130);
+  const hy = horizon + 26 + Math.round(Math.sin(t * 0.008) * 1.5);
+  heroSilhouette(g, hx, hy, 1);
+  // 雾带
+  for (let i = 0; i < 2; i++) {
+    const ox = Math.round(((t * (0.014 + i * 0.005) + i * 130) % (w + 200)) - 200);
+    pxRect(g, ox, horizon - 10 + i * 8, 220, 3, C.fog, 0.06 + i * 0.02);
+  }
+  // 鬼火两点
+  for (let i = 0; i < 2; i++) {
+    const x = Math.round(260 + i * 60 + Math.sin(t * 0.003 + i) * 4);
+    const y = Math.round(horizon - 24 - i * 10 + Math.sin(t * 0.004 + i) * 3);
+    pxRect(g, x, y, 2, 2, accent, 0.5);
+    pxRect(g, x + 1, y - 1, 1, 1, C.wispCore, 0.8);
+  }
+}
+
+// 幕间 journey · 三幕：教堂彩窗在身后暗灭，镜头上摇，星纹垂落，王庭立柱与王座浮现。
+function drawJourneyStar(g, { w, h, t, p, accent, stars }) {
+  pxRect(g, 0, 0, w, h, C.starTileDark, 1);
+  // 身后教堂彩窗暗灭（左侧小窗）
+  const dim = 1 - clamp01(p / 0.4);
+  if (dim > 0) {
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 2; c++) {
+        pxRect(g, 40 + c * 15, Math.round(h * 0.4) + r * 12, 11, 9,
+          (r + c) % 2 === 0 ? C.glassRed : C.glassBlue, 0.55 * dim);
+      }
+    }
+  }
+  // 镜头上摇：地平线下移
+  const horizon = Math.round(h * (0.55 + 0.2 * easeInOutCubic(p)));
+  // 星点垂落
+  for (const s of stars) {
+    const y = Math.round((s.y + p * 36) % Math.max(20, horizon - 30));
+    const tw = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(t * 0.002 + s.phase));
+    pxRect(g, s.x, y, s.size, s.size, C.parchment, tw);
+  }
+  pxRect(g, 0, horizon, w, h - horizon, C.ink, 0.95);
+  const a = clamp01((p - 0.3) / 0.5);
+  if (a > 0) {
+    // 两侧立柱
+    for (const x of [100, 364]) {
+      pxRect(g, x, horizon - 140, 16, 140, C.starTileDark, 0.95 * a);
+      pxRect(g, x + 3, horizon - 140, 2, 140, C.runeDim, 0.35 * a);
+      pxRect(g, x - 3, horizon - 144, 22, 5, C.shardStone, 0.9 * a);
+    }
+    // 王座
+    pxRect(g, 190, horizon - 10, 100, 10, C.shardStone, 0.9 * a);
+    pxRect(g, 204, horizon - 20, 72, 10, C.stoneDark, 0.9 * a);
+    pxRect(g, 222, horizon - 70, 36, 50, C.stoneDark, 0.95 * a);
+    pxRect(g, 227, horizon - 64, 26, 42, C.starTileLit, 0.7 * a);
+    pxDiamond(g, 240, horizon - 44, 8, accent, 0.6 * a, true);
+  }
+  // 浮空碎星升起
+  for (let i = 0; i < 5; i++) {
+    const x = Math.round(140 + i * 50 + Math.sin(t * 0.0012 + i) * 7);
+    const y = Math.round(horizon - 110 - p * 20 + Math.sin(t * 0.0018 + i * 1.9) * 6);
+    pxDiamond(g, x, y, 3 + (i % 2), accent, 0.55 * a, i % 2 === 0);
+  }
+}
+
+export const JOURNEY_STAGES = {
+  swamp: drawJourneySwamp,
+  star: drawJourneyStar,
+};

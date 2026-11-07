@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OPENING_STAGES, buildStars } from '../src/ui/story-art.js';
+import { OPENING_STAGES, JOURNEY_STAGES, buildStars } from '../src/ui/story-art.js';
 
 // 计数 stub：任何方法调用都计一条绘制指令（与 spell-fx 预算测试同思路）
 function makeCounting() {
@@ -62,4 +62,23 @@ describe('OPENING_STAGES 完整性', () => {
       expect(typeof OPENING_STAGES[id], id).toBe('function');
     }
   });
+});
+
+describe('journey 舞台绘制预算', () => {
+  for (const stage of ['swamp', 'star']) {
+    it(stage + ' 每帧 ≤700 条指令，横竖屏确定性', () => {
+      for (const h of [270, 760]) {
+        for (const p of [0, 0.25, 0.5, 0.75, 1]) {
+          const g1 = makeCounting();
+          const g2 = makeCounting();
+          const ctx = { w: 480, h, t: Math.round(p * 5200), p, accent: 0x7cc9a8, stars: buildStars(7, 46, 480, h) };
+          JOURNEY_STAGES[stage](g1, ctx);
+          JOURNEY_STAGES[stage](g2, ctx);
+          expect(g1.count).toBeLessThanOrEqual(700);
+          expect(g1.count).toBeGreaterThan(0);
+          expect(g1.count).toBe(g2.count);
+        }
+      }
+    });
+  }
 });
