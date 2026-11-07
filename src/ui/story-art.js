@@ -1,8 +1,8 @@
 // 开场与幕间 journey 的镜头绘制：硬边色块、整数坐标；g 的清空由调用方负责。
 // 粒子（星点/浮尘）由调用方预建传入，每帧不新建对象。
-import { C, pxRect, pxLine, pxDiamond, pxFrame, drawGlyph } from './Palette.js';
+import { C, pxRect, pxLine, pxDiamond, pxFrame } from './Palette.js';
 import {
-  clamp01, easeOutCubic, easeInOutCubic, makeRng, drawSeal, thinLine, RUNE_MARKS,
+  clamp01, easeOutCubic, easeInOutCubic, makeRng, drawSeal, thinLine,
 } from './cinematic-art.js';
 
 export { clamp01, easeOutCubic, easeInOutCubic };
@@ -134,8 +134,62 @@ function drawGraveyardPush(g, { w, h, t, p, accent }) {
   }
 }
 
+// 镜头 4：祭坛俯视。4×4 刻格逐格点亮，脉流沿格线流动，主角剪影走近立定。
+function drawAltar(g, { w, h, t, p, accent }) {
+  pxRect(g, 0, 0, w, h, C.nightDeep, 1);
+  const cell = 30, gap = 4, size = cell * 4 + gap * 3;
+  const ox = Math.round(w / 2 - size / 2), oy = Math.round(h / 2 - size / 2);
+  pxRect(g, ox - 10, oy - 10, size + 20, size + 20, C.stoneDark, 0.95);
+  pxFrame(g, ox - 10, oy - 10, size + 20, size + 20, C.brassDark, 1, 0.7);
+  const litCount = Math.floor(clamp01((p - 0.25) / 0.65) * 16);
+  const centerOf = i => [
+    ox + (i % 4) * (cell + gap) + Math.round(cell / 2),
+    oy + Math.floor(i / 4) * (cell + gap) + Math.round(cell / 2),
+  ];
+  for (let i = 0; i < 16; i++) {
+    const gx = ox + (i % 4) * (cell + gap);
+    const gy = oy + Math.floor(i / 4) * (cell + gap);
+    const lit = i < litCount;
+    pxRect(g, gx, gy, cell, cell, lit ? C.graveTileLit : C.graveTile, 0.95);
+    pxFrame(g, gx, gy, cell, cell, C.groove, 1, lit ? 0.8 : 0.3);
+    if (lit) pxDiamond(g, gx + Math.round(cell / 2), gy + Math.round(cell / 2), 3, accent, 0.8, true);
+  }
+  for (let i = 1; i < litCount; i++) {
+    const [x1, y1] = centerOf(i - 1);
+    const [x2, y2] = centerOf(i);
+    thinLine(g, x1, y1, x2, y2, accent, 0.45);
+  }
+  const wp = easeOutCubic(clamp01(p / 0.3));
+  const hx = Math.round(w / 2);
+  const hy = Math.round(oy + size + 40 - wp * 34);
+  heroSilhouette(g, hx, hy, 1);
+  // 立定后魂火微光
+  if (p > 0.3) pxDiamond(g, hx, hy - 22, 2, accent, clamp01((p - 0.3) / 0.3) * 0.8, true);
+}
+
+// 镜头 5：符环觉醒。符环扩张旋转，核心耀亮（浮尘由场景层统一画）。
+function drawAwaken(g, { w, h, t, p, accent }) {
+  pxRect(g, 0, 0, w, h, C.nightDeep, 1);
+  const r = Math.round(120 + 90 * easeOutCubic(p));
+  drawSeal(g, {
+    cx: Math.round(w / 2), cy: Math.round(h * 0.46), r, t, accent,
+    alpha: 0.5 + 0.4 * p, spokes: 12,
+  });
+}
+
+// 镜头 6：标题收拢。符环收成一点，文字由 StoryScene 淡入。
+function drawTitleSeal(g, { w, h, t, p, accent }) {
+  pxRect(g, 0, 0, w, h, C.nightDeep, 1);
+  const r = Math.max(24, Math.round(210 - 186 * easeInOutCubic(clamp01(p * 1.15))));
+  const a = p < 0.85 ? 0.85 : 0.85 * (1 - (p - 0.85) / 0.15);
+  drawSeal(g, { cx: Math.round(w / 2), cy: Math.round(h * 0.46), r, t, accent, alpha: a });
+}
+
 export const OPENING_STAGES = {
   skyfall: drawSkyfall,
   contracts: drawContracts,
   graveyard: drawGraveyardPush,
+  altar: drawAltar,
+  awaken: drawAwaken,
+  title: drawTitleSeal,
 };

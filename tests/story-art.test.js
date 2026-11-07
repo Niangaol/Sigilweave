@@ -39,7 +39,7 @@ describe('story-art 绘制预算与确定性', () => {
     }
   });
 
-  for (const stage of ['skyfall', 'contracts', 'graveyard']) {
+  for (const stage of ['skyfall', 'contracts', 'graveyard', 'altar', 'awaken', 'title']) {
     it(stage + ' 每帧 ≤700 条指令，横竖屏确定性', () => {
       for (const h of [270, 760]) {
         for (const p of [0, 0.25, 0.5, 0.75, 1]) {
@@ -54,4 +54,12 @@ describe('story-art 绘制预算与确定性', () => {
       }
     });
   }
+});
+
+describe('OPENING_STAGES 完整性', () => {
+  it('六个镜头舞台全部注册且为函数', () => {
+    for (const id of ['skyfall', 'contracts', 'graveyard', 'altar', 'awaken', 'title']) {
+      expect(typeof OPENING_STAGES[id], id).toBe('function');
+    }
+  });
 });
