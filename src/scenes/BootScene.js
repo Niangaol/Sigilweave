@@ -2,7 +2,7 @@
 // 之前“无外部资源”的注释已作废——素材现位于 public/assets/，构建时随 Vite 拷贝。
 import Phaser from 'phaser';
 import { applyPixelZoom } from '../ui/Palette.js';
-import { playCutscene } from '../ui/transition.js';
+import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
 
 // 精灵表：key 与文稿参数总表一致；frameWidth/Height 即文稿规定的单帧像素尺寸
 // 2026-11 美术升级包：三张精灵表统一为 64×56 / 12 帧（原 32/28/30px）
@@ -83,8 +83,13 @@ export default class BootScene extends Phaser.Scene {
     this.createAnims();
     applyPixelZoom(this);
     this.cameras.main.setBackgroundColor('#0d0a17');
-    // 开场也走统一过场：符环收拢再揭开标题页，避免首屏硬切
-    playCutscene(this, { kind: 'boot', to: 'TitleScene', payload: { __cine: true } });
+    const params = new URLSearchParams(window.location.search);
+    // 调试/压测/调试直达保持原路径；正常路径先播全屏开场，再由开场交接标题
+    if (cutscenesDisabled() || params.get('scene')) {
+      playCutscene(this, { kind: 'boot', to: 'TitleScene', payload: { __cine: true } });
+      return;
+    }
+    this.scene.start('StoryScene');
   }
 
   // 动画只注册一次；素材缺失（textures.exists=false）时跳过对应动画，

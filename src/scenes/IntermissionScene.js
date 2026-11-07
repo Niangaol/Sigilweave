@@ -482,9 +482,9 @@ export default class IntermissionScene extends Phaser.Scene {
     this.run.shards = this.workshop.shards;
     this.run.hand = { ...this.workshop.hand };
     this.run.runeCosts = structuredClone(this.workshop.runeCosts);
-    // 幕间 → 下一幕：先亮幕名标题卡，再落到新地图
+    // 幕间 → 下一幕：journey 单镜头演出（5.8s），再落到新地图
     playCutscene(this, {
-      kind: 'act', act: this.run.act, to: 'BattleScene',
+      kind: 'journey', act: this.run.act, to: 'BattleScene',
       payload: { run: this.run, __cine: true },
     });
   }

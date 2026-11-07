@@ -10,6 +10,7 @@ import LoadoutScene from './scenes/LoadoutScene.js';
 import BattleScene from './scenes/BattleScene.js';
 import GameOverScene from './scenes/GameOverScene.js';
 import IntermissionScene from './scenes/IntermissionScene.js';
+import StoryScene from './scenes/StoryScene.js';
 import CutsceneScene from './scenes/CutsceneScene.js';
 import { setRenderScale, setPortrait, setTouchUI, CANVAS_H_PORTRAIT, BASE_W, BASE_H } from './ui/Palette.js';
 
@@ -51,7 +52,7 @@ const game = new Phaser.Game({
     roundPixels: true,
   },
   // CutsceneScene 必须排在最后：它是覆盖层，渲染顺序在后才能盖住所有正式场景
-  scene: [BootScene, TitleScene, LoadoutScene, BattleScene, IntermissionScene, GameOverScene, CutsceneScene],
+  scene: [BootScene, TitleScene, LoadoutScene, BattleScene, IntermissionScene, GameOverScene, StoryScene, CutsceneScene],
 });
 
 // 方便调试与验收时查看实例；不影响正式流程
