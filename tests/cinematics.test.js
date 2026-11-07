@@ -4,7 +4,8 @@ import {
   skipResult, formatReport, buildCard,
 } from '../src/data/cinematics.js';
 
-const KINDS = Object.keys(TIMELINES);
+// journey 是 5.8s 幕间演出，由下方 journey describe 单独验收，不算短过场。
+const KINDS = Object.keys(TIMELINES).filter(k => k !== 'journey');
 
 describe('过场时间轴', () => {
   it('八类过场都有时间轴，总时长都落在 900–1600ms', () => {
@@ -139,5 +140,35 @@ describe('标题卡与文案', () => {
     expect(formatReport({ elapsedMs: 143000 }).map(s => s.value)[0]).toBe('02:23');
     expect(formatReport({ elapsedMs: -1, kills: -5 }).map(s => s.value)).toEqual(['00:00', '-5', '0', '0']);
     expect(formatReport(undefined).map(s => s.label)).toEqual(['用时', '击杀', '脉流触发', '联组']);
+  });
+});
+
+describe('journey 幕间演出时间轴', () => {
+  it('总时长 5840ms，落在 4–8 秒区间', () => {
+    const tl = buildTimeline('journey');
+    expect(tl.coverMs).toBe(320);
+    expect(tl.holdMs).toBe(5200);
+    expect(tl.revealMs).toBe(320);
+    expect(tl.totalMs).toBe(5840);
+    expect(tl.totalMs).toBeGreaterThanOrEqual(4000);
+    expect(tl.totalMs).toBeLessThanOrEqual(8000);
+  });
+
+  it('阶段边界与跳过语义和其他过场一致', () => {
+    const tl = buildTimeline('journey');
+    expect(phaseAt(319, tl).phase).toBe('cover');
+    expect(phaseAt(320, tl).phase).toBe('hold');
+    expect(phaseAt(5519, tl).phase).toBe('hold');
+    expect(phaseAt(5520, tl).phase).toBe('reveal');
+    expect(phaseAt(5840, tl).phase).toBe('done');
+    expect(skipResult(100, tl, false).allowed).toBe(false);
+    expect(skipResult(200, tl, false)).toMatchObject({ action: 'swap-reveal', elapsed: 5520 });
+    expect(skipResult(600, tl, true)).toMatchObject({ action: 'reveal', elapsed: 5520 });
+    expect(skipResult(5600, tl, true)).toMatchObject({ action: 'finish', elapsed: 5840 });
+  });
+
+  it('journey 不压标题卡', () => {
+    expect(buildCard('journey', 2)).toBeNull();
+    expect(buildCard('journey', 3)).toBeNull();
   });
 });

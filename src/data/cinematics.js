@@ -30,7 +30,8 @@ export const ACT_CARDS = Object.freeze({
   }),
 });
 
-// 每类过场的时间轴（毫秒）。总时长全部落在 900–1600ms 的验收区间内：
+// 每类过场的时间轴（毫秒）。短过场总时长全部落在 900–1600ms 的验收区间内；
+// journey 是 5.8s 幕间演出（4–8s 区间）：
 //   cover  盖住旧场景（目标场景在完全盖住后才启动）
 //   hold   标题卡停留（目标场景在底下已就绪并暂停）
 //   reveal 揭开，目标场景已在底下运行
@@ -43,6 +44,7 @@ export const TIMELINES = Object.freeze({
   victory: { coverMs: 360, holdMs: 900, revealMs: 340 },
   retry:   { coverMs: 300, holdMs: 320, revealMs: 300 },
   return:  { coverMs: 300, holdMs: 320, revealMs: 300 },
+  journey: { coverMs: 320, holdMs: 5200, revealMs: 320 },
 });
 
 // 防止「触发转场的那一下按键/点击」被当成跳过：转入 150ms 后才允许跳过。
@@ -164,6 +166,7 @@ export function buildCard(kind, act = 1, report = null) {
       };
     }
     case 'boot':
+    case 'journey':
       return null;
     default: {
       const compact = COMPACT[kind] ?? COMPACT.sigil;
