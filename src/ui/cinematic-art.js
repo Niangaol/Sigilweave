@@ -11,13 +11,13 @@ export const easeInOutCubic = t => {
 
 // 长线走 1px 矢量线：一帧几十条，比 Bresenham 逐像素 fillRect 便宜两个数量级。
 // 短装饰线仍用 pxLine 保留像素楼梯。
-function thinLine(g, x1, y1, x2, y2, color, alpha = 1) {
+export function thinLine(g, x1, y1, x2, y2, color, alpha = 1) {
   g.lineStyle(1, color, alpha);
   g.lineBetween(Math.round(x1), Math.round(y1), Math.round(x2), Math.round(y2));
 }
 
 // 椭圆环用 48 段折线一次描边，替代逐个像素点环。
-function strokeRing(g, cx, cy, r, color, alpha, segments = 48) {
+export function strokeRing(g, cx, cy, r, color, alpha, segments = 48) {
   const points = [];
   for (let i = 0; i <= segments; i++) {
     const a = (i / segments) * Math.PI * 2;
@@ -338,7 +338,7 @@ export function drawDust(g, dust, { h, t, accent, alpha }) {
   }
 }
 
-const RUNE_MARKS = [
+export const RUNE_MARKS = [
   ['...##...', '..####..', '.##..##.', '##.##.##', '##.##.##', '.##..##.', '..####..', '...##...'],
   ['#..#..#.', '.######.', '##.##.##', '..####..', '##.##.##', '.######.', '#..#..#.', '........'],
   ['....#...', '...###..', '..#####.', '#######.', '#######.', '..#####.', '...###..', '....#...'],
