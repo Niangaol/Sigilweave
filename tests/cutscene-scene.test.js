@@ -72,7 +72,8 @@ function makeHarness(data) {
   const target = { key: targetKey, events: new EventEmitter() };
   const manager = {
     key: 'CutsceneScene',
-    isActive(key) { return state.active.has(key); },
+    // 与真实 Phaser 对齐：isActive 只对 RUNNING 场景为 true，PAUSED 场景返回 false
+    isActive(key) { return state.active.has(key) && !state.paused.has(key); },
     isPaused(key) { return state.paused.has(key); },
     pause(key) { state.paused.add(key); state.calls.push(['pause', key]); },
     resume(key) { state.paused.delete(key); state.calls.push(['resume', key]); },
@@ -144,20 +145,39 @@ describe('CutsceneScene 换场状态机', () => {
     expect(launch[2]).toMatchObject({ __cine: true });
   });
 
-  it('目标 create 后先冻结；揭开前不 resume；揭开始才放行', () => {
-    const { overlay, target, manager, timers } = makeHarness();
+  it('源场景被冻结（PAUSED）后，盖满换场时仍会被停止', () => {
+    const { overlay, manager, state } = makeHarness();
+    // create 时源场景已被冻结：真实 Phaser 里 isActive 对 PAUSED 场景返回 false，
+    // 若换场只看 isActive，被冻结的源场景会泄漏并继续渲染，盖住目标场景
+    expect(manager.isPaused('BattleScene')).toBe(true);
     advance(overlay, overlay.timeline.coverMs + 20);
-    target.events.emit('create', target);
-    runZeroTimers(timers);
-    expect(manager.isPaused('IntermissionScene')).toBe(true);
+    expect(state.calls).toContainEqual(['stop', 'BattleScene']);
+    expect(state.active.has('BattleScene')).toBe(false);
+  });
 
-    advance(overlay, overlay.timeline.revealAt - overlay.elapsed - 20);
-    expect(manager.isPaused('IntermissionScene')).toBe(true);
-    expect(overlay.resumed).toBe(false);
+  it('目标 create 后先冻结；揭开前不 resume；揭开始才放行', () => {
+    vi.useFakeTimers();
+    try {
+      const { overlay, target, manager, timers } = makeHarness();
+      manager.manager = manager;
+      advance(overlay, overlay.timeline.coverMs + 20);
+      target.events.emit('create', target);
+      runZeroTimers(timers);
+      expect(manager.isPaused('IntermissionScene')).toBe(true);
 
-    advance(overlay, 40);
-    expect(overlay.resumed).toBe(true);
-    expect(manager.isPaused('IntermissionScene')).toBe(false);
+      advance(overlay, overlay.timeline.revealAt - overlay.elapsed - 20);
+      expect(manager.isPaused('IntermissionScene')).toBe(true);
+      expect(overlay.resumed).toBe(false);
+
+      advance(overlay, 40);
+      expect(overlay.resumed).toBe(true);
+      // isActive 对 PAUSED 为 false，resumeTarget 的直接 resume 不会发；
+      // 与真实浏览器一致，由 ensureTargetRunning 看门狗异步补 resume 后才真正放行
+      vi.advanceTimersByTime(500);
+      expect(manager.isPaused('IntermissionScene')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('目标没 create 完就把计时钉在揭开点，绝不露出空场景', () => {
@@ -285,18 +305,26 @@ describe('journey 幕间演出', () => {
   });
 
   it('演出期间目标战斗在底下冻结，揭开才放行，全程不软锁', () => {
-    const { overlay, target, manager, timers } = makeHarness({ kind: 'journey', act: 2, from: 'IntermissionScene', to: 'BattleScene' });
-    advance(overlay, overlay.timeline.coverMs + 20);
-    target.events.emit('create', target);
-    runZeroTimers(timers);
-    expect(manager.isPaused('BattleScene')).toBe(true);
-    advance(overlay, 3000);
-    expect(manager.isPaused('BattleScene')).toBe(true);
-    expect(overlay.finished).toBe(false);
-    advance(overlay, 3000);
-    expect(overlay.finished).toBe(true);
-    expect(manager.isPaused('BattleScene')).toBe(false);
-    expect(music.stopMusic).toHaveBeenCalled();
+    vi.useFakeTimers();
+    try {
+      const { overlay, target, manager, timers } = makeHarness({ kind: 'journey', act: 2, from: 'IntermissionScene', to: 'BattleScene' });
+      manager.manager = manager;
+      advance(overlay, overlay.timeline.coverMs + 20);
+      target.events.emit('create', target);
+      runZeroTimers(timers);
+      expect(manager.isPaused('BattleScene')).toBe(true);
+      advance(overlay, 3000);
+      expect(manager.isPaused('BattleScene')).toBe(true);
+      expect(overlay.finished).toBe(false);
+      advance(overlay, 3000);
+      expect(overlay.finished).toBe(true);
+      // 放行由看门狗异步补 resume（isActive 对 PAUSED 为 false），flush 后再断言
+      vi.advanceTimersByTime(500);
+      expect(manager.isPaused('BattleScene')).toBe(false);
+      expect(music.stopMusic).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('跳过 journey：先换场钉到揭开点，第二次直接结束', () => {

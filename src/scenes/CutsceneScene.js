@@ -193,7 +193,7 @@ export default class CutsceneScene extends Phaser.Scene {
     const { from, to, payload } = this.options;
     if (!to) return;
 
-    if (from && this.scene.isActive(from)) this.scene.stop(from);
+    if (from && (this.scene.isActive(from) || this.scene.isPaused(from))) this.scene.stop(from);
 
     const target = this.scene.get(to);
     this.targetReady = false;
