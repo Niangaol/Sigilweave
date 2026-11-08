@@ -362,6 +362,69 @@ export function drawDust(g, dust, { h, t, accent, alpha }) {
   }
 }
 
+// 幕色闪洪：冲击时刻的一帧全屏硬边色闪（2-3 帧内由调用方衰减）。
+export function drawFlood(g, { w, h, color, alpha }) {
+  if (alpha <= 0) return;
+  pxRect(g, 0, 0, w, h, color, clamp01(alpha));
+}
+
+// 甩镜 streak：cover 阶段横向扫过的速度线，p∈(0,1) 才画，首尾不留残影。
+export function drawWhipStreaks(g, { w, h, p, dir = 1, color }) {
+  const q = clamp01(p);
+  if (q <= 0 || q >= 1) return;
+  for (let i = 0; i < 10; i++) {
+    const y = Math.round(((i + 0.5) / 10) * h);
+    const len = 60 + (i % 4) * 24;
+    const x = Math.round(dir > 0 ? q * (w + len) - len : (1 - q) * (w + len) - len);
+    pxRect(g, x, y, len, 1, color, 0.35 * (1 - q));
+    pxRect(g, x + (dir > 0 ? -14 : len), y + 2, 14, 1, color, 0.2 * (1 - q));
+  }
+}
+
+// 阶梯收边/张开：三层矩形框向中心合拢（p=1 满覆盖），死亡收拢/揭开反向播放。
+export function drawIris(g, { w, h, p, color }) {
+  const q = clamp01(p);
+  if (q <= 0) return;
+  for (let i = 0; i < 3; i++) {
+    const t = clamp01(q * 1.3 - i * 0.15);
+    if (t <= 0) continue;
+    const tw = Math.round(t * w / 2), th = Math.round(t * h / 2);
+    const a = 0.85 - i * 0.25;
+    pxRect(g, 0, 0, tw, h, color, a);
+    pxRect(g, w - tw, 0, tw, h, color, a);
+    pxRect(g, 0, 0, w, th, color, a * 0.9);
+    pxRect(g, 0, h - th, w, th, color, a * 0.9);
+  }
+}
+
+// 错位切片：≤6 条横向切片按 90ms 时间量子跳变（种子确定），死亡/反噬的 glitch 感。
+export function drawGlitchSlices(g, { w, h, t, seed = 1, color }) {
+  const rng = makeRng(seed + Math.floor(t / 90));
+  for (let i = 0; i < 6; i++) {
+    const y = Math.floor(rng() * h);
+    const hh = 2 + Math.floor(rng() * 4);
+    const sw = Math.round(w * (0.3 + rng() * 0.4));
+    const x = Math.floor(rng() * Math.max(1, w - sw));
+    const ox = Math.round((rng() - 0.5) * 28);
+    pxRect(g, x + ox, y, sw, hh, color, 0.1 + rng() * 0.15);
+  }
+}
+
+// 巨号幕数字 I/II/III：衬线竖条拼成约 120px 高，垫在标题卡背后做超大排版。
+export function drawNumeral(g, { cx, cy, act, accent, alpha }) {
+  if (alpha <= 0) return;
+  const n = [1, 2, 3].includes(Number(act)) ? Number(act) : 1;
+  const H = 120, bw = 10, serif = 26, gap = 22;
+  const totalW = n * serif + (n - 1) * gap;
+  const x0 = Math.round(cx - totalW / 2), y0 = Math.round(cy - H / 2);
+  for (let i = 0; i < n; i++) {
+    const x = x0 + i * (serif + gap);
+    pxRect(g, x, y0, serif, 6, accent, alpha);
+    pxRect(g, x + Math.round((serif - bw) / 2), y0, bw, H, accent, alpha);
+    pxRect(g, x, y0 + H - 6, serif, 6, accent, alpha);
+  }
+}
+
 export const RUNE_MARKS = [
   ['...##...', '..####..', '.##..##.', '##.##.##', '##.##.##', '.##..##.', '..####..', '...##...'],
   ['#..#..#.', '.######.', '##.##.##', '..####..', '##.##.##', '.######.', '#..#..#.', '........'],
