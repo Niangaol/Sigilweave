@@ -10,7 +10,7 @@ vi.mock('phaser', () => {
       this.events = new EventEmitter();
     }
   }
-  return { default: { Scene, Scenes: { Events: { CREATE: 'create', SHUTDOWN: 'shutdown' } } } };
+  return { default: { Scene, Scenes: { Events: { CREATE: 'create', SHUTDOWN: 'shutdown' } }, BlendModes: { ADD: 1 } } };
 });
 
 vi.mock('../src/ui/Palette.js', async (importOriginal) => {
@@ -45,6 +45,7 @@ function makeGraphics() {
     strokePoints() { return g; },
     fillPoints() { return g; },
     setDepth(d) { g.depth = d; return g; },
+    setBlendMode() { return g; },
   };
   return g;
 }

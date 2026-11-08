@@ -24,63 +24,63 @@
       "phase": "hold",
       "duration": 960,
       "act": 1,
-      "elapsed": 304
+      "elapsed": 305
     },
     {
       "kind": "sigil",
       "phase": "hold",
       "duration": 920,
       "act": 1,
-      "elapsed": 303
+      "elapsed": 300
     },
     {
       "kind": "act",
       "phase": "hold",
       "duration": 1460,
       "act": 1,
-      "elapsed": 321
+      "elapsed": 323
     },
     {
       "kind": "clear",
       "phase": "hold",
       "duration": 1420,
       "act": 1,
-      "elapsed": 320
+      "elapsed": 322
     },
     {
       "kind": "journey",
       "phase": "hold",
       "duration": 5840,
       "act": 2,
-      "elapsed": 324
+      "elapsed": 321
     },
     {
       "kind": "death",
       "phase": "hold",
       "duration": 1120,
       "act": 2,
-      "elapsed": 386
+      "elapsed": 384
     },
     {
       "kind": "retry",
       "phase": "hold",
       "duration": 920,
       "act": 1,
-      "elapsed": 304
+      "elapsed": 305
     },
     {
       "kind": "victory",
       "phase": "hold",
       "duration": 1600,
       "act": 3,
-      "elapsed": 364
+      "elapsed": 360
     },
     {
       "kind": "return",
       "phase": "hold",
       "duration": 920,
       "act": 3,
-      "elapsed": 305
+      "elapsed": 301
     }
   ],
   "errors": [],
@@ -123,7 +123,7 @@
     {
       "name": "第二幕 journey 属于第 2 幕且时长 4–8s",
       "pass": true,
-      "detail": "{\"kind\":\"journey\",\"phase\":\"hold\",\"elapsed\":324,\"duration\":5840,\"from\":\"IntermissionScene\",\"to\":\"BattleScene\",\"act\":2,\"swapped\":true,\"targetReady\":false,\"skipped\":false}"
+      "detail": "{\"kind\":\"journey\",\"phase\":\"hold\",\"elapsed\":321,\"duration\":5840,\"from\":\"IntermissionScene\",\"to\":\"BattleScene\",\"act\":2,\"swapped\":true,\"targetReady\":false,\"skipped\":false}"
     },
     {
       "name": "death 时长 900–1600ms",
@@ -152,7 +152,7 @@
     {
       "name": "竖屏画布为高窗",
       "pass": true,
-      "detail": "{\"w\":390,\"h\":844,\"cut\":{\"kind\":\"act\",\"phase\":\"hold\",\"elapsed\":389,\"duration\":1460,\"from\":\"LoadoutScene\",\"to\":\"BattleScene\",\"act\":1,\"swapped\":true,\"targetReady\":true,\"skipped\":false}}"
+      "detail": "{\"w\":390,\"h\":844,\"cut\":{\"kind\":\"act\",\"phase\":\"hold\",\"elapsed\":374,\"duration\":1460,\"from\":\"LoadoutScene\",\"to\":\"BattleScene\",\"act\":1,\"swapped\":true,\"targetReady\":true,\"skipped\":false}}"
     },
     {
       "name": "第三幕卡片属于第 3 幕",

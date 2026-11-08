@@ -11,13 +11,13 @@ import {
 } from '../ui/Palette.js';
 import { buildTimeline, phaseAt, skipResult, buildCard } from '../data/cinematics.js';
 import {
-  clamp01, easeOutCubic, easeInOutCubic, buildDust, drawVeil, drawStage,
-  drawSeal, drawSparkBurst, drawDust,
+  clamp01, easeInOutCubic, buildDust, drawVeil, drawDust,
 } from '../ui/cinematic-art.js';
 import { sfx } from '../audio/Sfx.js';
 import { JOURNEYS } from '../data/story.js';
 import { JOURNEY_STAGES, buildStars } from '../ui/story-art.js';
 import { startMusic, stopMusic } from '../audio/CineMusic.js';
+import { createChoreo } from '../ui/cutscene-choreo.js';
 
 const hexOf = (value) => '#' + (Number(value) >>> 0).toString(16).padStart(6, '0').slice(-6);
 
@@ -64,10 +64,14 @@ export default class CutsceneScene extends Phaser.Scene {
     this.stageG = this.add.graphics().setDepth(1);
     this.sealG = this.add.graphics().setDepth(2);
     this.dustG = this.add.graphics().setDepth(3);
+    // 加性辉光层：闪洪/合并核心等硬边亮色叠加，不参与遮罩
+    this.fxG = this.add.graphics().setDepth(3).setBlendMode(Phaser.BlendModes.ADD);
 
     this.cardData = buildCard(this.options.kind, this.options.act, this.options.report);
     this.card = this.buildCardView(this.cardData);
     this.dust = buildDust(0x51c7 + this.options.act * 131, 44, W, H);
+    // 每类过场的视觉编舞（状态机无关）；journey 走下方自有分支，返回 null
+    this.choreo = createChoreo(this.options.kind, this.options.act);
 
     // journey：不压标题卡，改播单镜头演出 + 角标/字幕
     if (this.options.kind === 'journey') {
@@ -143,6 +147,8 @@ export default class CutsceneScene extends Phaser.Scene {
         fontFamily: FONT_DISPLAY, letterSpacing: 3, stroke: HEX.inkDark, strokeThickness: 2,
       }).setOrigin(0.5, 0);
       container.add(title);
+      container.titleText = title;
+      container.titleBaseY = -9;
       return container;
     }
 
@@ -151,11 +157,28 @@ export default class CutsceneScene extends Phaser.Scene {
     }).setOrigin(0.5, 0);
     container.add(eyebrow);
 
-    const title = addText(this, 0, top + 28, card.title, titleSize, HEX.parchment, {
-      fontFamily: FONT_DISPLAY, letterSpacing: 6, stroke: HEX.inkDark, strokeThickness: 3,
-      shadow: { offsetX: 2, offsetY: 2, color: '#0d0a17', blur: 0, fill: true },
-    }).setOrigin(0.5, 0);
-    container.add(title);
+    container.titleBaseY = top + 28;
+    if (card.kind === 'act') {
+      // 幕名拆单字，供编舞逐字砸落（≤4 字）；其余卡片用整块标题
+      const chars = [...card.title];
+      const charW = titleSize + 6;
+      const startX = -((chars.length - 1) * charW) / 2;
+      container.titleChars = chars.map((ch, i) => {
+        const t = addText(this, startX + i * charW, top + 28, ch, titleSize, HEX.parchment, {
+          fontFamily: FONT_DISPLAY, stroke: HEX.inkDark, strokeThickness: 3,
+          shadow: { offsetX: 2, offsetY: 2, color: '#0d0a17', blur: 0, fill: true },
+        }).setOrigin(0.5, 0).setAlpha(0);
+        container.add(t);
+        return t;
+      });
+    } else {
+      const title = addText(this, 0, top + 28, card.title, titleSize, HEX.parchment, {
+        fontFamily: FONT_DISPLAY, letterSpacing: 6, stroke: HEX.inkDark, strokeThickness: 3,
+        shadow: { offsetX: 2, offsetY: 2, color: '#0d0a17', blur: 0, fill: true },
+      }).setOrigin(0.5, 0);
+      container.add(title);
+      container.titleText = title;
+    }
 
     const ruleY = top + 66;
     pxRect(g, -132, ruleY, 88, 1, C.brassDark, 0.9);
@@ -170,6 +193,8 @@ export default class CutsceneScene extends Phaser.Scene {
     if (card.stats.length) {
       const cols = card.stats.length;
       const startX = -((cols - 1) * 84) / 2;
+      container.statBaseY = bottom - 46;
+      container.statValues = [];
       card.stats.forEach((stat, i) => {
         const x = startX + i * 84;
         const label = addText(this, x, bottom - 58, stat.label, statLabelSize, HEX.mute, { align: 'center' })
@@ -177,6 +202,7 @@ export default class CutsceneScene extends Phaser.Scene {
         const value = addText(this, x, bottom - 46, stat.value, statValueSize, HEX.brassLight, { align: 'center' })
           .setOrigin(0.5, 0);
         container.add(label); container.add(value);
+        container.statValues.push(value);
       });
     }
 
@@ -311,7 +337,6 @@ export default class CutsceneScene extends Phaser.Scene {
     const accent = this.cardData?.accent ?? this.journey?.accent ?? 0xc9a227;
     const tint = this.cardData?.tint ?? this.journey?.tint ?? 0x241c3a;
     const kind = this.options.kind;
-    const act = this.options.act ?? 1;
 
     drawVeil(this.veilG, { w: this.W, h: this.H, cover, tint, kind });
 
@@ -335,52 +360,8 @@ export default class CutsceneScene extends Phaser.Scene {
       return;
     }
 
-    drawStage(this.stageG, { w: this.W, h: this.H, kind, act, veil, t: this.elapsed, accent });
-
-    // 中央符环：盖场时收拢，停留时缓转，揭开时扩张
-    let radius = 210;
-    let sealAlpha = veil;
-    if (phase.phase === 'cover') radius = 340 - 130 * easeOutCubic(phase.p);
-    else if (phase.phase === 'hold') radius = 210 + Math.sin(this.elapsed * 0.0022) * 2;
-    else if (phase.phase === 'reveal') { radius = 210 + 360 * easeOutCubic(phase.p); sealAlpha = (1 - phase.p) * 0.9; }
-    else sealAlpha = 0;
-    this.sealG.clear();
-    drawSeal(this.sealG, {
-      cx: this.cx, cy: this.cy, r: radius, t: this.elapsed, accent,
-      alpha: sealAlpha * (kind === 'victory' ? 0.55 : 0.8),
-      // 有标题卡时不画中央菱形核心：它会正好压在字幕上，透出来显脏
-      core: !this.cardData,
-    });
-    drawSparkBurst(this.sealG, {
-      cx: this.cx, cy: this.cy, t: this.elapsed, startT: tl.revealAt, accent, alpha: 1,
-    });
-    // 揭开起点的短促亮光，遮住两层画面交叠的那一瞬
-    const revealMs = this.elapsed - tl.revealAt;
-    if (revealMs >= 0 && revealMs < 140) {
-      const flash = (1 - revealMs / 140) * (kind === 'victory' ? 0.28 : 0.12);
-      pxRect(this.sealG, 0, 0, this.W, this.H, kind === 'victory' ? C.brassLight : C.parchment, flash);
-    }
-
-    this.dustG.clear();
-    drawDust(this.dustG, this.dust, { h: this.H, t: this.elapsed, accent, alpha: veil });
-
-    if (this.card) {
-      let alpha = 1;
-      let dy = 0;
-      if (phase.phase === 'cover') {
-        const p = easeOutCubic(clamp01((this.elapsed - tl.coverMs * 0.42) / Math.max(1, tl.coverMs * 0.58)));
-        alpha = p;
-        dy = (1 - p) * 12;
-      } else if (phase.phase === 'reveal') {
-        const p = easeOutCubic(phase.p);
-        alpha = Math.max(0, 1 - p * 1.35);
-        dy = -p * 10;
-      } else if (phase.phase === 'done') {
-        alpha = 0;
-      }
-      this.card.setAlpha(alpha);
-      this.card.setY(this.cy + dy);
-    }
+    // 视觉全部交给每类编舞（舞台/符环/浮尘/卡片动效 + 大胆层）；状态机 below 不变
+    this.choreo.draw(this, { phase, veil, accent, tint, elapsed: this.elapsed, tl });
 
     // 目标场景没就绪前绝不揭开/放行；提前 resume 会让随后 freezeTarget 把目标永久暂停（跳过路径曾踩到）
     if (this.elapsed >= tl.revealAt && this.targetReady) this.resumeTarget();

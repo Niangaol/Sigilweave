@@ -35,12 +35,12 @@
     {
       "name": "第一幕仍是 act 标题卡",
       "pass": true,
-      "detail": "{\"kind\":\"act\",\"phase\":\"hold\",\"elapsed\":325,\"duration\":1460,\"from\":\"LoadoutScene\",\"to\":\"BattleScene\",\"act\":1,\"swapped\":true,\"targetReady\":false,\"skipped\":false}"
+      "detail": "{\"kind\":\"act\",\"phase\":\"hold\",\"elapsed\":333,\"duration\":1460,\"from\":\"LoadoutScene\",\"to\":\"BattleScene\",\"act\":1,\"swapped\":true,\"targetReady\":false,\"skipped\":false}"
     },
     {
       "name": "journey 属于第 2 幕且时长 5840ms",
       "pass": true,
-      "detail": "{\"kind\":\"journey\",\"phase\":\"hold\",\"elapsed\":338,\"duration\":5840,\"from\":\"IntermissionScene\",\"to\":\"BattleScene\",\"act\":2,\"swapped\":true,\"targetReady\":true,\"skipped\":false}"
+      "detail": "{\"kind\":\"journey\",\"phase\":\"hold\",\"elapsed\":383,\"duration\":5840,\"from\":\"IntermissionScene\",\"to\":\"BattleScene\",\"act\":2,\"swapped\":true,\"targetReady\":true,\"skipped\":false}"
     },
     {
       "name": "journey 演出期间战斗已在底下冻结",
