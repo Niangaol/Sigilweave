@@ -334,7 +334,8 @@ function drawRelease(g, { w, h, t, p, accent }) {
 function drawQuiet(g, { w, h, t, p, accent }) {
   pxRect(g, 0, 0, w, h, C.nightDeep, 1);
   const cell = 30, gap = 4, size = cell * 4 + gap * 3;
-  const ox = Math.round(w / 2 - size / 2), oy = Math.round(h / 2 - size / 2);
+  // 竖屏字幕在 0.62H：祭坛整体上移，主角剪影别压住字幕
+  const ox = Math.round(w / 2 - size / 2), oy = Math.round(h * (h > 400 ? 0.4 : 0.5) - size / 2);
   pxRect(g, ox - 10, oy - 10, size + 20, size + 20, C.stoneDark, 0.95);
   pxFrame(g, ox - 10, oy - 10, size + 20, size + 20, C.brassDark, 1, 0.7);
   const litCount = 16 - Math.floor(clamp01((p - 0.1) / 0.6) * 16);
@@ -386,7 +387,8 @@ function drawDawn(g, { w, h, t, p, accent, stars }) {
     const y = Math.round(30 + mp * h * 0.3);
     pxLine(g, x, y, x + 14, y + 22, C.runeCold, (1 - mp) * 0.6, 1);
   }
-  const horizon = Math.round(h * 0.66);
+  // 竖屏字幕在 0.62H：地平线压低，低日与碑群别压住字幕
+  const horizon = Math.round(h * (h > 400 ? 0.74 : 0.66));
   const rise = easeOutCubic(p);
   for (let i = 0; i < 7; i++) {
     const bh = Math.round(h * 0.5 * rise * ((7 - i) / 7));

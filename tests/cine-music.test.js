@@ -87,4 +87,23 @@ describe('CineMusic 程序化配乐', () => {
     const { mod } = await load();
     expect(() => { mod.musicCue('bell'); mod.stopMusic(); }).not.toThrow();
   });
+
+  it('ending 模式用 65.4Hz 低音与 0.6 渐入，区别于 opening/journey', async () => {
+    const { mod, state } = await load();
+    mod.startMusic('ending');
+    const oscs = state.nodes.filter(n => n.kind === 'osc');
+    expect(oscs.length).toBeGreaterThanOrEqual(3);
+    expect(oscs[0].frequency.value).toBeCloseTo(65.4);
+    expect(state.nodes[0].gain.value).toBeCloseTo(0.6);
+    mod.stopMusic();
+  });
+
+  it('hush cue 在铺底之上追加两声音符', async () => {
+    const { mod, state } = await load();
+    mod.startMusic('ending');
+    const base = state.started;
+    mod.musicCue('hush');
+    expect(state.started).toBe(base + 2);
+    mod.stopMusic();
+  });
 });

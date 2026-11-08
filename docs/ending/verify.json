@@ -1,0 +1,57 @@
+{
+  "ok": true,
+  "shots": [
+    "01-victory-card",
+    "02-ending-release",
+    "03-ending-quiet",
+    "04-ending-dawn",
+    "05-ending-credits",
+    "06-boot-handoff",
+    "07-victory-panel",
+    "08-portrait-ending-dawn",
+    "09-portrait-victory-panel"
+  ],
+  "errors": [],
+  "checks": [
+    {
+      "name": "胜利卡时长仍在 900–1600ms",
+      "pass": true,
+      "detail": "1600"
+    },
+    {
+      "name": "胜利卡停留时结局播放器已在底下创建并冻结",
+      "pass": true,
+      "detail": "{\"storyStatus\":6,\"cutActive\":true}"
+    },
+    {
+      "name": "结局总时长 32000ms",
+      "pass": true,
+      "detail": "32000"
+    },
+    {
+      "name": "boot 交接停留时结算面板已在底下创建并冻结",
+      "pass": true,
+      "detail": "{\"panelStatus\":6,\"cutActive\":true}"
+    },
+    {
+      "name": "揭开后结算正常运行且为胜利面板、跑分透传",
+      "pass": true,
+      "detail": "{\"status\":5,\"victory\":true,\"kills\":1142}"
+    },
+    {
+      "name": "结局跳过后结算正常运行（不软锁）",
+      "pass": true,
+      "detail": "5"
+    },
+    {
+      "name": "?cine=0 不播结局直达胜利结算",
+      "pass": true,
+      "detail": "{\"ending\":null,\"victory\":true}"
+    },
+    {
+      "name": "0 个 pageerror",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

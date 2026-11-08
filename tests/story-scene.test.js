@@ -24,7 +24,7 @@ vi.mock('../src/ui/Palette.js', async (importOriginal) => {
 const music = vi.hoisted(() => ({ startMusic: vi.fn(), stopMusic: vi.fn(), musicCue: vi.fn() }));
 vi.mock('../src/audio/CineMusic.js', () => music);
 vi.mock('../src/audio/Sfx.js', () => ({ sfx: { tick: () => {} } }));
-const transition = vi.hoisted(() => ({ playCutscene: vi.fn(() => true) }));
+const transition = vi.hoisted(() => ({ playCutscene: vi.fn(() => true), cutscenesDisabled: vi.fn(() => false) }));
 vi.mock('../src/ui/transition.js', () => transition);
 
 import StoryScene from '../src/scenes/StoryScene.js';
@@ -40,15 +40,19 @@ function makeGraphics() {
 
 function makeHarness(data) {
   const calls = [];
+  const state = { cutsceneActive: false };
   const scene = new StoryScene();
-  scene.scene = { stop: () => calls.push(['stop']), };
+  scene.scene = {
+    stop: () => calls.push(['stop']),
+    isActive: (key) => key === 'CutsceneScene' && state.cutsceneActive,
+  };
   scene.cameras = { main: { setZoom() {}, centerOn() {} } };
   scene.add = { graphics: () => makeGraphics() };
   scene.input = { keyboard: { on() {}, off() {} }, on() {}, off() {} };
   scene.events = new EventEmitter();
   scene.init(data);
   scene.create();
-  return { scene, calls };
+  return { scene, calls, state };
 }
 
 function advance(scene, ms, step = 16) {
@@ -63,6 +67,7 @@ function advance(scene, ms, step = 16) {
 beforeEach(() => {
   vi.clearAllMocks();
   transition.playCutscene.mockReturnValue(true);
+  transition.cutscenesDisabled.mockReturnValue(false);
   globalThis.window = { location: { search: '' }, __SIGILWEAVE_STORY__: null, __SIGILWEAVE_ENDING__: null };
 });
 
@@ -115,6 +120,7 @@ describe('StoryScene 开场状态机', () => {
 
   it('过场被禁用（playCutscene 返回 false）时自己停掉，不软锁', () => {
     transition.playCutscene.mockReturnValue(false);
+    transition.cutscenesDisabled.mockReturnValue(true);
     const { scene, calls } = makeHarness();
     advance(scene, 37000);
     expect(calls).toContainEqual(['stop']);
@@ -193,9 +199,28 @@ describe('StoryScene 结局模式', () => {
 
   it('过场被禁用（playCutscene 返回 false）时自己停掉，不软锁', () => {
     transition.playCutscene.mockReturnValue(false);
+    transition.cutscenesDisabled.mockReturnValue(true);
     const { scene, calls } = makeHarness({ mode: 'ending', stats: STATS });
     advance(scene, 33000);
     expect(calls).toContainEqual(['stop']);
+  });
+
+  it('交接被收尾中的过场吞掉时不自停，覆盖层停下后自动重试（真实浏览器死锁回归）', () => {
+    const { scene, calls, state } = makeHarness({ mode: 'ending', stats: STATS });
+    // 胜利过场 reveal 收尾仍 active：playCutscene 返回 false 但不是被禁用
+    state.cutsceneActive = true;
+    transition.playCutscene.mockReturnValue(false);
+    advance(scene, 33000);
+    expect(scene.finished).toBe(true);
+    expect(calls).not.toContainEqual(['stop']);
+    expect(transition.playCutscene).toHaveBeenCalledTimes(1);
+    // 覆盖层停下后，下一帧自动重试同一交接
+    state.cutsceneActive = false;
+    transition.playCutscene.mockReturnValue(true);
+    scene.update(0, 16);
+    expect(transition.playCutscene).toHaveBeenCalledTimes(2);
+    expect(transition.playCutscene.mock.calls[1][1].payload).toBe(STATS);
+    expect(calls).not.toContainEqual(['stop']);
   });
 
   it('SHUTDOWN 停配乐并发布 done 到结局键', () => {

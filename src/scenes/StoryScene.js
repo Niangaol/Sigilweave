@@ -9,7 +9,7 @@ import {
 import { buildOpeningTimeline, buildEndingTimeline, shotAt, canSkipStory, STORY_MODES } from '../data/story.js';
 import { OPENING_STAGES, ENDING_STAGES, buildStars } from '../ui/story-art.js';
 import { buildDust, drawDust, clamp01, easeOutCubic } from '../ui/cinematic-art.js';
-import { playCutscene } from '../ui/transition.js';
+import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
 import { startMusic, stopMusic, musicCue } from '../audio/CineMusic.js';
 import { sfx } from '../audio/Sfx.js';
 
@@ -29,6 +29,7 @@ export default class StoryScene extends Phaser.Scene {
     this.finished = false;
     this.skipped = false;
     this.musicStarted = false;
+    this.handoffPending = false;
   }
 
   create() {
@@ -99,11 +100,19 @@ export default class StoryScene extends Phaser.Scene {
     this.finished = true;
     stopMusic();
     this.publish('done');
+    this.handoff();
+  }
+
+  handoff() {
     const handoff = this.modeConfig.handoff;
     const payload = this.mode === 'ending' ? (this.stats ?? { __cine: true }) : { __cine: true };
     const handed = playCutscene(this, { kind: handoff.kind, to: handoff.to, payload });
+    if (handed) return;
     // 过场被禁用时 playCutscene 已直接切到目标；这里停掉自己即可
-    if (!handed) this.scene.stop();
+    if (cutscenesDisabled()) { this.scene.stop(); return; }
+    // 上一棒过场还在 reveal 收尾（isActive 仍 true）：交接被「已在过场中」守卫吞掉。
+    // 不自停（否则没有任何场景活着，死锁），标记待交接，覆盖层停下后由 update 重试。
+    this.handoffPending = true;
   }
 
   publish(phase) {
@@ -137,7 +146,13 @@ export default class StoryScene extends Phaser.Scene {
   }
 
   update(time, delta) {
-    if (this.finished) return;
+    if (this.finished) {
+      if (this.handoffPending && !this.scene.isActive('CutsceneScene')) {
+        this.handoffPending = false;
+        this.handoff();
+      }
+      return;
+    }
     if (this.mode === 'ending' && !this.musicStarted) {
       this.musicStarted = true;
       startMusic(this.modeConfig.music);

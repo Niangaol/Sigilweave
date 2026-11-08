@@ -40,7 +40,7 @@ import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxDiamond, drawGlyph,
 import { decoratePlan } from '../ui/board-decor.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
-import { playCutscene } from '../ui/transition.js';
+import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
 const FREQ_WINDOW_MS = 5000;
@@ -1310,10 +1310,18 @@ export default class BattleScene extends Phaser.Scene {
         blocked: out.blocked + report.blocked,
         peakRate: Math.max(out.peakRate, report.peakRate),
       }), { elapsedMs: 0, kills: 0, triggers: 0, combos: 0, blocked: 0, peakRate: 0 });
-      // 终局：三道契约环碎裂，再落到胜利结算
+      // 终局：三道契约环碎裂 → 结局演出（StoryScene ending）→ 胜利结算。
+      // ?cine=0 / ?stress=1 时不播结局直达面板，保持调试契约（playCutscene 兜底会把结局照播）。
+      const victoryPayload = { ...this.buildSummary(), ...totals, victory: true, bossResolutions: structuredClone(this.run.bossResolutions), __cine: true };
+      if (cutscenesDisabled()) {
+        const fallback = { ...victoryPayload };
+        delete fallback.__cine;
+        this.scene.start('GameOverScene', fallback);
+        return;
+      }
       playCutscene(this, {
-        kind: 'victory', act: this.act, report: totals, to: 'GameOverScene',
-        payload: { ...this.buildSummary(), ...totals, victory: true, bossResolutions: structuredClone(this.run.bossResolutions), __cine: true },
+        kind: 'victory', act: this.act, report: totals, to: 'StoryScene',
+        payload: { mode: 'ending', stats: victoryPayload, __cine: true },
       });
     }
   }

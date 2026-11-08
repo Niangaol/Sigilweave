@@ -43,9 +43,9 @@ export function startMusic(kind = 'opening') {
   try {
     master = c.createGain();
     master.gain.setValueAtTime(0.0001, c.currentTime);
-    master.gain.exponentialRampToValueAtTime(kind === 'journey' ? 0.5 : 0.9, c.currentTime + 1.2);
+    master.gain.exponentialRampToValueAtTime(kind === 'journey' ? 0.5 : kind === 'ending' ? 0.6 : 0.9, c.currentTime + 1.2);
     master.connect(c.destination);
-    const base = kind === 'journey' ? 73.4 : 55;
+    const base = kind === 'journey' ? 73.4 : kind === 'ending' ? 65.4 : 55;
     for (const [freq, gain] of [[base, 0.018], [base * 1.005, 0.014], [base * 2, 0.006]]) {
       const o = c.createOscillator();
       const g = c.createGain();
@@ -64,6 +64,7 @@ const CUES = Object.freeze({
   chime:  [[523, 1.2], [659, 1.4]],
   arp:    [[220, 0.5], [277, 0.5], [330, 0.5], [440, 0.9]],
   finale: [[392, 1.2], [523, 1.4], [659, 2.0]],
+  hush:   [[262, 2.0], [196, 2.4]],
 });
 
 export function musicCue(cue) {

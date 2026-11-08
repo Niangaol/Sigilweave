@@ -83,6 +83,9 @@ export const sfx = {
     setTimeout(() => tone({ freq: 430, dur: 0.16, type: 'sine', gain: 0.01, to: 300 }), 90);
   },
   cineSwap: () => tone({ freq: 250, dur: 0.1, type: 'square', gain: 0.009, to: 160 }),
+  // 编舞冲击点：标题砸落一记低音，符环碎裂一记高音扫落（增益压在 ≤0.018，不抢配乐）
+  cineSlam: () => { tone({ freq: 90, dur: 0.09, type: 'square', gain: 0.02, to: 50 }); setTimeout(() => tone({ freq: 140, dur: 0.12, type: 'triangle', gain: 0.012, to: 70 }), 60); },
+  cineShatter: () => { tone({ freq: 520, dur: 0.28, type: 'triangle', gain: 0.018, to: 90 }); setTimeout(() => tone({ freq: 140, dur: 0.35, type: 'sine', gain: 0.016, to: 60 }), 120); },
   cineReveal: (kind = '') => tone({
     freq: kind === 'death' ? 180 : kind === 'victory' ? 660 : 520,
     dur: 0.18, type: 'triangle', gain: 0.013,

@@ -10,7 +10,7 @@
     "06-act1-battle",
     "07-clear-card",
     "08-intermission",
-    "09-act2-card",
+    "09-journey-act2",
     "10-death-card",
     "11-gameover",
     "12-victory-card",
@@ -24,63 +24,63 @@
       "phase": "hold",
       "duration": 960,
       "act": 1,
-      "elapsed": 307
+      "elapsed": 304
     },
     {
       "kind": "sigil",
       "phase": "hold",
       "duration": 920,
       "act": 1,
-      "elapsed": 317
+      "elapsed": 303
     },
     {
       "kind": "act",
       "phase": "hold",
       "duration": 1460,
       "act": 1,
-      "elapsed": 336
+      "elapsed": 321
     },
     {
       "kind": "clear",
       "phase": "hold",
       "duration": 1420,
       "act": 1,
-      "elapsed": 339
+      "elapsed": 320
     },
     {
-      "kind": "act",
+      "kind": "journey",
       "phase": "hold",
-      "duration": 1460,
+      "duration": 5840,
       "act": 2,
-      "elapsed": 338
+      "elapsed": 324
     },
     {
       "kind": "death",
       "phase": "hold",
       "duration": 1120,
       "act": 2,
-      "elapsed": 396
+      "elapsed": 386
     },
     {
       "kind": "retry",
       "phase": "hold",
       "duration": 920,
       "act": 1,
-      "elapsed": 302
+      "elapsed": 304
     },
     {
       "kind": "victory",
       "phase": "hold",
       "duration": 1600,
       "act": 3,
-      "elapsed": 379
+      "elapsed": 364
     },
     {
       "kind": "return",
       "phase": "hold",
       "duration": 920,
       "act": 3,
-      "elapsed": 302
+      "elapsed": 305
     }
   ],
   "errors": [],
@@ -121,14 +121,9 @@
       "detail": "1"
     },
     {
-      "name": "act 时长 900–1600ms",
+      "name": "第二幕 journey 属于第 2 幕且时长 4–8s",
       "pass": true,
-      "detail": "1460"
-    },
-    {
-      "name": "第二幕卡片属于第 2 幕",
-      "pass": true,
-      "detail": "2"
+      "detail": "{\"kind\":\"journey\",\"phase\":\"hold\",\"elapsed\":324,\"duration\":5840,\"from\":\"IntermissionScene\",\"to\":\"BattleScene\",\"act\":2,\"swapped\":true,\"targetReady\":false,\"skipped\":false}"
     },
     {
       "name": "death 时长 900–1600ms",
@@ -157,7 +152,7 @@
     {
       "name": "竖屏画布为高窗",
       "pass": true,
-      "detail": "{\"w\":390,\"h\":844,\"cut\":{\"kind\":\"act\",\"phase\":\"hold\",\"elapsed\":384,\"duration\":1460,\"from\":\"LoadoutScene\",\"to\":\"BattleScene\",\"act\":1,\"swapped\":true,\"targetReady\":true,\"skipped\":false}}"
+      "detail": "{\"w\":390,\"h\":844,\"cut\":{\"kind\":\"act\",\"phase\":\"hold\",\"elapsed\":389,\"duration\":1460,\"from\":\"LoadoutScene\",\"to\":\"BattleScene\",\"act\":1,\"swapped\":true,\"targetReady\":true,\"skipped\":false}}"
     },
     {
       "name": "第三幕卡片属于第 3 幕",

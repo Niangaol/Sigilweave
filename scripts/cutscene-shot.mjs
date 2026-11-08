@@ -44,8 +44,11 @@ try {
     return state;
   };
 
-  // 1) 开场：Boot → 标题（自动过场）
+  // 1) 开场：Boot → StoryScene 开场（跳过，开场逐镜验收在 story-shot.mjs）→ boot 过场 → 标题
   await page.goto(BASE + '/?seed=cutscene-shot', { waitUntil: 'load' });
+  await page.waitForFunction(() => (window.__SIGILWEAVE_STORY__?.elapsed ?? 0) > 250
+    && window.__SIGILWEAVE_STORY__?.phase === 'playing', null, { timeout: 20000 });
+  await page.keyboard.press('Enter');
   await cut('boot', 'hold');
   await shot('01-boot');
   await settle('TitleScene');
@@ -95,22 +98,26 @@ try {
   await settle('IntermissionScene');
   await shot('08-intermission');
 
-  // 5) 幕间 → 第二幕标题卡。先按正常出发；若默认构筑不满足出发条件，退回直接拉过场做视觉证据。
+  // 5) 幕间 → 第二幕 journey 长镜头（5.8s；act 标题卡只用于第一幕入场）。
+  // 先按正常出发；若默认构筑不满足出发条件，退回直接拉过场做视觉证据。
   await page.evaluate(() => {
     const w = window.__SIGILWEAVE_WORKSHOP__;
     w.workshop.roundsRemaining = 0;
     w.workshop.offer = null;
     w.depart();
     if (!w.departed) {
-      window.__SIGILWEAVE__.scene.launch('CutsceneScene', {
+      window.__SIGILWEAVE__.scene.getScene('IntermissionScene').scene.launch('CutsceneScene', {
         from: 'IntermissionScene', to: 'BattleScene',
-        payload: { run: w.run, __cine: true }, kind: 'act', act: 2,
+        payload: { run: w.run, __cine: true }, kind: 'journey', act: 2,
       });
     }
   });
-  const act2 = await cut('act', 'hold');
-  check('第二幕卡片属于第 2 幕', act2.act === 2, String(act2.act));
-  await shot('09-act2-card');
+  await page.waitForFunction(() => window.__SIGILWEAVE_CUTSCENE__?.kind === 'journey'
+    && window.__SIGILWEAVE_CUTSCENE__?.phase === 'hold', null, { timeout: 20000 });
+  const j2 = await page.evaluate(() => ({ ...window.__SIGILWEAVE_CUTSCENE__ }));
+  report.timings.push({ kind: 'journey', phase: 'hold', duration: j2.duration, act: j2.act, elapsed: j2.elapsed });
+  check('第二幕 journey 属于第 2 幕且时长 4–8s', j2.act === 2 && j2.duration >= 4000 && j2.duration <= 8000, JSON.stringify(j2));
+  await shot('09-journey-act2');
   await settle('BattleScene');
 
   // 6) 死亡 → 熄灭卡 → 结算
@@ -145,6 +152,10 @@ try {
   });
   await cut('victory', 'hold');
   await shot('12-victory-card');
+  // 胜利卡后现在是 32s 结局演出（逐镜验收在 ending-shot.mjs）：宽限期后跳过，再落结算
+  await page.waitForFunction(() => (window.__SIGILWEAVE_ENDING__?.elapsed ?? 0) > 250
+    && window.__SIGILWEAVE_ENDING__?.phase === 'playing', null, { timeout: 20000 });
+  await page.keyboard.press('Enter');
   await settle('GameOverScene');
   await shot('13-victory-panel');
 
@@ -164,6 +175,9 @@ try {
   const portrait = await browser.newPage({ viewport: { width: 390, height: 844 } });
   portrait.on('pageerror', e => report.errors.push('portrait: ' + e.message));
   await portrait.goto(BASE + '/?seed=cutscene-portrait', { waitUntil: 'load' });
+  await portrait.waitForFunction(() => (window.__SIGILWEAVE_STORY__?.elapsed ?? 0) > 250
+    && window.__SIGILWEAVE_STORY__?.phase === 'playing', null, { timeout: 20000 });
+  await portrait.keyboard.press('Enter');
   await portrait.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('TitleScene')
     && !window.__SIGILWEAVE__?.scene.isActive('CutsceneScene'), null, { timeout: 20000 });
   await portrait.waitForTimeout(300);
@@ -185,6 +199,9 @@ try {
   const gallery = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   gallery.on('pageerror', e => report.errors.push('gallery: ' + e.message));
   await gallery.goto(BASE + '/?seed=cutscene-act3', { waitUntil: 'load' });
+  await gallery.waitForFunction(() => (window.__SIGILWEAVE_STORY__?.elapsed ?? 0) > 250
+    && window.__SIGILWEAVE_STORY__?.phase === 'playing', null, { timeout: 20000 });
+  await gallery.keyboard.press('Enter');
   await gallery.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('TitleScene')
     && !window.__SIGILWEAVE__?.scene.isActive('CutsceneScene'), null, { timeout: 20000 });
   await gallery.evaluate(() => {
