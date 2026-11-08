@@ -329,6 +329,30 @@ export function drawSparkBurst(g, { cx, cy, t, startT, accent, alpha }) {
   }
 }
 
+// 符环碎裂：12 段弧片沿放射方向飞散并淡出。p∈(0,1) 才绘制；
+// 未开始/已散尽由调用方决定画整环还是不画。同种子同进度严格确定。
+export function drawShatter(g, { cx, cy, r, p, accent, seed = 1 }) {
+  const q = clamp01(p);
+  if (q <= 0 || q >= 1) return;
+  const rng = makeRng(seed);
+  const n = 12;
+  const alpha = (1 - q) * 0.8;
+  for (let i = 0; i < n; i++) {
+    const a0 = (i / n) * Math.PI * 2 + rng() * 0.24;
+    const d = r + q * (60 + rng() * 80);
+    const pts = [];
+    for (let k = 0; k <= 2; k++) {
+      const a = a0 + (k / 2) * (Math.PI * 2 / n) * 0.7;
+      pts.push({ x: Math.round(cx + Math.cos(a) * d), y: Math.round(cy + Math.sin(a) * d * 0.86) });
+    }
+    g.lineStyle(1, accent, alpha);
+    g.strokePoints(pts, false);
+    const midA = a0 + (Math.PI * 2 / n) * 0.35;
+    pxDiamond(g, Math.round(cx + Math.cos(midA) * d), Math.round(cy + Math.sin(midA) * d * 0.86),
+      i % 3 === 0 ? 2 : 1, accent, alpha * 0.9, true);
+  }
+}
+
 export function drawDust(g, dust, { h, t, accent, alpha }) {
   for (const d of dust) {
     const y = ((d.y - t * d.speed * 0.0009) % h + h) % h;

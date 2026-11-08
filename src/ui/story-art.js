@@ -2,7 +2,7 @@
 // 粒子（星点/浮尘）由调用方预建传入，每帧不新建对象。
 import { C, pxRect, pxLine, pxDiamond, pxFrame } from './Palette.js';
 import {
-  clamp01, easeOutCubic, easeInOutCubic, makeRng, drawSeal, thinLine,
+  clamp01, easeOutCubic, easeInOutCubic, makeRng, drawSeal, drawShatter, thinLine,
 } from './cinematic-art.js';
 
 export { clamp01, easeOutCubic, easeInOutCubic };
@@ -57,6 +57,30 @@ function drawSkyfall(g, { w, h, t, p, stars }) {
   }
 }
 
+// 三契圣物：墓碑/沉钟/王座。开场「钉入」与结局「解除」共用同一组形状，保持视觉同源。
+function drawContractRelic(g, cx, baseY, i, a, accent) {
+  if (i === 0) {
+    // 墓碑
+    pxRect(g, cx - 10, baseY - 34, 20, 34, C.stoneDark, a);
+    pxRect(g, cx - 10, baseY - 34, 20, 2, C.stoneLight, 0.6 * a);
+    pxLine(g, cx - 4, baseY - 26, cx + 3, baseY - 8, C.ink, 0.7 * a, 1);
+  } else if (i === 1) {
+    // 沉钟
+    pxLine(g, cx, baseY - 96, cx, baseY - 44, C.brassDark, 0.7 * a, 1);
+    pxRect(g, cx - 12, baseY - 44, 25, 4, C.brass, 0.9 * a);
+    pxRect(g, cx - 8, baseY - 40, 17, 5, C.brassDark, 0.95 * a);
+    pxRect(g, cx - 4, baseY - 34, 9, 3, C.brassDark, 0.9 * a);
+    pxRect(g, cx, baseY - 31, 2, 4, C.brassLight, 0.8 * a);
+  } else {
+    // 王座
+    pxRect(g, cx - 30, baseY - 8, 60, 8, C.shardStone, 0.9 * a);
+    pxRect(g, cx - 20, baseY - 16, 40, 8, C.stoneDark, 0.9 * a);
+    pxRect(g, cx - 12, baseY - 52, 24, 36, C.stoneDark, 0.95 * a);
+    pxRect(g, cx - 8, baseY - 48, 16, 30, C.starTileLit, 0.7 * a);
+    pxDiamond(g, cx, baseY - 34, 5, accent, 0.6 * a, true);
+  }
+}
+
 // 镜头 2：三契钉入。墓碑/沉钟/王座三个小舞台依次亮起契约符环。
 function drawContracts(g, { w, h, t, p, accent }) {
   pxRect(g, 0, 0, w, h, C.nightDeep, 1);
@@ -67,26 +91,7 @@ function drawContracts(g, { w, h, t, p, accent }) {
   centers.forEach((cx, i) => {
     const lit = clamp01(p * 3.2 - i * 0.9);
     const a = 0.35 + 0.65 * lit;
-    if (i === 0) {
-      // 墓碑
-      pxRect(g, cx - 10, baseY - 34, 20, 34, C.stoneDark, a);
-      pxRect(g, cx - 10, baseY - 34, 20, 2, C.stoneLight, 0.6 * a);
-      pxLine(g, cx - 4, baseY - 26, cx + 3, baseY - 8, C.ink, 0.7 * a, 1);
-    } else if (i === 1) {
-      // 沉钟
-      pxLine(g, cx, baseY - 96, cx, baseY - 44, C.brassDark, 0.7 * a, 1);
-      pxRect(g, cx - 12, baseY - 44, 25, 4, C.brass, 0.9 * a);
-      pxRect(g, cx - 8, baseY - 40, 17, 5, C.brassDark, 0.95 * a);
-      pxRect(g, cx - 4, baseY - 34, 9, 3, C.brassDark, 0.9 * a);
-      pxRect(g, cx, baseY - 31, 2, 4, C.brassLight, 0.8 * a);
-    } else {
-      // 王座
-      pxRect(g, cx - 30, baseY - 8, 60, 8, C.shardStone, 0.9 * a);
-      pxRect(g, cx - 20, baseY - 16, 40, 8, C.stoneDark, 0.9 * a);
-      pxRect(g, cx - 12, baseY - 52, 24, 36, C.stoneDark, 0.95 * a);
-      pxRect(g, cx - 8, baseY - 48, 16, 30, C.starTileLit, 0.7 * a);
-      pxDiamond(g, cx, baseY - 34, 5, accent, 0.6 * a, true);
-    }
+    drawContractRelic(g, cx, baseY, i, a, accent);
     if (lit > 0) {
       drawSeal(g, { cx, cy: baseY - 80, r: 28, t, accent, alpha: lit * 0.8, spokes: 8, runes: false });
       pxDiamond(g, cx, baseY - 80, 3, accent, lit * 0.9, true);
@@ -301,4 +306,126 @@ function drawJourneyStar(g, { w, h, t, p, accent, stars }) {
 export const JOURNEY_STAGES = {
   swamp: drawJourneySwamp,
   star: drawJourneyStar,
+};
+
+// 结局镜头 1：三契尽解。与开场「三契钉入」同一组圣物，符环依次碎裂，圣物逐次暗成墨色。
+function drawRelease(g, { w, h, t, p, accent }) {
+  pxRect(g, 0, 0, w, h, C.nightDeep, 1);
+  const baseY = Math.round(h * 0.68);
+  pxRect(g, 0, baseY, w, h - baseY, C.ink, 0.95);
+  pxRect(g, 0, baseY, w, 2, C.groove, 0.5);
+  const centers = [Math.round(w / 2 - 150), Math.round(w / 2), Math.round(w / 2 + 150)];
+  centers.forEach((cx, i) => {
+    const breakAt = 0.12 + i * 0.26;
+    const bp = clamp01((p - breakAt) / 0.3);
+    const a = 1 - 0.68 * clamp01((p - breakAt) / 0.55);
+    drawContractRelic(g, cx, baseY, i, a, accent);
+    const cy = baseY - 80;
+    if (bp <= 0) {
+      drawSeal(g, { cx, cy, r: 28, t, accent, alpha: 0.8, spokes: 8, runes: false });
+      pxDiamond(g, cx, cy, 3, accent, 0.9, true);
+    } else {
+      drawShatter(g, { cx, cy, r: 28, p: bp, accent, seed: 0x51c7 + i * 131 });
+    }
+  });
+}
+
+// 结局镜头 2：安静。祭坛刻格逆向逐格熄灭，脉流断绝，刻阵者立定，魂火 gutter 后熄灭。
+function drawQuiet(g, { w, h, t, p, accent }) {
+  pxRect(g, 0, 0, w, h, C.nightDeep, 1);
+  const cell = 30, gap = 4, size = cell * 4 + gap * 3;
+  const ox = Math.round(w / 2 - size / 2), oy = Math.round(h / 2 - size / 2);
+  pxRect(g, ox - 10, oy - 10, size + 20, size + 20, C.stoneDark, 0.95);
+  pxFrame(g, ox - 10, oy - 10, size + 20, size + 20, C.brassDark, 1, 0.7);
+  const litCount = 16 - Math.floor(clamp01((p - 0.1) / 0.6) * 16);
+  const centerOf = i => [
+    ox + (i % 4) * (cell + gap) + Math.round(cell / 2),
+    oy + Math.floor(i / 4) * (cell + gap) + Math.round(cell / 2),
+  ];
+  for (let i = 0; i < 16; i++) {
+    const gx = ox + (i % 4) * (cell + gap);
+    const gy = oy + Math.floor(i / 4) * (cell + gap);
+    const lit = i < litCount;
+    pxRect(g, gx, gy, cell, cell, lit ? C.graveTileLit : C.graveTile, 0.95);
+    pxFrame(g, gx, gy, cell, cell, C.groove, 1, lit ? 0.8 : 0.3);
+    if (lit) pxDiamond(g, gx + Math.round(cell / 2), gy + Math.round(cell / 2), 3, accent, 0.8, true);
+  }
+  for (let i = 1; i < litCount; i++) {
+    const [x1, y1] = centerOf(i - 1);
+    const [x2, y2] = centerOf(i);
+    thinLine(g, x1, y1, x2, y2, accent, 0.45);
+  }
+  const hx = Math.round(w / 2), hy = Math.round(oy + size + 40);
+  heroSilhouette(g, hx, hy, 1);
+  if (p <= 0.85) {
+    const flick = 0.4 + 0.6 * Math.abs(Math.sin(t * 0.02));
+    const die = p > 0.7 ? 1 - (p - 0.7) / 0.15 : 1;
+    pxDiamond(g, hx, hy - 22, 2, accent, clamp01(flick * die) * 0.9, true);
+  }
+  // 灰烬落定，逐渐稀下去
+  for (let i = 0; i < 10; i++) {
+    const x = (i * 53 + 17) % w;
+    const y = Math.round(h * 0.3 + ((i * 29 + t * 0.008) % Math.max(20, Math.round(h * 0.5))));
+    pxRect(g, x, y, 1, 1, C.mute, 0.25 * (1 - p * 0.6));
+  }
+}
+
+// 结局镜头 3：黎明。星点淡出、陨星停息，硬边黄铜色带叠层升起，低日浮出地平线。
+function drawDawn(g, { w, h, t, p, accent, stars }) {
+  pxRect(g, 0, 0, w, h, C.void, 1);
+  const starA = 1 - clamp01(p / 0.45);
+  if (starA > 0) {
+    for (const s of stars) {
+      const tw = 0.3 + 0.4 * (0.5 + 0.5 * Math.sin(t * 0.002 + s.phase));
+      pxRect(g, s.x, s.y, s.size, s.size, C.parchment, tw * starA);
+    }
+  }
+  if (p < 0.25) {
+    const mp = p / 0.25;
+    const x = Math.round(w * (0.7 - mp * 0.3));
+    const y = Math.round(30 + mp * h * 0.3);
+    pxLine(g, x, y, x + 14, y + 22, C.runeCold, (1 - mp) * 0.6, 1);
+  }
+  const horizon = Math.round(h * 0.66);
+  const rise = easeOutCubic(p);
+  for (let i = 0; i < 7; i++) {
+    const bh = Math.round(h * 0.5 * rise * ((7 - i) / 7));
+    if (bh > 0) pxRect(g, 0, h - bh, w, bh, i < 2 ? C.brass : C.brassDark, 0.05 + i * 0.02);
+  }
+  const sunX = Math.round(w / 2);
+  const sunY = Math.round(horizon - 10 - rise * 26);
+  if (rise > 0) {
+    pxDiamond(g, sunX, sunY, Math.round(10 + rise * 14), C.brassLight, 0.5 * rise, true);
+    pxDiamond(g, sunX, sunY, Math.round(5 + rise * 7), C.parchment, 0.6 * rise, true);
+  }
+  pxRect(g, 0, horizon, w, h - horizon, C.ink, 0.9);
+  pxRect(g, 0, horizon, w, 2, C.brass, 0.35 * rise);
+  // 无人记得的碑，碑顶被晨光照亮
+  for (const [x, gh] of [[80, 22], [160, 16], [330, 26], [420, 18]]) {
+    pxRect(g, x, horizon - gh, 14, gh, C.stoneDark, 0.95);
+    pxRect(g, x, horizon - gh, 14, 2, C.brassLight, 0.5 * rise);
+  }
+}
+
+// 结局镜头 4：名单背景。夜空星点 + 一圈暗符环缓转；名单文字由 StoryScene 用 Text 滚动。
+function drawCreditsBackdrop(g, { w, h, t, p, accent, stars }) {
+  pxRect(g, 0, 0, w, h, C.void, 1);
+  for (const s of stars) {
+    const tw = 0.2 + 0.3 * (0.5 + 0.5 * Math.sin(t * 0.002 + s.phase));
+    pxRect(g, s.x, s.y, s.size, s.size, C.parchment, tw);
+  }
+  drawSeal(g, {
+    cx: Math.round(w / 2), cy: Math.round(h * 0.45), r: 100, t, accent,
+    alpha: 0.14, spokes: 8, runes: false, core: false,
+  });
+  const baseY = Math.round(h * 0.86);
+  pxRect(g, 0, baseY, w, h - baseY, C.ink, 0.9);
+  pxRect(g, 0, baseY, w, 1, C.groove, 0.4);
+}
+
+export const ENDING_STAGES = {
+  release: drawRelease,
+  quiet: drawQuiet,
+  dawn: drawDawn,
+  credits: drawCreditsBackdrop,
 };
