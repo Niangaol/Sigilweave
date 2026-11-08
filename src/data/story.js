@@ -26,16 +26,47 @@ export const JOURNEYS = Object.freeze({
   }),
 });
 
+// 结局分镜：三契尽解 → 法阵安静 → 黎明 → 名单。名单不署个人名，品牌行+职责行+感谢行。
+export const ENDING_SHOTS = Object.freeze([
+  { id: 'release', ms: 7000, stage: 'release', subtitle: '三枚契约主，归于沉默。', cue: 'bell' },
+  { id: 'quiet',   ms: 7000, stage: 'quiet',   subtitle: '共振法阵第一次，安静下来。', cue: 'hush' },
+  { id: 'dawn',    ms: 8000, stage: 'dawn',    subtitle: '星陨平息。黎明落在无人记得的碑上。', cue: 'arp' },
+  {
+    id: 'credits', ms: 10000, stage: 'credits', subtitle: '', cue: 'finale',
+    credits: Object.freeze(['共 振 法 阵', '设计 · 程序 · 像素美术 · 程序化音乐', '感谢每一位刻阵者']),
+  },
+].map(Object.freeze));
+
+// 播放器模式配置：音乐模式 / 验收发布键 / 播完后的无缝交接（复用 boot 符环收拢过场）。
+export const STORY_MODES = Object.freeze({
+  opening: Object.freeze({
+    music: 'opening', publishKey: '__SIGILWEAVE_STORY__',
+    handoff: Object.freeze({ kind: 'boot', to: 'TitleScene' }),
+  }),
+  ending: Object.freeze({
+    music: 'ending', publishKey: '__SIGILWEAVE_ENDING__',
+    handoff: Object.freeze({ kind: 'boot', to: 'GameOverScene' }),
+  }),
+});
+
 const clamp01 = v => Math.max(0, Math.min(1, Number(v) || 0));
 
-export function buildOpeningTimeline() {
+function buildTimeline(shots) {
   let at = 0;
-  const shots = OPENING_SHOTS.map((s, index) => {
+  const timed = shots.map((s, index) => {
     const startMs = at;
     at += s.ms;
     return Object.freeze({ ...s, index, startMs, endMs: at });
   });
-  return Object.freeze({ shots: Object.freeze(shots), totalMs: at });
+  return Object.freeze({ shots: Object.freeze(timed), totalMs: at });
+}
+
+export function buildOpeningTimeline() {
+  return buildTimeline(OPENING_SHOTS);
+}
+
+export function buildEndingTimeline() {
+  return buildTimeline(ENDING_SHOTS);
 }
 
 export function shotAt(elapsed, timeline) {
