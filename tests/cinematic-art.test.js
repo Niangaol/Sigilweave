@@ -50,10 +50,10 @@ describe('drawShatter 符环碎裂', () => {
 });
 
 describe('编舞工具库', () => {
-  it('drawFlood 幕色闪洪：一帧一条全屏硬边矩形，alpha≤0 不画', () => {
+  it('drawFlood 幕色闪洪：一帧一条全屏硬边矩形（pxRect=2 指令），alpha≤0 不画', () => {
     const g = makeCounting();
     art.drawFlood(g, { w: 480, h: 270, color: 0xc9a227, alpha: 0.22 });
-    expect(g.count).toBe(1);
+    expect(g.count).toBe(2);
     const zero = makeCounting();
     art.drawFlood(zero, { w: 480, h: 270, color: 0xc9a227, alpha: 0 });
     expect(zero.count).toBe(0);
@@ -76,32 +76,32 @@ describe('编舞工具库', () => {
     }
   });
 
-  it('drawIris 阶梯收边：p=0 不画，进行中 ≤12 条，p=1 满覆盖', () => {
+  it('drawIris 阶梯收边：p=0 不画，进行中 ≤24 条，p=1 满覆盖', () => {
     const open = makeCounting();
     art.drawIris(open, { w: 480, h: 270, p: 0, color: 0xa83b39 });
     expect(open.count).toBe(0);
     const mid = makeCounting();
     art.drawIris(mid, { w: 480, h: 270, p: 0.5, color: 0xa83b39 });
     expect(mid.count).toBeGreaterThan(0);
-    expect(mid.count).toBeLessThanOrEqual(12);
+    expect(mid.count).toBeLessThanOrEqual(24);
     const closed = makeCounting();
     art.drawIris(closed, { w: 480, h: 270, p: 1, color: 0xa83b39 });
     expect(closed.count).toBeGreaterThan(0);
-    expect(closed.count).toBeLessThanOrEqual(12);
+    expect(closed.count).toBeLessThanOrEqual(24);
   });
 
-  it('drawGlitchSlices 错位切片：≤6 条，同时间量子同种子确定', () => {
+  it('drawGlitchSlices 错位切片：≤12 条，同时间量子同种子确定', () => {
     const g1 = makeCounting();
     const g2 = makeCounting();
     art.drawGlitchSlices(g1, { w: 480, h: 270, t: 1000, seed: 7, color: 0xa83b39 });
     art.drawGlitchSlices(g2, { w: 480, h: 270, t: 1050, seed: 7, color: 0xa83b39 });
     expect(g1.count).toBeGreaterThan(0);
-    expect(g1.count).toBeLessThanOrEqual(6);
+    expect(g1.count).toBeLessThanOrEqual(12);
     expect(g1.count).toBe(g2.count);
   });
 
-  it('drawNumeral 巨号幕数字：I/II/III 分别 3/6/9 条，alpha≤0 不画', () => {
-    for (const [act, n] of [[1, 3], [2, 6], [3, 9]]) {
+  it('drawNumeral 巨号幕数字：I/II/III 分别 6/12/18 条，alpha≤0 不画', () => {
+    for (const [act, n] of [[1, 6], [2, 12], [3, 18]]) {
       const g = makeCounting();
       art.drawNumeral(g, { cx: 240, cy: 135, act, accent: 0xc9a227, alpha: 0.14 });
       expect(g.count).toBe(n);
