@@ -35,7 +35,7 @@ try {
     const r = s.editRects.find(eval(p));
     return r ? { x: r.x, y: r.y, w: r.w, h: r.h, done: !!r.done } : null;
   }, pred);
-  const cell = (id) => ({ x: 20 + (id % 4) * 92, y: 34 + Math.floor(id / 4) * 46 });
+  const cell = (id) => ({ x: 14 + (id % 4) * 54, y: 56 + Math.floor(id / 4) * 29 });
   const handY = new Map();
 
   // 准备：5/6 号解封，6 号装符印，手牌备齐
@@ -59,9 +59,9 @@ try {
     }, key);
     const rows = await page.evaluate(() => {
       const s = window.__SIGILWEAVE_BATTLE__;
-      return s.editRects.filter(r => r.x === 396 && r.w === 76 && r.h === 20).map(r => r.y);
+      return s.editRects.filter(r => r.x === 244 && r.w === 216 && r.h === 15).map(r => r.y);
     });
-    await clickLogical(416, rows[0] + 10);
+    await clickLogical(352, rows[0] + 7);
   };
 
   // 1) 选沙漏 → 放 5 号

@@ -30,19 +30,19 @@ try {
   await page.screenshot({ path: 'docs/p6-暂停编辑.png' });
 
   // 点手牌选中（星陨卡在手牌列表第一行 398,52+10）
-  await click(434, 62);
+  await click(352, 64);
   // 点击是异步投递的：等状态真的变了再断言，避免机器繁忙时读到旧值
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editSelected === 'sigil:starfall', null, { timeout: 5000 });
   const sel = await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.editSelected);
   assert.equal(sel, 'sigil:starfall', '手牌卡应被选中');
   // 点 7 号空格（画布 40+3*92=316..400, 34+46=80..118 → 中心 358,99）
-  await click(358, 99);
+  await click(201, 98);
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editDraft?.slots?.[7]?.defId === 'starfall', null, { timeout: 5000 });
   const placed = await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.editDraft.slots?.[7]);
   assert.equal(placed.defId, 'starfall', '星陨应放入7号');
   await page.screenshot({ path: 'docs/p6-暂停编辑放置.png' });
   // 完成
-  await click(434, 243);
+  await click(355, 243);
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editOpen === false, null, { timeout: 5000 });
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.grid.cells[7].slot?.defId === 'starfall', null, { timeout: 5000 });
   const applied = await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.grid.cells[7].slot);
@@ -55,9 +55,9 @@ try {
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.menuOpen === true, null, { timeout: 5000 });
   await page.keyboard.press('KeyE');
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editOpen === true);
-  await click(154, 99); // 5号格收回
+  await click(93, 98); // 5号格收回
   await page.waitForTimeout(200);
-  await click(434, 243);
+  await click(355, 243);
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editOpen === false, null, { timeout: 5000 });
   const after2 = await page.evaluate(() => ({
     now: window.__SIGILWEAVE_BATTLE__.engine.now,

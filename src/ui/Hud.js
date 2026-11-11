@@ -1,6 +1,14 @@
 // 顶栏：生命 / 符文碎片 / 最近 5 秒实测触发频率 / 幕数与时间
 // 黄铜刻度尺式血条，整体保持「羊皮纸面板 + 黄铜边」的 UI 语言。
 import { C, HEX, addText, pxRect, pxFrame, pxHeart, pxShard, fmtTime } from './Palette.js';
+import { ACT_CARDS } from '../data/cinematics.js';
+
+// 七幕中文数字 + 北斗星名：HUD 顶栏显示「第X幕 · 星名」。
+const ACT_CN = ['一', '二', '三', '四', '五', '六', '七'];
+function actLabel(act) {
+  const n = Number.isInteger(act) && act >= 1 && act <= 7 ? act : 1;
+  return '第' + ACT_CN[n - 1] + '幕 · ' + (ACT_CARDS[n]?.star ?? '');
+}
 
 export default class Hud {
   constructor(scene) {
@@ -11,7 +19,7 @@ export default class Hud {
     this.hpText = addText(scene, 92, 4, '100', 9, HEX.parchment).setDepth(1002);
     this.shardText = addText(scene, 146, 4, '碎片 0', 9, HEX.parchment).setDepth(1002);
     this.freqText = addText(scene, 208, 4, '脉频 0.0/s', 9, HEX.arcaneLight).setDepth(1002);
-    this.actText = addText(scene, 300, 4, '第一幕 · 演武', 9, HEX.brassLight).setDepth(1002);
+    this.actText = addText(scene, 300, 4, '第一幕 · 天枢', 9, HEX.brassLight).setDepth(1002);
     this.timeText = addText(scene, 468, 4, '00:00', 9, HEX.parchment).setDepth(1002).setOrigin(1, 0);
     // 成长信息单列第二行，延续黄铜刻度与青色经验。
     this.lvText = addText(scene, 8, 20, 'LV 1', 9, HEX.brassLight).setDepth(1002);
@@ -107,7 +115,7 @@ export default class Hud {
       this.cache.time = timeStr;
       this.timeText.setText(timeStr);
     }
-    const actStr = '第' + (act === 1 ? '一' : act === 2 ? '二' : '三') + '幕 · 演武';
+    const actStr = actLabel(act);
     if (this.cache.act !== actStr) {
       this.cache.act = actStr;
       this.actText.setText(actStr);

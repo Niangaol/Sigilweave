@@ -5,10 +5,10 @@ import Phaser from 'phaser';
 import { SigilEngine } from '../logic/engine.js';
 import { createGrid, rebuildDerived, toId, toRC, manhattan, neighborsOf } from '../logic/grid.js';
 import { buildComboCatalog } from '../logic/combo.js';
-import { resolveTarget, resolveVolley, volleyLimit } from '../logic/sector.js';
+import { resolveTarget, resolveVolley, volleyLimit, visibleFilter } from '../logic/sector.js';
 import { ACTS, WORLD_SIZES, ORTHO_DIRS } from '../logic/constants.js';
 import { applyDraft, snapshotBuild, draftFromGrid, validateDraft, AUX_TARGETED, missingAuxTargets, explainBuildErrors, auxTargetCandidates } from '../logic/build.js';
-import { SIGIL_DEFS, AUX_DEFS, resolveSigilTrigger, resolveComboBonus, resolveDeathBursts } from '../logic/effects.js';
+import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, resolveSigilTrigger, resolveComboBonus, resolveDeathBursts } from '../logic/effects.js';
 import { createRun, recordAct } from '../logic/run.js';
 import { createProgression, grantExp, levelStats, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuff } from '../logic/progression.js';
 import { getEventPoints, findTriggeredPoint } from '../data/map-events.js';
@@ -21,11 +21,12 @@ import { pickSpawnPoint, pickWavePoints, separateEnemiesBucketed } from '../logi
 import { getEncounterForAct } from '../data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../logic/encounters.js';
 import { resolveBossOnce } from '../logic/boss.js';
+import { loadMeta, metaLevel, applyPassiveToCharacter, applyPassiveToCompass, metaPassiveLabel } from '../logic/meta.js';
 import Boss from '../entities/Boss.js';
 import EncounterPanel from '../ui/EncounterPanel.js';
 import {
   ACT1_CELLS, ACT1_SIGIL_BY_CELL, SIGILS, ENEMY_TYPES, SECTOR,
-  COMBO_NAMES, difficultyAt, PLAYER, cardVisual, pickEnemyType, RUNE_GLYPHS,
+  COMBO_NAMES, difficultyAt, PLAYER, cardVisual, pickEnemyType,
 } from '../data/roster.js';
 import Background from '../ui/Background.js';
 import SigilBoard, { cellCenter } from '../ui/SigilBoard.js';
@@ -36,8 +37,11 @@ import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
 import Projectile from '../entities/Projectile.js';
 import Shard from '../entities/Shard.js';
-import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxDiamond, drawGlyph, applyPixelZoom, getRenderScale, uiLayerOffset, isPortrait, isTouchUI, CONSOLE_TOP, CANVAS_H_PORTRAIT } from '../ui/Palette.js';
-import { decoratePlan } from '../ui/board-decor.js';
+import ExpMote from '../entities/ExpMote.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, applyPixelZoom, getRenderScale, uiLayerOffset, isPortrait, isTouchUI, CONSOLE_TOP, CANVAS_H_PORTRAIT } from '../ui/Palette.js';
+import { kitPanel, kitBoard, kitBoardMotion, kitHeader, kitSteps, kitCell, kitHandRow, kitDetail, kitAction, clipText } from '../ui/editor-ui.js';
+import { CARD_HINTS } from '../data/card-hints.js';
+import { punchFor, shouldPunch, strikePunchFor } from '../ui/spell-punch.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -67,7 +71,8 @@ export default class BattleScene extends Phaser.Scene {
     this.run.hand ??= {};
     this.run.completedEvents ??= {};
     this.run.majorBossActs ??= {};
-    this.durationMs = this.quickMode ? 15000 : [180000, 240000, 180000][this.act - 1];
+    // 每幕的参考时长（仅用于调试/结算口径；通幕由大 Boss 决定，不按计时）。
+    this.durationMs = this.quickMode ? 15000 : ([180000, 240000, 180000, 180000, 180000, 180000, 180000][this.act - 1] ?? 180000);
     this.combatRng = new Rng(this.run.seed + ':combat:' + this.act);
     this.debugParams = params;
     this.phase = 'play';
@@ -76,6 +81,8 @@ export default class BattleScene extends Phaser.Scene {
     this.timeExpTimer = 0;
     this.run.encounters ??= createEncounterState(this.run.seed);
     this.run.bossResolutions ??= {};
+    // 局外成长档：只读，宝箱/罗盘抽到被动时按此档的等级加成。
+    this.metaSave = loadMeta();
     this.playerSlowUntil = 0;
     this.boss = null;
     this.bossStarted = false;
@@ -102,11 +109,14 @@ export default class BattleScene extends Phaser.Scene {
     this.killStreak = 0;
     this.streakBest = 0;
     this.lastKillAt = -99999;
-    this.expKillAccum = 0;      // 密度上去后每 3 杀折 1 点经验，升级三选一不会一直打断割草
+    this.expKillAccum = 0;      // 击杀经验累计；KILL_EXP_PER_POINT=1 时每杀 1 点，折成经验粒子飞出
     this.sampleTimer = 2000;
     this.enemySeq = 1;
     this.hintUntil = 13000;
     this.chests = [];
+    // 命中重量感：重击顿帧剩余毫秒 + 上一次震屏时刻（按法术 gapMs 去重）
+    this.hitstopLeft = 0;
+    this.lastPunchAt = -99999;
 
     // 在背景构造前刷新世界尺寸，避免同一个Scene跨幕复用上一幕的world。
     const world = WORLD_SIZES[this.act] ?? WORLD_SIZES[1];
@@ -166,6 +176,14 @@ export default class BattleScene extends Phaser.Scene {
       name: 'shard', capacity: 200,
       create: (x, y) => new Shard(this, x, y),
       revive: (s, x, y) => s.revive(x, y),
+    });
+    // 经验粒子：击杀爆散时飞出，追到玩家身上才加经验。池子比碎片大一点，
+    // 精英一次 6 颗；池满时不丢经验，直接入账兜底。
+    this.expMotes = [];
+    this.expMotePool = new Pool({
+      name: 'expMote', capacity: 320,
+      create: (x, y, value, mul) => new ExpMote(this, x, y, value, mul),
+      revive: (m, x, y, value, mul) => m.revive(x, y, value, mul),
     });
 
     // 从上一幕确认的构筑快照恢复；战斗里不暴露任何编辑入口。
@@ -396,28 +414,31 @@ export default class BattleScene extends Phaser.Scene {
         // 所有法术特效统一从法杖尖端起手（世界坐标）；罗盘格子只负责闪灯提示
         const origin = this.player.staffTip();
         const owner = { x: this.player.x, y: this.player.y };
-        // 方位索敌：本格对应扇区；空区也朝区域中心空射（光迹与起手方向都用这一发）
-        const result = resolveTarget(cellId, owner, this.enemies);
+        // 索敌只在摄像机视口内进行：屏外的怪不锁、不打，等它走进屏幕后下一次触发再出手。
+        const view = this.viewRect();
+        const result = resolveTarget(cellId, owner, this.enemies, { view });
         // 罗盘格闪光用该法术主色：一眼能认出「刚才那一格打的是什么」
         this.board.flashTrigger(cellId, def.color);
-        // 从法杖指向目标方位的光迹（空区也画，只是终点是区域中心）
-        this.effects.directionTrace(origin, result.aim, this.sectorRect(cellId), def.color, result.empty);
         // 每个法术自己的起手爆发（spell-fx 按 defId 分派）
         const castAngle = Math.atan2(result.aim.y - origin.y, result.aim.x - origin.x);
         this.effects.spellCast(def.id, origin.x, origin.y, castAngle);
         if (kind === 'ward') {
+          // 护盾是自身增益，不依赖敌方目标：始终能放，光迹收在玩家身上
+          this.effects.directionTrace(origin, owner, this.sectorRect(cellId), def.color, false);
           this.applySigil(cellId, def.id);
           this.effects.spellWard(def.id, SIGIL_DEFS[def.id].radius ?? 40);
         } else {
           // 割草齐射：单次触发对扇区内最近的 N 个敌人各打一发（各类型 N 见 sector.VOLLEY_LIMITS）。
-          // 区域内没有敌人时回退成一发空射，光迹与起手方向不变。
-          const volley = resolveVolley(cellId, owner, this.enemies, { maxTargets: volleyLimit(kind) });
-          const shots = volley.targets.length
-            ? volley.targets.map((target, i) => ({ target, aim: volley.aims[i] }))
-            : [{ target: null, aim: result.aim }];
+          // 屏幕内一个可选目标都没有时「停火等待」：不放弹丸、不朝屏外画光迹，等怪进屏再打。
+          const volley = resolveVolley(cellId, owner, this.enemies, { maxTargets: volleyLimit(kind), view });
+          if (!volley.targets.length) {
+            this.effects.hold(origin.x, origin.y, def.color);
+            break;
+          }
+          this.effects.directionTrace(origin, volley.aims[0], this.sectorRect(cellId), def.color, false);
           let fired = 0;
-          for (const shot of shots) {
-            const projectile = this.fireProjectile(origin.x, origin.y, shot.aim.x, shot.aim.y, def, shot.target);
+          for (let i = 0; i < volley.targets.length; i++) {
+            const projectile = this.fireProjectile(origin.x, origin.y, volley.aims[i].x, volley.aims[i].y, def, volley.targets[i]);
             if (projectile) {
               projectile.cellId = cellId;
               fired++;
@@ -464,7 +485,10 @@ export default class BattleScene extends Phaser.Scene {
         for (const id of data.order) this.board.flashCombo(id);
         this.effects.combo(centers, COMBO_NAMES[data.defId] || data.defId);
         sfx.combo();
-        resolveComboBonus({ grid: this.grid, order: data.order, defId: data.defId, bonus: data.bonus, state: this.combatState(), enemies: this.enemies });
+        const bonusResult = resolveComboBonus({ grid: this.grid, order: data.order, defId: data.defId, bonus: data.bonus, state: this.combatState(), enemies: this.enemies });
+        const lastCell = data.order?.[data.order.length - 1];
+        const bonusVisual = Number.isInteger(lastCell) && this.grid.cells[lastCell]?.slot ? this.sigilOf(lastCell) : null;
+        for (const enemy of bonusResult.targets ?? []) this.onEnemyHit(enemy, null, null, bonusVisual, true);
         this.triggerDeathBursts();
         this.collectDefeated();
         break;
@@ -556,10 +580,14 @@ export default class BattleScene extends Phaser.Scene {
   // ---------- 每帧 ----------
   update(time, delta) {
     const dt = Math.min(50, delta);
+    // 重击顿帧：只冻结战斗推进（本帧不跑引擎/敌人/弹丸），特效按 dt=0 重绘定格，HUD 照常可读
+    const frozen = this.hitstopLeft > 0;
+    if (frozen) this.hitstopLeft = Math.max(0, this.hitstopLeft - dt);
     this.background.update(time);
     this.syncPauseState();
+    if (this.editOpen) this.tickEditBoardMotion(time, delta);
 
-    if (this.phase === 'play' && !this.paused) {
+    if (this.phase === 'play' && !this.paused && !frozen) {
       this.engine.advance(dt);
       this.updatePlayer(dt);
       this.updateSpawner(dt);
@@ -567,6 +595,7 @@ export default class BattleScene extends Phaser.Scene {
       this.updateHostileShots(dt);
       this.updateProjectiles(dt);
       this.updateShards(dt);
+      this.updateExpMotes(dt);
       this.effects.update(dt);
       this.updateStartSample(dt);
       this.updateHint();
@@ -584,6 +613,8 @@ export default class BattleScene extends Phaser.Scene {
         }
       }
     } else if (this.phase === 'bossDefeated') {
+      // 通幕余韵期间经验粒子继续飞完，别让刚捡到手的经验在过场里断掉
+      this.updateExpMotes(dt);
       this.effects.update(dt);
       this.transitionLeft -= dt;
       if (this.transitionLeft <= 0) this.completeAct();
@@ -773,14 +804,60 @@ export default class BattleScene extends Phaser.Scene {
     return shard;
   }
 
+  // ---------- 经验粒子：击杀爆散 → 炸散 → 追玩家 → 碰到才入账 ----------
+  spawnExpMote(x, y, value = 1, mul = 1) {
+    const mote = this.expMotePool.acquire(x, y, value, mul);
+    if (!mote) {
+      // 池满兜底：经验绝不凭空消失，直接入账
+      const gained = grantExp(this.run.progression, value, mul);
+      if (!this.stressRunning && gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
+      return null;
+    }
+    this.expMotes.push(mote);
+    return mote;
+  }
+
+  collectExpMote(mote) {
+    const gained = grantExp(this.run.progression, mote.value, mote.mul);
+    if (!this.stressRunning && gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
+    this.effects.expPop(mote.x, mote.y);
+    sfx.exp();
+  }
+
+  updateExpMotes(dt) {
+    for (let i = this.expMotes.length - 1; i >= 0; i--) {
+      const mote = this.expMotes[i];
+      if (!mote.update(dt, this.player)) continue;
+      this.collectExpMote(mote);
+      mote.deactivate();
+      this.expMotePool.release(mote);
+      this.expMotes.splice(i, 1);
+    }
+  }
+
+  // 通幕/收尾时把还在飞的粒子一次结算掉，避免经验在过场里蒸发
+  flushExpMotes() {
+    if (!this.expMotes.length) return;
+    for (const mote of this.expMotes) {
+      const gained = grantExp(this.run.progression, mote.value, mote.mul);
+      if (!this.stressRunning && gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
+      mote.deactivate();
+      this.expMotePool.release(mote);
+    }
+    this.expMotes.length = 0;
+  }
+
   releaseProjectiles() {
     for (const p of this.projectiles) { p.deactivate(); this.projectilePool.release(p); }
     this.projectiles = [];
   }
 
   updateProjectiles(dt) {
+    const onScreen = visibleFilter(this.viewRect());
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
+      // 目标走出屏幕就停止追踪：落点停在它最后所在的屏幕内位置，不在屏外结算命中
+      if (p.targetEnemy && !onScreen(p.targetEnemy)) p.targetEnemy = null;
       const arrived = p.update(dt);
       if (arrived) {
         this.resolveProjectile(p);
@@ -791,20 +868,34 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
+  // 当前镜头能看到的世界矩形。这是「屏幕内」的唯一判定来源：
+  // worldView 已含 zoom、竖屏镜头偏移与跟随死区，比按玩家坐标硬算 480×270 更准。
+  viewRect() {
+    const v = this.cameras?.main?.worldView;
+    if (v && Number.isFinite(v.x) && Number.isFinite(v.y) && v.width > 0 && v.height > 0) {
+      return { x: v.x, y: v.y, w: v.width, h: v.height };
+    }
+    return { x: this.player.x - 240, y: this.player.y - 135, w: 480, h: 270 };
+  }
+
   combatState() {
     return {
       player: this.player, oath: this.grid.oath, now: this.engine.now,
       buffMul: this.run.compassBuffs.damageMul, hitBonus: this.run.compassBuffs.hitBonus,
+      view: this.viewRect(),
     };
   }
 
-  applySigil(cellId, defId, aimPoint) {
+  applySigil(cellId, defId, aimPoint, impactAngle = null) {
     // 防御：没有格号的弹丸（调试/压测里手工造出来的）不能把整局打崩
     const cell = this.grid.cells[cellId];
     if (!cell) {
       return { hits: 0, damage: 0, aim: null, empty: true, targets: [], sacrificeSpent: 0, sacrificeApplied: false };
     }
-    const result = resolveSigilTrigger({ grid: this.grid, cellId, defId, state: this.combatState(), enemies: this.enemies, aimPoint });
+    // 清掉上一轮的伤害读数：applyDamage 会把这一下真实扣血写回 enemy.lastHitAmount
+    for (const e of this.enemies) e.lastHitAmount = 0;
+    const view = this.viewRect();
+    const result = resolveSigilTrigger({ grid: this.grid, cellId, defId, state: this.combatState(), enemies: this.enemies, aimPoint, view });
     if (result.sacrificeApplied) {
       const c = cellCenter(cellId);
       this.effects.text(c.x, c.y - 10, '献祭 -8盾 双倍', HEX.blood, true);
@@ -813,13 +904,43 @@ export default class BattleScene extends Phaser.Scene {
     // 否则一次扫 20 只会叠出 20 份描边，帧时间会崩。
     const visual = this.sigilOf(cellId);
     const perTarget = result.targets.length <= 3;
-    for (const enemy of result.targets) {
-      enemy.hitAt = this.engine.now;
-      if (perTarget) this.effects.impact(enemy.x, enemy.y, visual.color, false);
-    }
+    for (const enemy of result.targets) this.onEnemyHit(enemy, aimPoint, impactAngle, visual, perTarget);
     this.triggerDeathBursts();
     this.collectDefeated();
     return result;
+  }
+
+  // 小怪受击：先算「这一下从哪来」，交给实体做后坐/挤压/闪白，再补火花与飘字。
+  // 公式与方向只在这里算一次，实体只负责表现，不改逻辑坐标（碰撞/索敌不受影响）。
+  onEnemyHit(enemy, aimPoint, impactAngle, visual, detailed = true) {
+    const now = this.engine.now;
+    const ax = Number.isFinite(aimPoint?.x) ? aimPoint.x : this.player.x;
+    const ay = Number.isFinite(aimPoint?.y) ? aimPoint.y : this.player.y;
+    let dx = enemy.x - ax;
+    let dy = enemy.y - ay;
+    if (Math.hypot(dx, dy) < 0.5) {
+      const ang = Number.isFinite(impactAngle)
+        ? impactAngle
+        : Math.atan2(enemy.y - this.player.y, enemy.x - this.player.x);
+      dx = Math.cos(ang);
+      dy = Math.sin(ang);
+    }
+    const amount = Number.isFinite(enemy.lastHitAmount) ? enemy.lastHitAmount : 0;
+    enemy.hitAt = now;
+    enemy.hitReact?.(dx, dy, amount, now);
+    if (!detailed) return;
+    const color = visual?.color ?? C.arcane;
+    this.effects.hitSpark(enemy.x, enemy.y, dx, dy, color, enemy.hitPower ?? 0.6);
+    if (amount > 0) {
+      const heavy = enemy.maxHp > 0 && amount / enemy.maxHp >= 0.28;
+      // 飘字落在头顶而不是脸前：视觉外框的 top 是负值（向上），素材怪比逻辑半径高得多
+      const ext = enemy.viewExtent;
+      const topOffset = ext && Number.isFinite(ext.top)
+        ? Math.abs(ext.top) + 2
+        : (Number.isFinite(enemy.radius) ? enemy.radius : 6) + 14;
+      this.effects.damageNumber(enemy.x, enemy.y - topOffset, amount, heavy ? HEX.brassLight : HEX.white, heavy);
+    }
+    this.effects.impact(enemy.x, enemy.y, color, false);
   }
 
   // 割草连锁：被法术打死的怪炸开，按最大生命比例炸伤周围的怪；炸死的继续引爆（纯逻辑在 effects.js）。
@@ -827,7 +948,7 @@ export default class BattleScene extends Phaser.Scene {
   triggerDeathBursts() {
     const seeds = this.enemies.filter((e) => !e.alive && e.hp === 0 && !e.rewarded);
     if (!seeds.length) return 0;
-    const burst = resolveDeathBursts({ enemies: this.enemies, seeds });
+    const burst = resolveDeathBursts({ enemies: this.enemies, seeds, view: this.viewRect() });
     // 连锁炸死 4 只以上给一层骨屑冲击（只画在第一个爆点，避免满屏叠加）
     if (burst.killed >= 4) this.effects.burst(seeds[0].x, seeds[0].y, C.bone, 6);
     return burst.killed;
@@ -854,17 +975,47 @@ export default class BattleScene extends Phaser.Scene {
 
   resolveProjectile(p) {
     if (!Number.isInteger(p.cellId)) return;   // 没有格号的弹丸不结算，见 applySigil 的防御
-    const result = this.applySigil(p.cellId, p.def.id, { x: p.tx, y: p.ty });
+    const impactAngle = Math.atan2(p.ty - p.sy, p.tx - p.sx);
+    // 命中方向 = 弹道方向，供受击后坐使用（比用落点差值更稳，落点常常就在目标身上）
+    const result = this.applySigil(p.cellId, p.def.id, { x: p.tx, y: p.ty }, impactAngle);
     const def = SIGIL_DEFS[p.def.id];
     const radius = Number.isFinite(def?.radius) ? def.radius
       : p.def.id === 'meteor_judgment' ? 95
         : p.def.id === 'quake_maw' ? 80
           : p.def.id === 'starfall' ? 70
             : 14;
-    const impactAngle = Math.atan2(p.ty - p.sy, p.tx - p.sx);
     this.effects.spellImpact(p.def.id, p.tx, p.ty, radius, impactAngle);
+    this.spellPunch(p.def.id, p.tx, p.ty, radius, impactAngle);
     this.spellLinkFx(p.def.id, p, result);
     if (!result.hits) this.effects.impact(p.x, p.y, p.def.color, true);
+  }
+
+  // 命中重量：按法术分级震屏，重击额外给短顿帧。同法术 gapMs 内只吃一次，
+  // 否则一刀扫 3 只会把震屏叠成连续抖动，反而糊。
+  spellPunch(defId, x = 0, y = 0, radius = 90, angle = 0) {
+    // 演出级（陨星裁决 / 地裂之颚）：走多段演出 + 高一级的震屏/顿帧，不再叠加普通 punch
+    const strike = strikePunchFor(defId);
+    if (strike) {
+      this.spellStrikeSequence(defId, x, y, radius, angle);
+      return;
+    }
+    if (!shouldPunch(defId, this.engine.now, this.lastPunchAt)) return;
+    const spec = punchFor(defId);
+    this.lastPunchAt = this.engine.now;
+    this.cameras.main.shake(spec.ms, spec.amp);
+    if (spec.stopMs > 0) this.hitstopLeft = Math.max(this.hitstopLeft, spec.stopMs);
+  }
+
+  // 高级法术演出：多段特效层 + 暗角收缩 + （陨星）一帧白闪 + 强震屏 + 顿帧
+  spellStrikeSequence(defId, x, y, radius, angle) {
+    const spec = strikePunchFor(defId);
+    if (!spec) return;
+    this.effects.spellStrike(defId, x, y, radius, angle);
+    this.effects.vignette(defId === 'meteor_judgment' ? 1 : 0.8, 520);
+    if (defId === 'meteor_judgment') this.cameras.main.flash(80, 255, 246, 224);
+    this.lastPunchAt = this.engine.now;
+    this.cameras.main.shake(spec.ms, spec.amp);
+    if (spec.stopMs > 0) this.hitstopLeft = Math.max(this.hitstopLeft, spec.stopMs);
   }
 
   // 法术的「连接关系」表现：连锁逐跳电弧、贯穿光柱、回声对侧、噬魂/汲取的丝线
@@ -889,7 +1040,8 @@ export default class BattleScene extends Phaser.Scene {
     this.editOpen = true;
     this.editSelected = null;
     this.editAuxPending = null;
-    this.editNote = '点手牌再点符位放置；点已放置的卡收回。';
+    this.editFocus = null;
+    this.editNote = '1 点右侧手牌 → 2 点左侧空符位 → 3 点完成；点已放置的卡可收回。';
     this.pauseMenu.hide();
     this.editHandPage = 0;
     this.editDraft = draftFromGrid(this.grid, { act: this.act });
@@ -908,6 +1060,11 @@ export default class BattleScene extends Phaser.Scene {
     // 屏幕固定元素必须挂 uiRoot（场景根上的 scrollFactor-0 会被镜头位移甩出屏幕）
     this.editHoverG = this.add.graphics().setDepth(5001).setScrollFactor(0);
     this.uiRoot?.add(this.editHoverG);
+    // 法阵盘动态层：在静态 UI 之上、悬停层之下，约 30fps 重绘
+    this.editAnimG = this.add.graphics().setDepth(5000).setScrollFactor(0);
+    this.uiRoot?.add(this.editAnimG);
+    this.editAnimAcc = 0;
+    this.editAnimFrames = 0;
     this.editHoverMove = (pointer) => {
       if (!this.editOpen) return;
       const scale = getRenderScale();
@@ -927,24 +1084,28 @@ export default class BattleScene extends Phaser.Scene {
     this.drawGridEdit();
   }
 
-  editNames() { return { ...SIGIL_DEFS, ...AUX_DEFS }; }
+  editNames() { return { ...SIGIL_DEFS, ...AUX_DEFS, ...RUNE_DEFS }; }
 
-  // 编辑界面的分区面板：与幕间工作台同一套视觉语言
-  editPanel(g, x, y, w, h) {
-    pxRect(g, x, y, w, h, C.ink, 0.9);
-    pxFrame(g, x, y, w, h, C.brassDark);
-    pxFrame(g, x + 2, y + 2, w - 4, h - 4, C.brass, 1, 0.2);
-    for (const [sx, sy] of [[x, y], [x + w - 3, y], [x, y + h - 3], [x + w - 3, y + h - 3]]) {
-      pxRect(g, sx, sy, 3, 3, C.brass, 0.9);
-      pxRect(g, sx + 1, sy + 1, 1, 1, C.brassLight, 1);
-    }
+  // 暂停改阵期间约 30fps 重绘动态层；编辑关闭时根本不进这里
+  tickEditBoardMotion(time, delta) {
+    if (!this.editAnimG || !this.editDraft) return;
+    this.editAnimAcc = (this.editAnimAcc ?? 0) + delta;
+    if (this.editAnimAcc < 33) return;
+    this.editAnimAcc = 0;
+    this.editAnimFrames = (this.editAnimFrames ?? 0) + 1;
+    const draft = this.editDraft;
+    kitBoardMotion(this.editAnimG, {
+      panel: { x: 10, y: 42, w: 224, h: 210 },
+      cells: { x0: 14, y0: 56, cw: 51, ch: 26, gapX: 3, gapY: 3 },
+      t: time,
+      focusId: this.editFocus,
+      selecting: !!this.editSelected,
+      unlocked: draft.unlocked ?? [],
+      slots: Object.entries(draft.slots ?? {}).map(([id, slot]) => ({ id: +id, slot })),
+    });
   }
 
-  editGlyphOf(defId) {
-    if (RUNE_GLYPHS[defId]) return RUNE_GLYPHS[defId];
-    const kind = SIGIL_DEFS[defId] ? 'sigil' : 'auxiliary';
-    return cardVisual({ kind, defId })?.glyph ?? null;
-  }
+  editHint(defId) { return CARD_HINTS[defId] ?? ''; }
 
   drawGridEdit() {
     if (this.editUI) { this.editUI.destroy(true); this.editUI = null; }
@@ -952,103 +1113,194 @@ export default class BattleScene extends Phaser.Scene {
     const ui = this.add.container(0, 0).setDepth(3500).setScrollFactor(0);
     this.uiRoot?.add(ui);
     // 容器内按插入序渲染：editUI 每次重建都会压住悬停层，必须重新带到最顶
+    this.uiRoot?.bringToTop(this.editAnimG);
     this.uiRoot?.bringToTop(this.editHoverG);
     this.editUI = ui;
     this.editRects = [];
+    this.editAnimG?.clear();
     const g = this.add.graphics();
     ui.add(g);
-    // 背景：不透明压底（盖住暂停菜单文字）+ 硬边竖纹 + 双层外框（与幕间同一套语言）
-    pxRect(g, 0, 0, 480, 270, C.void);
-    for (let x = 0; x < 480; x += 24) pxRect(g, x, 0, 12, 270, C.ink, 0.22);
-    pxFrame(g, 8, 8, 464, 254, C.brassDark, 2, 1);
-    pxFrame(g, 11, 11, 458, 248, C.brass, 1, 0.18);
-    pxRect(g, 12, 12, 456, 15, C.ink, 0.95);
-    pxDiamond(g, 17, 19, 3, C.brass, 0.95, false);
-    ui.add(addText(this, 24, 13, '编辑法阵', 10, HEX.brassLight));
-    ui.add(addText(this, 96, 15, '暂停中 · 冷却保留', 8, HEX.mute));
+    const text = (x, y, s, size = 8, color = HEX.parchment, extra = {}) => {
+      const t = addText(this, x, y, s, size, color, extra);
+      ui.add(t);
+      return t;
+    };
     const names = this.editNames();
     const draft = this.editDraft;
-    this.editPanel(g, 14, 30, 380, 196);
-    for (const id of draft.unlocked) {
-      const x = 20 + (id % 4) * 92, y = 34 + Math.floor(id / 4) * 46;
+
+    // 背景：与幕间同一套双层外框 + 硬边竖纹
+    pxRect(g, 0, 0, 480, 270, C.void);
+    for (let x = 0; x < 480; x += 24) pxRect(g, x, 0, 12, 270, C.ink, 0.22);
+    pxFrame(g, 6, 6, 468, 258, C.brassDark, 2, 1);
+    pxFrame(g, 9, 9, 462, 252, C.brass, 1, 0.18);
+
+    kitHeader(g, text, {
+      x: 10, y: 10, w: 460,
+      title: '法阵编辑',
+      subtitle: '暂停中 · 冷却保留',
+      rightLabel: '碎片', rightValue: this.shardCount, rightColor: HEX.teal,
+    });
+
+    const unlocked = draft.unlocked ?? [];
+    const emptyCount = unlocked.filter(id => !draft.slots?.[id]).length;
+    kitSteps(g, text, 10, 27, 460, {
+      active: this.editAuxPending !== null ? 2 : this.editSelected ? 1 : 0,
+      right: unlocked.length + ' 格 · ' + emptyCount + ' 空位',
+      rightColor: HEX.brass,
+    });
+
+    // 左：4×4 法阵
+    kitPanel(g, 10, 42, 224, 210);
+    kitBoard(g, {
+      panel: { x: 10, y: 42, w: 224, h: 210 },
+      cells: { x0: 14, y0: 56, cw: 51, ch: 26, gapX: 3, gapY: 3 },
+    });
+    // 小标题两侧的刻线与菱形，让「符位 · 4×4」像一块铭牌
+    pxDiamond(g, 13, 49, 2, C.brass, 0.8, true);
+    pxLine(g, 78, 49, 222, 49, C.brassDark, 0.5, 1);
+    pxDiamond(g, 225, 49, 2, C.brass, 0.7, false);
+    text(18, 45, '符位 · 4×4', 7, HEX.brass);
+    const auxNeighbors = this.editAuxPending !== null
+      ? new Set(neighborsOf(this.editAuxPending, ORTHO_DIRS).map(n => n.id))
+      : null;
+    for (let id = 0; id < 16; id++) {
+      const rect = { x: 14 + (id % 4) * 54, y: 56 + Math.floor(id / 4) * 29, w: 51, h: 26 };
       const slot = draft.slots?.[id];
-      const selected = this.editSelected === id;
-      const pending = this.editAuxPending === id;
-      pxRect(g, x, y, 84, 38, slot ? C.stone : C.night);
-      if (slot) {
-        pxRect(g, x + 1, y + 1, 82, 1, C.groove, 0.3);
-        pxRect(g, x + 1, y + 36, 82, 1, C.nightDeep, 0.45);
-      }
-      // 区位装饰：与战斗罗盘/幕间同一份规则
-      const plan = decoratePlan(id, [{ x, y }, { x: x + 84, y }, { x: x + 84, y: y + 38 }, { x, y: y + 38 }], { inset: 1, arm: 6, centerInset: 1 });
-      if (plan) {
-        const dim = slot ? 1 : 0.6;
-        if (plan.wash) pxPoly(g, plan.wash.quad, C[plan.wash.color], plan.wash.alpha * dim);
-        for (const line of plan.lines) pxLine(g, line.a.x, line.a.y, line.b.x, line.b.y, C[line.color], line.alpha * dim, line.width ?? 1);
-        for (const dot of plan.dots) pxRect(g, Math.round(dot.x), Math.round(dot.y), dot.size ?? 1, dot.size ?? 1, C[dot.color], dot.alpha * dim);
-      }
-      // 待绑定的格子描成暖金：玩家一眼看到「就是这一格在等我点目标」
-      pxFrame(g, x, y, 84, 38, pending ? C.arcane : selected ? C.teal : C.stoneLight, pending || selected ? 2 : 1);
-      if (slot) {
-        const visual = cardVisual(slot);
-        if (visual.glyph) drawGlyph(g, x + 5, y + 5, visual.glyph, visual.color ?? C.arcaneLight, { scale: 2, alpha: 0.95 });
-        ui.add(addText(this, x + 24, y + 6, names[slot.defId]?.name ?? slot.defId, 8, slot?.kind === 'auxiliary' ? HEX.teal : HEX.parchment));
-        const target = draft.auxTargets?.[id];
-        // 副标题只放短词：84px 宽塞不下再用「·」拼句子，会压到隔壁格子
-        const sub = pending ? '待选目标'
-          : target !== undefined ? ('→ ' + (target + 1) + ' 号') : '点击收回';
-        ui.add(addText(this, x + 4, y + 26, (id + 1) + '号 · ' + sub, 7, pending ? HEX.arcaneLight : HEX.mute));
-      } else {
-        pxDiamond(g, x + 10, y + 12, 3, C.stoneDark, 0.9, false);
-        ui.add(addText(this, x + 24, y + 6, '空符位', 8, HEX.mute));
-        ui.add(addText(this, x + 4, y + 26, (id + 1) + '号 · 从手牌放入', 7, HEX.mute));
-      }
-      this.editRects.push({ x, y, w: 84, h: 38, action: () => this.editCellClick(id) });
+      kitCell(g, text, id, rect, {
+        unlocked: unlocked.includes(id),
+        slot,
+        focus: this.editFocus,
+        auxSrc: this.editAuxPending === id ? id : null,
+        auxValid: !!auxNeighbors?.has(id) && slot?.kind === 'sigil',
+        selecting: !!this.editSelected,
+        target: draft.auxTargets?.[id],
+        runes: (draft.runes?.[id] ?? []).filter(Boolean).length,
+        exits: (draft.exits?.[id] ?? ['up', 'down', 'left', 'right']).length,
+        exitList: draft.exits?.[id] ?? ['up', 'down', 'left', 'right'],
+      });
+      this.editRects.push({ ...rect, action: () => this.editCellClick(id) });
     }
-    this.editPanel(g, 392, 30, 82, 174);
-    ui.add(addText(this, 398, 33, '手牌', 8, HEX.brass));
+
+    // 左下：待放置卡 / 当前符位详情 / 操作指引三选一
+    const selDef = this.editSelected ? this.editSelected.split(':')[1] : null;
+    if (selDef) {
+      const visual = cardVisual({ kind: this.editSelected.split(':')[0], defId: selDef });
+      kitDetail(g, text, { x: 10, y: 174, w: 224, h: 74 }, {
+        title: '待放置 · 点左侧空符位', accent: C.brassLight, icon: visual.glyph,
+        lines: [
+          { text: (names[selDef]?.name ?? selDef) + ' ×' + (this.editHand[this.editSelected] ?? 0), color: HEX.arcaneLight, size: 8 },
+          { text: this.editHint(selDef), color: HEX.mute, size: 7, max: 28 },
+          { text: '放置后点「完成」才会生效', color: HEX.teal, size: 7 },
+        ],
+      });
+    } else if (this.editFocus !== null) {
+      const id = this.editFocus;
+      const slot = draft.slots?.[id];
+      const cell = this.grid.cells[id];
+      const visual = slot ? cardVisual(slot) : null;
+      const runeText = (draft.runes?.[id] ?? []).filter(Boolean).map(r => names[r]?.name ?? r).join(' / ') || '无';
+      const exitText = (draft.exits?.[id] ?? ['up', 'down', 'left', 'right'])
+        .map(d => ({ up: '上', down: '下', left: '左', right: '右' })[d]).join('') || '无';
+      const tgt = draft.auxTargets?.[id];
+      kitDetail(g, text, { x: 10, y: 174, w: 224, h: 74 }, {
+        title: '符位详情 · ' + (id + 1) + ' 号',
+        accent: slot?.kind === 'auxiliary' ? C.teal : C.arcane,
+        icon: visual?.glyph ?? null,
+        lines: [
+          { text: slot ? (names[slot.defId]?.name ?? slot.defId) : (unlocked.includes(id) ? '空符位' : '未解封'), color: HEX.parchment, size: 8 },
+          { text: '间隔 ' + (cell.effIntervalMs / 1000).toFixed(2) + 's / 冷却 ' + (cell.effCooldownMs / 1000).toFixed(2) + 's', color: HEX.mute, size: 7 },
+          { text: '铭文 ' + runeText + ' · 出口 ' + exitText + (tgt !== undefined ? ' · 目标 ' + (tgt + 1) + '号' : ''), color: HEX.mute, size: 7, max: 28 },
+        ],
+      });
+    } else {
+      kitDetail(g, text, { x: 10, y: 174, w: 224, h: 74 }, {
+        title: '操作指引',
+        lines: [
+          { text: '① 点右侧手牌选一张', color: HEX.arcaneLight, size: 8 },
+          { text: '② 点左侧空符位放下', color: HEX.arcaneLight, size: 8 },
+          { text: '③ 点已放置的卡可收回', color: HEX.arcaneLight, size: 8 },
+        ],
+      });
+    }
+
+    // 右：手牌
     const hand = Object.entries(this.editHand).filter(([, count]) => count > 0);
     const lastPage = Math.max(0, Math.ceil(hand.length / 5) - 1);
     this.editHandPage = Math.min(this.editHandPage, lastPage);
+    kitPanel(g, 240, 42, 230, 120);
+    text(245, 45, this.editSelected ? '已选 · 点空符位放置' : '手牌 · 点选一张', 7, this.editSelected ? HEX.teal : HEX.brass);
+    text(465, 45, hand.reduce((a, [, c]) => a + c, 0) + ' 张', 7, HEX.mute).setOrigin(1, 0);
     let row = 0;
     for (const [key, count] of hand.slice(this.editHandPage * 5, this.editHandPage * 5 + 5)) {
       const defId = key.split(':')[1];
-      const y = 52 + row * 24;
-      const bg = this.add.graphics();
+      const rect = { x: 244, y: 57 + row * 17, w: 216, h: 15 };
       const isSel = this.editSelected === key;
-      pxRect(bg, 396, y, 76, 20, isSel ? C.nightSoft : C.night, 0.95);
-      pxFrame(bg, 396, y, 76, 20, isSel ? C.teal : C.stoneLight, 1, 1);
-      const glyph = this.editGlyphOf(defId);
-      if (glyph) drawGlyph(bg, 399, y + 6, glyph, isSel ? C.arcaneLight : C.parchment, { alpha: 0.95 });
-      ui.add(bg);
-      ui.add(addText(this, 410, y + 7, (names[defId]?.name ?? defId) + '×' + count, 7, isSel ? HEX.arcaneLight : HEX.parchment));
-      this.editRects.push({ x: 396, y, w: 76, h: 20, action: () => { this.editSelected = this.editSelected === key ? null : key; this.editNote = this.editSelected ? '选中，点符位放置' : ''; this.drawGridEdit(); } });
+      kitHandRow(g, text, rect, {
+        defId, kind: key.split(':')[0], count,
+        hint: this.editHint(defId),
+        selected: isSel,
+      });
+      this.editRects.push({ ...rect, action: () => {
+        this.editSelected = isSel ? null : key;
+        this.editAuxPending = null;
+        this.editNote = this.editSelected
+          ? '已选 ' + (names[defId]?.name ?? defId) + '：点左侧空符位放置'
+          : '已取消选择';
+        this.drawGridEdit();
+      } });
       row++;
     }
-    if (!row) ui.add(addText(this, 400, 56, '没有手牌', 7, HEX.mute));
-    // 操作提示放底部横条：右栏太窄，长提示会溢出面板
-    // 提示条：给个折行宽度，长句子不会顶出右边框压到「完成」按钮
-    ui.add(addText(this, 20, 231, this.editNote || '点手牌再点符位放置；点已放置的卡收回。', 8, HEX.arcaneLight, { wordWrap: { width: 360 } }));
+    if (!row) text(248, 62, '暂时没有手牌，先打完一波再说。', 7, HEX.mute);
     if (lastPage > 0) {
-      pxRect(g, 396, 174, 76, 20, C.nightDeep, 0.9);
-      pxFrame(g, 396, 174, 76, 20, C.stoneLight, 1, 0.7);
-      pxLine(g, 434, 174, 434, 194, C.stoneLight, 0.7, 1);
-      ui.add(addText(this, 434, 184, '◀ ' + (this.editHandPage + 1) + '/' + (lastPage + 1) + ' ▶', 7, HEX.teal).setOrigin(0.5, 0.5));
-      for (const [x, step] of [[396, -1], [434, 1]]) this.editRects.push({ x, y: 174, w: 38, h: 20, action: () => {
-        this.editHandPage = (this.editHandPage + step + lastPage + 1) % (lastPage + 1); this.drawGridEdit();
+      const p = { x: 244, y: 144, w: 216, h: 14 };
+      pxRect(g, p.x, p.y, p.w, p.h, C.nightDeep, 0.9);
+      pxFrame(g, p.x, p.y, p.w, p.h, C.stoneLight, 1, 0.7);
+      text(352, p.y + 3, '◀ ' + (this.editHandPage + 1) + ' / ' + (lastPage + 1) + ' ▶', 7, HEX.teal).setOrigin(0.5, 0);
+      this.editRects.push({ x: p.x, y: p.y, w: p.w / 2, h: p.h, action: () => {
+        this.editHandPage = (this.editHandPage - 1 + lastPage + 1) % (lastPage + 1); this.drawGridEdit();
+      } });
+      this.editRects.push({ x: p.x + p.w / 2, y: p.y, w: p.w / 2, h: p.h, action: () => {
+        this.editHandPage = (this.editHandPage + 1) % (lastPage + 1); this.drawGridEdit();
       } });
     }
-    const done = this.add.graphics();
-    pxRect(done, 396, 232, 76, 18, C.stoneDark); pxFrame(done, 396, 232, 76, 18, C.teal, 1, 1);
-    ui.add(done);
-    ui.add(addText(this, 434, 236, '完成', 8, HEX.teal).setOrigin(0.5, 0.5));
-    this.editRects.push({ x: 396, y: 232, w: 76, h: 18, done: true, action: () => this.closeGridEdit() });
+
+    // 右下：卡片详情 / 操作提示
+    kitDetail(g, text, { x: 240, y: 166, w: 230, h: 52 }, {
+      title: this.editSelected ? '待放置卡' : '操作提示',
+      accent: this.editSelected ? C.brassLight : C.stoneLight,
+      lines: this.editSelected
+        ? [
+            { text: (names[selDef]?.name ?? selDef) + ' ×' + (this.editHand[this.editSelected] ?? 0), color: HEX.arcaneLight, size: 8 },
+            { text: this.editHint(selDef), color: HEX.mute, size: 7, max: 30 },
+            { text: '点空符位放下；点已放的卡替换', color: HEX.teal, size: 7 },
+          ]
+        : [
+            { text: '先点手牌，再点符位。', color: HEX.arcaneLight, size: 8 },
+            { text: '辅助卡放下后还要点相邻输出格。', color: HEX.mute, size: 7, max: 30 },
+            { text: '改阵不会重置冷却。', color: HEX.mute, size: 7 },
+          ],
+    });
+
+    // 校验状态 + 完成按钮 + 底部提示
+    const errors = validateDraft(this.editDraft);
+    const errText = errors.length ? explainBuildErrors(errors, this.editDraft) : '校验通过 · 可完成';
+    text(244, 222, clipText(errText, 32), 7, errors.length ? HEX.blood : HEX.teal);
+    const doneRect = { x: 240, y: 234, w: 230, h: 18 };
+    kitAction(g, text, doneRect, '完成 · 返回暂停', { primary: errors.length === 0 });
+    this.editRects.push({ ...doneRect, done: true, action: () => this.closeGridEdit() });
+    text(10, 256, clipText(this.editNote || 'E / Esc 关闭 · 改阵在点完成后生效', 44), 7, HEX.arcaneLight);
   }
 
   editCellClick(id) {
+    this.editFocus = id;
     const draft = this.editDraft;
     const names = this.editNames();
     const selKey = this.editSelected;
+    if (!draft.unlocked?.includes(id)) {
+      this.editNote = (id + 1) + ' 号尚未解封，不能放置';
+      this.drawGridEdit();
+      return;
+    }
     // 选牌优先于绑定：等待目标期间如果玩家选了一张牌，他要能先改牌面（比如把符印补回去），
     // 否则「目标失效 → 进入绑定模式 → 却放不了牌」会把局面卡死。
     if (selKey) {
@@ -1152,6 +1404,8 @@ export default class BattleScene extends Phaser.Scene {
     if (this.editPointer) { this.input.off('pointerdown', this.editPointer); this.editPointer = null; }
     if (this.editHoverMove) { this.input.off('pointermove', this.editHoverMove); this.editHoverMove = null; }
     this.editHoverG?.destroy(true); this.editHoverG = null;
+    this.editAnimG?.destroy(true); this.editAnimG = null;
+    this.editAnimAcc = 0;
     this.game.canvas.style.cursor = '';
     this.editUI?.destroy(true); this.editUI = null;
     this.openPause('menu');
@@ -1264,7 +1518,8 @@ export default class BattleScene extends Phaser.Scene {
             iframeBonus: this.player.iframesBonus ?? 0,
             shieldCap: this.player.shieldCap ?? 40,
           };
-          buff.apply(adapter);
+          const level = metaLevel(this.metaSave, buff.id);
+          const desc = applyPassiveToCharacter(buff, adapter, level);
           this.player.maxHpBonus = adapter.maxHp - PLAYER.hp;
           this.player.maxHp = adapter.maxHp;
           this.player.hp = Math.min(adapter.maxHp, adapter.hp);
@@ -1277,7 +1532,7 @@ export default class BattleScene extends Phaser.Scene {
             speedMult: this.player.speedMult, pickupBonus: this.player.pickupBonus,
             iframesBonus: this.player.iframesBonus, shieldCap: this.player.shieldCap,
           };
-          this.effects.text(this.player.x, this.player.y - 14, '宝箱 · ' + buff.name + '：' + buff.desc, HEX.brassLight, true);
+          this.effects.text(this.player.x, this.player.y - 14, '宝箱 · ' + buff.name + metaPassiveLabel(level) + '：' + desc, HEX.brassLight, true);
         }
         sfx.pick();
         chest.g.destroy();
@@ -1294,7 +1549,7 @@ export default class BattleScene extends Phaser.Scene {
     recordAct(this.run, report);
     this.run.shards = this.shardCount;
     this.run.draft = snapshotBuild(this.grid, { act: this.act });
-    if (this.act < 3) {
+    if (this.act < 7) {
       this.run.act++;
       // 通关一幕：先播「契约解除」标题卡与本幕数据，再落到幕间工作台
       playCutscene(this, {
@@ -1336,18 +1591,23 @@ export default class BattleScene extends Phaser.Scene {
     e.rewarded = true;
     this.kills++;
     this.bumpKillStreak(e);
-    // 经验：普通 1 点、精英 6 点；每 KILL_EXP_PER_POINT 点折算一次授予，保持升级节奏
+    // 经验：普通 1 点、精英 6 点。击杀不再直接入账，而是从爆散中心飞出青色经验粒子，
+    // 粒子追到玩家身上才结算 —— 玩家看到的是「打碎它 → 碎片和经验一起炸出来 → 吸进身体」。
     const expMul = this.run.compassBuffs.expMul * (this.quickMode ? 4 : 1);
     this.expKillAccum += e.def?.elite ? 6 : 1;
-    while (this.expKillAccum >= KILL_EXP_PER_POINT) {
-      this.expKillAccum -= KILL_EXP_PER_POINT;
-      const gained = grantExp(this.run.progression, 1, expMul);
-      if (!this.stressRunning && gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
+    const expPoints = Math.floor(this.expKillAccum / KILL_EXP_PER_POINT);
+    if (expPoints > 0) {
+      this.expKillAccum -= expPoints * KILL_EXP_PER_POINT;
+      for (let i = 0; i < expPoints; i++) {
+        // 环绕错开出生点，精英 6 颗不会叠在同一像素上
+        const a = (i / expPoints) * Math.PI * 2;
+        this.spawnExpMote(e.x + Math.cos(a) * 4, e.y - 6 + Math.sin(a) * 3, 1, expMul);
+      }
     }
     // 宝箱：击杀量涨了约 10 倍，掉率同步压到 0.8%、同屏最多 4 个，否则增益会糊满地图
     if (this.combatRng.next() < 0.008 && this.chests.length < 4) this.spawnChest(e.x, e.y);
-    // 割草死亡反馈：轻量骨屑爆点 + 血雾，量大也扛得住（重的 deathBurst 留给 Boss/玩家）
-    this.effects.killBurst(e.x, e.y);
+    // 击杀爆散：小怪碎成骨屑与身体碎片飞出去（精英更大一圈），经验粒子就在这团里飞出
+    this.effects.deathScatter(e.x, e.y, e.def?.color ?? C.bone, { elite: !!e.def?.elite });
     // 碎片：密度 ×10 后按概率掉（精英必掉 4 颗），避免工作台经济被瞬间刷爆
     if (e.def?.elite || this.combatRng.next() < 0.45) {
       const drop = e.def?.elite ? 4 : 1;
@@ -1524,15 +1784,16 @@ export default class BattleScene extends Phaser.Scene {
     if (!receipt.ok) return;
     this.shardCount += receipt.reward; this.kills++;
     // Boss 战利品：问答定义给出法术卡进手牌 + 随机一个罗盘本体增益
-    const spellKey = 'sigil:' + ['frost_arrow', 'holy_ward', 'starfall'][this.act - 1];
+    const spellKey = 'sigil:' + ['frost_arrow', 'holy_ward', 'starfall', 'chain_lightning', 'pierce_lance', 'meteor_judgment', 'quake_maw'][this.act - 1];
     this.run.hand[spellKey] = (this.run.hand[spellKey] ?? 0) + 1;
     const buff = rollBuff(COMPASS_BUFFS, () => this.combatRng.next());
     if (buff) {
-      buff.apply(this.run.compassBuffs);
+      const level = metaLevel(this.metaSave, buff.id);
+      const desc = applyPassiveToCompass(buff, this.run.compassBuffs, level);
       this.engine.comboWindowMul = this.run.compassBuffs.comboWindowMul;
       if (this.engine.combos) this.engine.combos.windowMul = this.engine.comboWindowMul;
       rebuildDerived(this.grid, ACTS[this.act - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
-      this.effects.text(240, 96, '罗盘增益 · ' + buff.name + '：' + buff.desc, HEX.teal, true);
+      this.effects.text(240, 96, '罗盘增益 · ' + buff.name + metaPassiveLabel(level) + '：' + desc, HEX.teal, true);
     }
     this.cameras.main.flash(140, 255, 246, 224);
     sfx.bossShatter();
@@ -1561,6 +1822,8 @@ export default class BattleScene extends Phaser.Scene {
   startBossClearTransition() {
     if (this.phase === 'bossDefeated' || this.phase === 'intermission') return;
     this.phase = 'bossDefeated'; this.paused = true; this.engine.paused = true; this.transitionLeft = 800;
+    // 还在飞的经验粒子立刻结算：过场里不该出现「差一点没捡到」的损失
+    this.flushExpMotes();
     this.bossCamOffset = 0;
     this.resumeFollow();
     this.hostileShots = []; this.hostileG.clear();
@@ -1583,7 +1846,9 @@ export default class BattleScene extends Phaser.Scene {
     for (let i = this.hostileShots.length - 1; i >= 0; i--) {
       const s = this.hostileShots[i];
       s.lifeMs -= dt; s.x += s.vx * dt / 1000; s.y += s.vy * dt / 1000;
-      if (s.lifeMs <= 0 || s.x < 0 || s.x > 480 || s.y < 20 || s.y > 270) { this.hostileShots.splice(i, 1); continue; }
+      // 弹丸是世界坐标（Boss/远程怪在玩家附近开火），清退边界必须跟世界尺寸走；
+      // 旧单屏 480×270 边界会让地图左上角以外的战斗首发弹即消失（偶发弹幕失效的根因）。
+      if (s.lifeMs <= 0 || s.x < 0 || s.x > this.world.w || s.y < 0 || s.y > this.world.h) { this.hostileShots.splice(i, 1); continue; }
       if (Math.hypot(s.x - this.player.x, s.y - this.player.y) < this.player.radius + 3) {
         if (this.player.takeDamage(s.damage, this.engine.now)) { this.effects.hurt(); sfx.hurt(); }
         this.hostileShots.splice(i, 1);
@@ -1632,6 +1897,10 @@ export default class BattleScene extends Phaser.Scene {
       dissipations: s.dissipations,
       peakRate: this.peakRate,
       cells: this.grid.unlockedIds().length,
+      // 结算给局外成长用：首杀/问答击破的原始凭据。
+      bossResolutions: structuredClone(this.run.bossResolutions ?? {}),
+      miniBossResolutions: structuredClone(this.run.miniBossResolutions ?? {}),
+      quick: this.quickMode,
     };
   }
 
@@ -1672,7 +1941,7 @@ export default class BattleScene extends Phaser.Scene {
         max: +(sorted[sorted.length - 1] ?? 0).toFixed(2),
         enemies: this.enemies.length, projectiles: this.projectiles.length, shards: this.shards.length,
         objects: this.children.list.length,
-        pools: { projectile: this.projectilePool.stats(), shard: this.shardPool.stats() },
+        pools: { projectile: this.projectilePool.stats(), shard: this.shardPool.stats(), expMote: this.expMotePool.stats() },
         errors: [],
       };
     };
@@ -1702,8 +1971,10 @@ export default class BattleScene extends Phaser.Scene {
     for (const e of this.enemies) e.destroy();
     for (const p of this.projectiles) p.destroy();
     for (const s of this.shards) s.destroy();
+    for (const m of this.expMotes) m.destroy();
     for (const p of this.projectilePool?.free ?? []) p.destroy();
     for (const s of this.shardPool?.free ?? []) s.destroy();
+    for (const m of this.expMotePool?.free ?? []) m.destroy();
     this.enemies = [];
     this.projectiles = [];
     this.shards = [];

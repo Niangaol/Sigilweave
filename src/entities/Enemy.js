@@ -27,6 +27,19 @@ const ENEMY_TEXTURE = {
   void_elemental: 'void_elemental',
   wraith: 'wraith',
   brass_warden: 'brass_warden',
+  // 北斗后半段专属（第 4-7 幕）
+  ink_wisp: 'ink_wisp',
+  page_golem: 'page_golem',
+  index_hound: 'index_hound',
+  verdict_wraith: 'verdict_wraith',
+  shackle_guard: 'shackle_guard',
+  scale_arbiter: 'scale_arbiter',
+  slag_beast: 'slag_beast',
+  ember_imp: 'ember_imp',
+  anvil_tyrant: 'anvil_tyrant',
+  dawn_shade: 'dawn_shade',
+  stardust_knight: 'stardust_knight',
+  eclipse_priest: 'eclipse_priest',
 };
 // 精灵脚底相对逻辑坐标 y 的偏移（对齐各旧程序化美术的脚底）
 // 美术升级包实测脚底偏移（与 64×56 新立绘对齐；旧图已不再使用）
@@ -35,6 +48,11 @@ const ENEMY_FEET = {
   stitch_abomination: 9, oath_bishop: 8,
   rune_spider: 6, stone_gargoyle: 7, crystal_dryad: 7,
   clockwork_doll: 7, void_elemental: 9, wraith: 9, brass_warden: 8,
+  // 北斗后半段：按各自画布底边对齐
+  ink_wisp: 8, page_golem: 7, index_hound: 7,
+  verdict_wraith: 8, shackle_guard: 7, scale_arbiter: 8,
+  slag_beast: 7, ember_imp: 8, anvil_tyrant: 8,
+  dawn_shade: 8, stardust_knight: 7, eclipse_priest: 8,
 };
 // 走/攻动画前缀（只有两张表有动画；单帧图只做朝向翻转）
 const ENEMY_ANIM = { skeleton: 'skeleton', corpse: 'corpse' };
@@ -43,6 +61,11 @@ const ENEMY_STYLE = {
   stitch_abomination: { scale: 1.15 },
   oath_bishop: { scale: 1.2, tint: 0x9a86b8 },
   brass_warden: { scale: 1.1 },
+  // 后四幕精英统一放大 15%，普通怪保持原尺寸
+  index_hound: { scale: 1.15 },
+  scale_arbiter: { scale: 1.15 },
+  anvil_tyrant: { scale: 1.15 },
+  eclipse_priest: { scale: 1.15 },
 };
 
 export default class Enemy {
@@ -62,6 +85,16 @@ export default class Enemy {
     this.radius = this.def.radius ?? 6;
     this.alive = true;
     this.hitAt = -9999;
+    // 受击表现状态：后坐方向/力度、血条延迟条、抖动序号（只用确定性数值，不用随机数）
+    this.hitPower = 0;
+    this.hitDirX = 0;
+    this.hitDirY = -1;
+    this.hitSeq = 0;
+    this.hpChip = this.hp;
+    this.hpSeen = this.hp;
+    this.hitChipAt = -9999;
+    this.baseScale = 1;
+    this.viewExtent = null;
     this.phase = (this.id * 53) % 97;
     this.walkPhase = 0;
     this.charging = false;
@@ -78,12 +111,16 @@ export default class Enemy {
       : null;
     if (this.sprite) {
       const style = ENEMY_STYLE[this.defId];
-      if (style?.scale) this.sprite.setScale(style.scale);
+      this.baseScale = style?.scale ?? 1;
+      this.sprite.setScale(this.baseScale);
       if (style?.tint) this.sprite.setTint(style.tint);
       this.sprite.setDepth(Math.floor(this.y));
       const prefix = ENEMY_ANIM[this.defId];
       if (prefix && scene.anims?.exists(prefix + '-idle')) this.sprite.play(prefix + '-idle');
     }
+    // 屏幕内判定用的视觉外框：精灵脚在逻辑点附近、身体向上长，
+    // 用逻辑半径会漏掉「脚刚出屏、大半个身子还在屏里」的怪。
+    this.viewExtent = this.computeViewExtent();
     this.brain = createBrain(this.defId, {
       now: scene.engine?.now ?? 0,
       seed: this.defId + ':' + this.id,
@@ -99,6 +136,19 @@ export default class Enemy {
     this.draw(0);
   }
 
+  // 视觉外框（相对逻辑坐标）：给了索敌层判断「身体有没有进屏」。
+  // 元素缺省/素材缺失时退回逻辑半径加身体高度估算，保证程序化回退也能用。
+  computeViewExtent() {
+    if (this.sprite) {
+      const w = Number.isFinite(this.sprite.displayWidth) && this.sprite.displayWidth > 0 ? this.sprite.displayWidth : 2 * this.radius;
+      const h = Number.isFinite(this.sprite.displayHeight) && this.sprite.displayHeight > 0 ? this.sprite.displayHeight : 2 * this.radius;
+      const feet = ENEMY_FEET[this.defId] ?? 7;
+      return { left: -Math.round(w / 2), right: Math.round(w / 2), top: Math.round(feet - h), bottom: Math.round(feet) };
+    }
+    const r = this.radius + 2;
+    return { left: -r, right: r, top: -r - 12, bottom: r + 8 };
+  }
+
   update(dtMs, now) {
     if (!this.alive) return;
     const factor = this.speedFactor(now);
@@ -110,6 +160,18 @@ export default class Enemy {
       opts: { BATTLE: this.bounds, damage: this.baseDamage },
     });
     this.applyResult(result, dtMs);
+    // 血条延迟条：任何来源的掉血都先留一条白条，220ms 后再快速追平真实血量。
+    // 用 hpSeen 观察 hp 变化，法术/尸爆/献祭走 applyDamage 也能自动触发，不依赖 takeDamage。
+    if (this.hp < this.hpSeen) {
+      this.hpChip = Math.max(this.hpChip, this.hpSeen);
+      this.hitChipAt = now + 220;
+    } else if (this.hp > this.hpChip) {
+      this.hpChip = this.hp;
+    }
+    this.hpSeen = this.hp;
+    if (now >= this.hitChipAt && this.hpChip > this.hp) {
+      this.hpChip = Math.max(this.hp, this.hpChip - dtMs * this.maxHp * 0.004);
+    }
     this.draw(now);
     this.g.setDepth(Math.floor(this.y) + 0.5);
     // 大地图世界边界由 enemy-ai 的 bounds 约束；离玩家过远的回收在战斗层处理
@@ -157,8 +219,11 @@ export default class Enemy {
   // 返回是否死亡
   takeDamage(amount, now) {
     if (!this.alive) return false;
+    const before = this.hp;
     this.hp -= amount;
     this.hitAt = now;
+    if (Number.isFinite(before)) this.hpChip = Math.max(this.hpChip, before);
+    this.hitChipAt = Number.isFinite(now) ? now + 220 : -9999;
     if (this.hp <= 0) {
       this.hp = 0;
       this.alive = false;
@@ -167,32 +232,83 @@ export default class Enemy {
     return false;
   }
 
+  // 受击细节（纯表现）：方向决定后坐朝向，伤害占比决定力度。
+  // 只写表现状态，不改 x/y，所以碰撞、索敌、命中判定完全不受影响。
+  hitReact(dx = 0, dy = -1, amount = 0, now = this.hitAt) {
+    const len = Math.hypot(dx, dy);
+    if (Number.isFinite(len) && len > 1e-4) {
+      this.hitDirX = dx / len;
+      this.hitDirY = dy / len;
+    } else {
+      this.hitDirX = 0;
+      this.hitDirY = -1;
+    }
+    this.hitSeq = (this.hitSeq + 1) % 997;
+    const ratio = Number.isFinite(amount) && this.maxHp > 0 ? amount / this.maxHp : 0.15;
+    this.hitPower = Math.max(0.3, Math.min(1, 0.4 + ratio * 1.5));
+    if (Number.isFinite(now)) this.hitAt = now;
+  }
+
+  // 受击时间轴（纯函数，方便单测）：0~220ms 后坐/抖动，前 120ms 闪白渐变。
+  // 只偏移绘制坐标，逻辑 x/y 不动 —— 命中判定与碰撞不受表现影响。
+  hitOffset(now) {
+    const age = Number.isFinite(now) && Number.isFinite(this.hitAt) ? now - this.hitAt : Infinity;
+    const hitT = age >= 0 && age < 220 ? 1 - age / 220 : 0;
+    const power = this.hitPower ?? 0;
+    const amp = (2.2 + 3.4 * power) * hitT * hitT;
+    // 非有限 now 时 age 可能是 Infinity，sin(Infinity)=NaN 会把绘制坐标弄坏；先兜底
+    const safeAge = Number.isFinite(age) ? age : 0;
+    const jitter = Math.sin(safeAge * 0.55 + (this.hitSeq ?? 0) * 1.7) * 1.3 * hitT;
+    const nx = this.hitDirX ?? 0;
+    const ny = this.hitDirY ?? -1;
+    return {
+      x: Math.round(nx * amp - ny * jitter),
+      y: Math.round(ny * amp + nx * jitter),
+      flash: age >= 0 && age < 120 ? 1 - age / 120 : 0,
+      hitT,
+      power,
+      age,
+    };
+  }
+
   draw(now) {
     const x = Math.round(this.x);
     const y = Math.round(this.y);
-    const flash = Number.isFinite(now) && now - this.hitAt < 90;
+    const off = this.hitOffset(now);
+    const rx = x + off.x;
+    const ry = y + off.y;
     const moving = Math.abs(this.x - this.prevX) > 0.02;
     if (moving) this.face = this.x < this.prevX ? -1 : 1;
     if (this.sprite) {
-      this.drawSpriteBody(now, x, y, flash, moving);
+      this.drawSpriteBody(now, rx, ry, off.flash, moving, off.age, off.hitT, off.power);
     } else {
-      this.drawProcedural(x, y, flash);
+      this.drawProcedural(rx, ry, off.flash);
     }
     this.drawOverlay(x, y);
     this.prevX = this.x;
   }
 
   // ---------- 素材表现 ----------
-  drawSpriteBody(now, x, y, flash, moving) {
+  drawSpriteBody(now, x, y, flash, moving, age = Infinity, hitT = 0, power = 0) {
     const s = this.sprite;
     // 蝙蝠没有飞行动画，用旧节奏做 1px 上下浮动，读作振翅
     const bob = this.defId === 'bat' && Math.floor((this.walkPhase + this.phase * 10) / 90) % 2 === 0 ? -1 : 0;
     s.setPosition(x, y + (ENEMY_FEET[this.defId] ?? 7) + bob);
-    s.setDepth(Math.floor(y));
+    s.setDepth(Math.floor(this.y));
     s.setFlipX(this.face < 0);
     s.setVisible(this.alive);
-    if (flash) {
+    // 受击挤压：横向鼓一点、纵向压一点，再沿受击方向轻微倾斜（脚底为原点，倾斜不会飘）
+    const base = this.baseScale ?? 1;
+    const squash = 0.18 * power * hitT;
+    s.setScale(base * (1 + squash), base * (1 - squash * 0.8));
+    s.setRotation(-(this.hitDirX ?? 0) * 0.12 * power * hitT);
+    // 闪白 → 残红 → 回到原本的状态色，三帧层次比单帧白闪更「打实了」
+    if (flash > 0.55) {
       s.setTintFill(0xffffff);
+    } else if (flash > 0) {
+      s.setTint(0xff9d93);
+    } else if (age >= 0 && age < 170) {
+      s.setTint(0xd98a84);
     } else {
       s.clearTint();
       const style = ENEMY_STYLE[this.defId];
@@ -228,8 +344,11 @@ export default class Enemy {
       }
       if (this.hp < this.maxHp) {
         const ratio = Math.max(0, Math.min(1, this.hp / this.maxHp));
+        // 延迟白条：先留在受伤前的位置，220ms 后再缩回真实血量
+        const chip = Math.max(ratio, Math.min(1, this.hpChip / this.maxHp));
         const barY = top - 4;
         pxRect(g, x - 6, barY, 13, 2, C.void, 0.8);
+        if (chip > ratio) pxRect(g, x - 5, barY + 1, Math.max(1, Math.round(11 * chip)), 1, C.brassLight, 0.95);
         pxRect(g, x - 5, barY + 1, Math.max(1, Math.round(11 * ratio)), 1, C.blood, 1);
       }
       return;
@@ -331,7 +450,7 @@ export default class Enemy {
     pxRect(g, x + 4, y + 1 + bob, 3, 1, C.stoneDark, 1);
     pxRect(g, x + 5, y - 4 + bob, 1, 1, color, 0.8);
 
-    if (flash) pxRect(g, x - 4, y - 12, 9, 18, C.white, 0.65);
+    if (flash > 0) pxRect(g, x - 4, y - 12, 9, 18, C.white, 0.62 * flash);
   }
 
   drawBat(g, x, y, color, flash) {
@@ -359,7 +478,7 @@ export default class Enemy {
     pxRect(g, x - 1, y + 3, 1, 2, color, 0.8);
     pxRect(g, x + 1, y + 3, 1, 2, color, 0.8);
 
-    if (flash) pxRect(g, x - 6, y - 6, 13, 13, C.white, 0.6);
+    if (flash > 0) pxRect(g, x - 6, y - 6, 13, 13, C.white, 0.58 * flash);
   }
 
   drawCorpse(g, x, y, bob, color, flash) {
@@ -392,7 +511,7 @@ export default class Enemy {
     pxRect(g, x, y - 8 + bob, 2, 1, C.blood, 0.8);
     pxRect(g, x, y - 3 + bob, 2, 1, C.blood, 0.9);
 
-    if (flash) pxRect(g, x - 8, y - 13, 17, 21, C.white, 0.6);
+    if (flash > 0) pxRect(g, x - 8, y - 13, 17, 21, C.white, 0.58 * flash);
   }
 
   drawCultist(g, x, y, bob, color, flash) {
@@ -424,7 +543,7 @@ export default class Enemy {
     pxRect(g, x - 1, y - 2 + bob, 1, 1, C.blood, 0.8);
     pxRect(g, x + 1, y - 2 + bob, 1, 1, C.blood, 0.8);
 
-    if (flash) pxRect(g, x - 5, y - 13, 11, 20, C.white, 0.6);
+    if (flash > 0) pxRect(g, x - 5, y - 13, 11, 20, C.white, 0.58 * flash);
   }
 
   drawKnight(g, x, y, bob, color, flash) {
@@ -468,14 +587,16 @@ export default class Enemy {
     pxRect(g, swordX, y - 8 + bob, 1, 12, C.bone, 1);
     pxRect(g, swordX - 2, y - 1 + bob, 5, 1, C.brassDark, 1);
 
-    if (flash) pxRect(g, x - 8, y - 16, 17, 24, C.white, 0.6);
+    if (flash > 0) pxRect(g, x - 8, y - 16, 17, 24, C.white, 0.58 * flash);
   }
 
   drawHealth(g, x, y) {
     if (this.hp >= this.maxHp) return;
     const ratio = Math.max(0, Math.min(1, this.hp / this.maxHp));
+    const chip = Math.max(ratio, Math.min(1, this.hpChip / this.maxHp));
     const barY = y - this.radius - 15;
     pxRect(g, x - 6, barY, 13, 2, C.void, 0.8);
+    if (chip > ratio) pxRect(g, x - 5, barY + 1, Math.max(1, Math.round(11 * chip)), 1, C.brassLight, 0.95);
     pxRect(g, x - 5, barY + 1, Math.max(1, Math.round(11 * ratio)), 1, C.blood, 1);
   }
 

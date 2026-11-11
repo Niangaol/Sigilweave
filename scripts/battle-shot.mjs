@@ -38,7 +38,7 @@ try {
       maxPlayerDist: Math.round(Math.max(...d)),
       minEnemyGap: Number.isFinite(minGap) ? Math.round(minGap) : null,
       offscreen: s.enemies.filter(e => Math.hypot(e.x - s.player.x, e.y - s.player.y) > 240).length,
-      // 被扣血的屏外敌人：证明攻击不再只锁屏幕内
+      // 2026-11-09 起只打屏幕内：屏外应不掉血（这里只做观测记录，不做断言）
       offscreenHurt: s.enemies.filter(e => Math.hypot(e.x - s.player.x, e.y - s.player.y) > 240 && e.hp < e.maxHp).length,
       phase: s.phase,
     };

@@ -25,14 +25,14 @@ describe('Boss预警与实际攻击', () => {
   });
 
   it.each([
-    [1, 5], [2, 8], [3, 7],
+    [1, 5], [2, 8], [3, 7], [4, 6], [5, 10], [6, 3], [7, 9],
   ])('第 %i 幕使用自己的弹幕模板（%i 发）', (act, count) => {
     const { shots } = fireOnce(act);
     expect(shots).toHaveLength(count);
     expect(shots.every(s => s.damage > 0 && s.lifeMs > 0)).toBe(true);
   });
 
-  it('三幕弹幕形态确实不同：一扇形、二环形、三更快', () => {
+  it('七幕弹幕形态确实不同：一扇形、二环形、三更快，后四幕各有专属模板', () => {
     const one = fireOnce(1).shots;
     const two = fireOnce(2).shots;
     const three = fireOnce(3).shots;
@@ -47,13 +47,19 @@ describe('Boss预警与实际攻击', () => {
     expect(speed(two)).toBeLessThan(speed(one));
     expect(bossPattern(2).ring).toBe(true);
     expect(bossPattern(1).ring).toBeUndefined();
+    // 后四幕：四/六是扇形，五环形，七是更快的宽扇
+    expect(bossPattern(4).ring).toBeUndefined();
+    expect(bossPattern(5).ring).toBe(true);
+    expect(bossPattern(6).ring).toBeUndefined();
+    expect(speed(fireOnce(7).shots)).toBeGreaterThan(speed(fireOnce(6).shots));
+    expect(new Set([1, 2, 3, 4, 5, 6, 7].map((act) => bossPattern(act).name)).size).toBe(7);
   });
 
   it.each([NaN, -1, Infinity])('非法步长%j不产生伤害弹丸', dt => {
     const boss = createBossModel(); const before = structuredClone(boss);
     expect(stepBoss(boss, dt, {x:0,y:0}, {x:1,y:1})).toEqual([]); expect(boss).toEqual(before);
   });
-  it.each([0,4,'1',1.5])('非法幕数%j拒绝', act => expect(() => createBossModel(act)).toThrow(RangeError));
+  it.each([0,8,'1',1.5])('非法幕数%j拒绝', act => expect(() => createBossModel(act)).toThrow(RangeError));
   it('未知幕的模板回退到第一幕', () => expect(bossPattern(9)).toBe(bossPattern(1)));
 });
 

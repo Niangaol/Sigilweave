@@ -73,15 +73,15 @@ describe('等级属性与 Boss 门槛', () => {
   it.each([0, -1, NaN, Infinity, 1.2, '3', null, undefined, {}, Symbol('level')])('非法等级 %s 回退 LV1', (value) => {
     expect(levelStats(value)).toEqual(levelStats(1)); expect(expNeeded(value)).toBe(expNeeded(1));
   });
-  it('三幕阈值精确到达或超过即触发，场景自行防止重复', () => {
-    expect(MAJOR_BOSS_LEVEL).toEqual({ 1: 5, 2: 8, 3: 11 });
-    for (const [act, threshold] of [[1, 5], [2, 8], [3, 11]]) {
+  it('七幕阈值精确到达或超过即触发，场景自行防止重复', () => {
+    expect(MAJOR_BOSS_LEVEL).toEqual({ 1: 5, 2: 8, 3: 11, 4: 14, 5: 17, 6: 20, 7: 23 });
+    for (const [act, threshold] of [[1, 5], [2, 8], [3, 11], [4, 14], [5, 17], [6, 20], [7, 23]]) {
       expect(shouldTriggerMajorBoss(act, threshold - 1)).toBe(false);
       expect(shouldTriggerMajorBoss(act, threshold)).toBe(true);
       expect(shouldTriggerMajorBoss(act, threshold + 1)).toBe(true);
     }
   });
-  it.each([0, 4, '1', null, '__proto__', 'constructor', Symbol('act')])('拒绝非法幕 %s', (act) => {
+  it.each([0, 8, '1', null, '__proto__', 'constructor', Symbol('act')])('拒绝非法幕 %s', (act) => {
     expect(shouldTriggerMajorBoss(act, 50)).toBe(false);
   });
   it.each([0, -1, NaN, Infinity, '10', 5.5])('非法等级不触发 %s', (level) => {

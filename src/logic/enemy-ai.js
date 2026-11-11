@@ -72,11 +72,25 @@ export const PHASE_RULE = Object.freeze({
   shotLifeMs: 3200,
 });
 
+// 四幕精英：索引猎犬。长蓄力后高速扑咬，冲锋期接触伤害翻倍。
+export const LUNGE_RULE = Object.freeze({ intervalMs: 3200, windupMs: 700, chargeMs: 900, chargeSpeedMul: 4.2 });
+// 六幕精英：铁砧暴君。贴近 58px 后蓄力砸地，大范围震荡。
+export const SLAM_RULE = Object.freeze({ slamDist: 58, windupMs: 650, cooldownMs: 1500, radius: 46, damageMul: 2.0 });
+// 五幕精英：天平裁决者。保持 130px，蓄力后打一发慢速重判词弹。
+export const JUDGE_RULE = Object.freeze({ holdDist: 130, retreatDist: 90, attackMs: 3600, windupMs: 850, shotSpeed: 72, shotLifeMs: 4200, damageMul: 1.6 });
+// 七幕精英：蚀日祭司。保持 100px，蓄力后打八向星环。
+export const ECLIPSE_RULE = Object.freeze({ holdDist: 100, retreatDist: 64, attackMs: 4800, windupMs: 700, shots: 8, shotSpeed: 55, shotLifeMs: 3600 });
+
 const KNOWN_DEFS = new Set([
   'skeleton', 'bat', 'corpse', 'cultist', 'knight',
   'stitch_abomination', 'oath_bishop',
   'rune_spider', 'stone_gargoyle', 'crystal_dryad',
   'clockwork_doll', 'void_elemental', 'wraith', 'brass_warden',
+  // 北斗后半段专属（第 4-7 幕）
+  'ink_wisp', 'page_golem', 'index_hound',
+  'verdict_wraith', 'shackle_guard', 'scale_arbiter',
+  'slag_beast', 'ember_imp', 'anvil_tyrant',
+  'dawn_shade', 'stardust_knight', 'eclipse_priest',
 ]);
 const TAU = Math.PI * 2;
 const MAX_STEP_MS = 10000;   // 单步上限：手滑传入超大 dt 也只前进 10s，不把坐标推到天边
@@ -226,6 +240,17 @@ export function createBrain(defId, options = {}) {
   if (def === 'void_elemental') {
     brain.orbitDir = nextRandom(brain) < 0.5 ? -1 : 1;
     brain.blinkIn = PHASE_RULE.blinkMs;
+  }
+  // 北斗后半段专属行为
+  if (def === 'index_hound') brain.chargeIn = LUNGE_RULE.intervalMs;
+  if (def === 'anvil_tyrant') brain.attackIn = SLAM_RULE.cooldownMs;
+  if (def === 'scale_arbiter') {
+    brain.orbitDir = nextRandom(brain) < 0.5 ? -1 : 1;
+    brain.attackIn = JUDGE_RULE.attackMs;
+  }
+  if (def === 'eclipse_priest') {
+    brain.orbitDir = nextRandom(brain) < 0.5 ? -1 : 1;
+    brain.attackIn = ECLIPSE_RULE.attackMs;
   }
   return brain;
 }
@@ -619,6 +644,243 @@ function stepPhase(brain, ctx) {
   return makeResult(brain, [], false, false);
 }
 
+// ---------- 北斗后半段专属行为 ----------
+
+// 索引猎犬：走位接近 → 700ms 蓄力 → 900ms 高速扑咬（4.2 倍速），冲锋期接触伤害翻倍。
+function stepLunge(brain, ctx) {
+  const { self, player, dt, bounds } = ctx;
+
+  if (brain.mode === 'windup') {
+    brain.windupLeft -= dt;
+    brain.x = self.x;
+    brain.y = self.y;
+    if (brain.windupLeft > 0) return makeResult(brain, [], false, true);
+    brain.mode = 'charge';
+    brain.chargeLeft = LUNGE_RULE.chargeMs;
+    brain.dir = unitVector(brain.aim.x - self.x, brain.aim.y - self.y)
+      ?? unitVector(player.x - self.x, player.y - self.y)
+      ?? { x: 0, y: 1 };
+    brain.charges += 1;
+    return makeResult(brain, [], true, false);
+  }
+
+  if (brain.mode === 'charge') {
+    const stepMs = Math.min(dt, brain.chargeLeft);
+    const speed = self.speed * LUNGE_RULE.chargeSpeedMul;
+    brain.x = self.x + brain.dir.x * speed * (stepMs / 1000);
+    brain.y = self.y + brain.dir.y * speed * (stepMs / 1000);
+    clampToBounds(brain, bounds);
+    brain.chargeLeft = Math.max(0, brain.chargeLeft - dt);
+    const passed = (brain.x - brain.aim.x) * brain.dir.x + (brain.y - brain.aim.y) * brain.dir.y >= 0;
+    if (brain.chargeLeft <= 0 || passed) {
+      brain.mode = 'walk';
+      brain.chargeLeft = 0;
+      brain.chargeIn = LUNGE_RULE.intervalMs;
+      return makeResult(brain, [], false, false);
+    }
+    return makeResult(brain, [], true, false);
+  }
+
+  const dir = unitVector(player.x - self.x, player.y - self.y);
+  if (dir) {
+    brain.x = self.x + dir.x * self.speed * (dt / 1000);
+    brain.y = self.y + dir.y * self.speed * (dt / 1000);
+  } else {
+    brain.x = self.x;
+    brain.y = self.y;
+  }
+  clampToBounds(brain, bounds);
+
+  brain.chargeIn -= dt;
+  if (brain.chargeIn <= 0) {
+    brain.mode = 'windup';
+    brain.windupLeft = LUNGE_RULE.windupMs;
+    brain.chargeIn = 0;
+    brain.aim = { x: player.x, y: player.y };
+    brain.windups += 1;
+    return makeResult(brain, [], false, true);
+  }
+  return makeResult(brain, [], false, false);
+}
+
+// 铁砧暴君：慢速接近，进入 58px 后 650ms 蓄力，然后砸地产生 46px 半径震荡。
+function stepSlam(brain, ctx) {
+  const { self, player, dt, bounds, opts } = ctx;
+
+  if (brain.mode === 'windup') {
+    brain.windupLeft -= dt;
+    brain.x = self.x;
+    brain.y = self.y;
+    if (brain.windupLeft > 0) return makeResult(brain, [], false, true);
+    brain.mode = 'walk';
+    brain.attackIn = SLAM_RULE.cooldownMs;
+    brain.stomps += 1;
+    const stomp = {
+      x: self.x,
+      y: self.y,
+      radius: SLAM_RULE.radius,
+      damage: Math.max(1, Math.round(finiteOr(opts?.damage, 10) * SLAM_RULE.damageMul)),
+    };
+    return makeResult(brain, [], false, false, stomp);
+  }
+
+  const dir = unitVector(player.x - self.x, player.y - self.y);
+  if (dir) {
+    brain.x = self.x + dir.x * self.speed * (dt / 1000);
+    brain.y = self.y + dir.y * self.speed * (dt / 1000);
+  } else {
+    brain.x = self.x;
+    brain.y = self.y;
+  }
+  clampToBounds(brain, bounds);
+
+  const dist = Math.hypot(player.x - self.x, player.y - self.y);
+  brain.attackIn -= dt;
+  if (dist <= SLAM_RULE.slamDist && brain.attackIn <= 0) {
+    brain.mode = 'windup';
+    brain.windupLeft = SLAM_RULE.windupMs;
+    brain.aim = { x: player.x, y: player.y };
+    brain.windups += 1;
+    return makeResult(brain, [], false, true);
+  }
+  return makeResult(brain, [], false, false);
+}
+
+// 天平裁决者：保持 130px 环绕，3.6s 一次 850ms 蓄力，然后打一发慢速重弹。
+function stepJudge(brain, ctx) {
+  const { self, player, dt, bounds, opts } = ctx;
+
+  if (brain.mode === 'windup') {
+    brain.windupLeft -= dt;
+    brain.x = self.x;
+    brain.y = self.y;
+    if (brain.windupLeft > 0) return makeResult(brain, [], false, true);
+    const shot = makeJudgeShot(brain, self, opts);
+    brain.mode = 'walk';
+    brain.windupLeft = 0;
+    brain.attackIn = JUDGE_RULE.attackMs;
+    brain.aim = null;
+    brain.shots += 1;
+    return makeResult(brain, [shot], false, false);
+  }
+
+  const dx = player.x - self.x;
+  const dy = player.y - self.y;
+  const dist = Math.hypot(dx, dy);
+  const nx = dist > 1e-6 ? dx / dist : 0;
+  const ny = dist > 1e-6 ? dy / dist : 1;
+  let vx = 0;
+  let vy = 0;
+  if (dist < JUDGE_RULE.retreatDist) {
+    vx = -nx * self.speed * 1.1;
+    vy = -ny * self.speed * 1.1;
+  } else {
+    const radial = Math.max(-self.speed, Math.min(self.speed, (dist - JUDGE_RULE.holdDist) * 2.2));
+    const tangential = self.speed * 0.7 * (brain.orbitDir < 0 ? -1 : 1);
+    vx = -ny * tangential + nx * radial;
+    vy = nx * tangential + ny * radial;
+    const mag = Math.hypot(vx, vy);
+    const cap = self.speed * 1.15;
+    if (mag > cap && mag > 0) { vx = (vx / mag) * cap; vy = (vy / mag) * cap; }
+  }
+  brain.x = self.x + vx * (dt / 1000);
+  brain.y = self.y + vy * (dt / 1000);
+  clampToBounds(brain, bounds);
+
+  brain.attackIn -= dt;
+  if (brain.attackIn <= 0) {
+    brain.mode = 'windup';
+    brain.windupLeft = JUDGE_RULE.windupMs;
+    brain.attackIn = 0;
+    brain.aim = { x: player.x, y: player.y };
+    brain.windups += 1;
+    return makeResult(brain, [], false, true);
+  }
+  return makeResult(brain, [], false, false);
+}
+
+// 蚀日祭司：保持 100px 环绕，4.8s 一次 700ms 蓄力，然后打八向星环。
+function stepEclipse(brain, ctx) {
+  const { self, player, dt, bounds, opts } = ctx;
+
+  if (brain.mode === 'windup') {
+    brain.windupLeft -= dt;
+    brain.x = self.x;
+    brain.y = self.y;
+    if (brain.windupLeft > 0) return makeResult(brain, [], false, true);
+    const shots = makeEclipseShots(self, opts);
+    brain.mode = 'walk';
+    brain.windupLeft = 0;
+    brain.attackIn = ECLIPSE_RULE.attackMs;
+    brain.shots += shots.length;
+    return makeResult(brain, shots, false, false);
+  }
+
+  const dx = player.x - self.x;
+  const dy = player.y - self.y;
+  const dist = Math.hypot(dx, dy);
+  const nx = dist > 1e-6 ? dx / dist : 0;
+  const ny = dist > 1e-6 ? dy / dist : 1;
+  let vx = 0;
+  let vy = 0;
+  if (dist < ECLIPSE_RULE.retreatDist) {
+    vx = -nx * self.speed * 1.1;
+    vy = -ny * self.speed * 1.1;
+  } else {
+    const radial = Math.max(-self.speed, Math.min(self.speed, (dist - ECLIPSE_RULE.holdDist) * 2.2));
+    const tangential = self.speed * 0.5 * (brain.orbitDir < 0 ? -1 : 1);
+    vx = -ny * tangential + nx * radial;
+    vy = nx * tangential + ny * radial;
+    const mag = Math.hypot(vx, vy);
+    const cap = self.speed * 1.1;
+    if (mag > cap && mag > 0) { vx = (vx / mag) * cap; vy = (vy / mag) * cap; }
+  }
+  brain.x = self.x + vx * (dt / 1000);
+  brain.y = self.y + vy * (dt / 1000);
+  clampToBounds(brain, bounds);
+
+  brain.attackIn -= dt;
+  if (brain.attackIn <= 0) {
+    brain.mode = 'windup';
+    brain.windupLeft = ECLIPSE_RULE.windupMs;
+    brain.attackIn = 0;
+    brain.windups += 1;
+    return makeResult(brain, [], false, true);
+  }
+  return makeResult(brain, [], false, false);
+}
+
+function makeJudgeShot(brain, self, opts) {
+  const aim = finitePoint(brain.aim) ? brain.aim : { x: self.x, y: self.y + 1 };
+  const dir = unitVector(aim.x - self.x, aim.y - self.y) ?? { x: 0, y: 1 };
+  const damage = Math.max(1, Math.round(finiteOr(opts?.damage, 10) * JUDGE_RULE.damageMul));
+  return {
+    x: self.x + dir.x * 6,
+    y: self.y + dir.y * 6,
+    vx: dir.x * JUDGE_RULE.shotSpeed,
+    vy: dir.y * JUDGE_RULE.shotSpeed,
+    damage,
+    lifeMs: JUDGE_RULE.shotLifeMs,
+  };
+}
+
+function makeEclipseShots(self, opts) {
+  const damage = Math.max(1, Math.round(finiteOr(opts?.damage, 8)));
+  const shots = [];
+  for (let i = 0; i < ECLIPSE_RULE.shots; i++) {
+    const a = (i / ECLIPSE_RULE.shots) * TAU;
+    shots.push({
+      x: self.x + Math.cos(a) * 6,
+      y: self.y + Math.sin(a) * 6,
+      vx: Math.cos(a) * ECLIPSE_RULE.shotSpeed,
+      vy: Math.sin(a) * ECLIPSE_RULE.shotSpeed,
+      damage,
+      lifeMs: ECLIPSE_RULE.shotLifeMs,
+    });
+  }
+  return shots;
+}
+
 // ---------- 单步 ----------
 export function stepBrain(brain, rawInput) {
   const input = rawInput && typeof rawInput === 'object' ? rawInput : {};
@@ -662,6 +924,10 @@ export function stepBrain(brain, rawInput) {
     case 'oath_bishop': return stepOath(brain, ctx);
     case 'crystal_dryad': return stepVolley(brain, ctx);
     case 'void_elemental': return stepPhase(brain, ctx);
+    case 'index_hound': return stepLunge(brain, ctx);
+    case 'anvil_tyrant': return stepSlam(brain, ctx);
+    case 'scale_arbiter': return stepJudge(brain, ctx);
+    case 'eclipse_priest': return stepEclipse(brain, ctx);
     case 'skeleton':
     default: return stepMarch(brain, ctx);
   }

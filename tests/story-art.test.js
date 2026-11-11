@@ -66,7 +66,7 @@ describe('OPENING_STAGES 完整性', () => {
 });
 
 describe('journey 舞台绘制预算', () => {
-  for (const stage of ['swamp', 'star']) {
+  for (const stage of ['swamp', 'star', 'library', 'court', 'forge', 'sunrise']) {
     it(stage + ' 每帧 ≤700 条指令，横竖屏确定性', () => {
       for (const h of [270, 760]) {
         for (const p of [0, 0.25, 0.5, 0.75, 1]) {

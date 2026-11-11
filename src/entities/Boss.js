@@ -1,10 +1,17 @@
 import { C, pxRect, pxLine, pxDiamond, pxRing } from '../ui/Palette.js';
 import { createBossModel, stepBoss } from '../logic/boss.js';
 
-// 美术升级包：每幕小 Boss / 幕 Boss 各一张立绘；脚底仍对齐 y+21
+// 每幕小 Boss / 幕 Boss 各一张专属立绘；脚底仍对齐 y+21。
+// 第 4-7 幕是 2026-11-11 新画的八张专属立绘，不再复用前三幕素材。
 const BOSS_TEXTURE = {
-  mini: { 1: 'boss_gargoyle', 2: 'boss_ghoul', 3: 'boss_skeleton_mage' },
-  final: { 1: 'boss_death_knight', 2: 'boss_wraith', 3: 'boss_void' },
+  mini: {
+    1: 'boss_gargoyle', 2: 'boss_ghoul', 3: 'boss_skeleton_mage',
+    4: 'boss_library_mini', 5: 'boss_court_mini', 6: 'boss_forge_mini', 7: 'boss_dawn_mini',
+  },
+  final: {
+    1: 'boss_death_knight', 2: 'boss_wraith', 3: 'boss_void',
+    4: 'boss_library_final', 5: 'boss_court_final', 6: 'boss_forge_final', 7: 'boss_dawn_final',
+  },
 };
 const BOSS_DISPLAY_HEIGHT = { mini: 72, final: 104 };
 const BOSS_FEET = 21;
@@ -19,7 +26,7 @@ export default class Boss {
     this.g = scene.add.graphics().setDepth(200);
     // 素材精灵：按幕与 tier 选立绘；统一缩放到 72px（小 Boss）/ 104px（幕 Boss）
     const tierKey = definition?.tier === 'mini' ? 'mini' : 'final';
-    const safeAct = [1, 2, 3].includes(Number(act)) ? Number(act) : 1;
+    const safeAct = [1, 2, 3, 4, 5, 6, 7].includes(Number(act)) ? Number(act) : 1;
     const texKey = BOSS_TEXTURE[tierKey][safeAct];
     this.sprite = scene.textures?.exists(texKey) && typeof scene.add?.sprite === 'function'
       ? scene.add.sprite(Math.round(this.x), Math.round(this.y) + BOSS_FEET, texKey).setOrigin(0.5, 1)

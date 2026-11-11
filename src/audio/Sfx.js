@@ -4,6 +4,7 @@ let ctx = null;
 let failed = false;
 let enabled = true;
 let lastKillAt = 0;
+let lastExpAt = 0;
 
 function ensure() {
   if (failed) return null;
@@ -63,6 +64,13 @@ export const sfx = {
   },
   tick: () => tone({ freq: 1100, dur: 0.025, gain: 0.008 }),
   tick: () => tone({ freq: 1100, dur: 0.025, gain: 0.008 }),
+  // 经验粒子被吸收：比拾取碎片更轻的高音，40ms 节流防止一次吸 6 颗叠成噪音
+  exp: () => {
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (now - lastExpAt < 40) return;
+    lastExpAt = now;
+    tone({ freq: 980, dur: 0.035, type: 'sine', gain: 0.008, to: 1320 });
+  },
   quiz: () => tone({ freq: 460, dur: 0.16, type: 'triangle', gain: 0.018 }),
   correct: () => { tone({ freq: 620, dur: 0.1, gain: 0.018 }); setTimeout(() => tone({ freq: 930, dur: 0.16, gain: 0.016 }), 80); },
   wrong: () => tone({ freq: 220, dur: 0.2, type: 'sawtooth', gain: 0.016, to: 120 }),

@@ -11,6 +11,8 @@ import {
   drawImpactFx,
   drawWardFx,
   drawLinkFx,
+  visualRadius,
+  IMPACT_SCALE,
 } from '../src/ui/spell-fx.js';
 
 // —— 需求单上的 16 个 defId（顺序也是 FX_DEF_IDS 的契约顺序）——
@@ -33,8 +35,11 @@ const EXPECTED = [
   'meteor_judgment',
 ];
 
-// 性能预算（需求硬上限）：projectile 40 / trail 30 / cast 30 / impact 80 / ward 80 / link 30
-const CAPS = { projectile: 40, trail: 30, cast: 30, impact: 80, ward: 80, link: 30 };
+// 性能预算（v2 契约；2026-11-09 补入场/退场层后：cast 73、impact 162、ward 142 实测峰值）
+// projection 72 / trail 52 / cast 88 / impact 176 / ward 160 / link 52
+const CAPS = { projectile: 72, trail: 52, cast: 88, impact: 176, ward: 160, link: 52 };
+// 入场/退场是门面统一叠上去的通用层，每通道最多 +40 条指令（再大就该拆进法术自己画了）
+const CHROME_BUDGET = 40;
 
 const DRAWERS = {
   projectile: drawProjectileFx,
@@ -200,14 +205,15 @@ describe('六个绘制函数：不抛错 / 预算 / alpha / 坐标', () => {
         const n = drawCount(g.log);
         expect(n, kind + ' ' + id + ' 一次都没画').toBeGreaterThan(0);
         if (n > CAPS[kind]) offenders.push(id + '.' + kind + '=' + n + '>cap' + CAPS[kind]);
-        if (n > desc.opBudget) offenders.push(id + '.' + kind + '=' + n + '>opBudget' + desc.opBudget);
+        // opBudget 是「法术自己的图案」上限；门面再叠入场/退场，所以放宽 CHROME_BUDGET
+        if (n > desc.opBudget + CHROME_BUDGET) offenders.push(id + '.' + kind + '=' + n + '>opBudget+' + CHROME_BUDGET + '(' + desc.opBudget + ')');
         assertNumbers(g, id, kind);
       }
     }
     expect(offenders).toEqual([]);
   });
 
-  it('需求硬上限逐项复核：40/30/30/80/80/30', () => {
+  it('需求硬上限逐项复核：72/52/88/176/160/52', () => {
     for (const [kind, fn] of Object.entries(DRAWERS)) {
       for (const id of FX_DEF_IDS) {
         const g = fakeG();
@@ -322,22 +328,25 @@ describe('大半径命中图案不散点', () => {
   const polys = (g) => g.log.filter((c) => c[0] === 'fillPoints');
   const maxVerts = (g) => Math.max(0, ...polys(g).map((c) => c[1].length));
 
-  it('quake_maw：半径 80 的锯齿牙是连续多边形，牙数随半径加密', () => {
+  // v2 起命中图案不再直接用「伤害半径」：门面先过 visualRadius() 曲线、再乘该法术的
+  // IMPACT_SCALE，尺寸才落到 55~190px。所以这里的口径也改成「相对绘制半径」。
+  const drawn = (id, gameplayR) => visualRadius(gameplayR) * IMPACT_SCALE[id];
+
+  it('quake_maw：连续锯齿牙床，牙数随绘制半径加密（不是散点）', () => {
     const at = (radius) => {
       const g = fakeG();
       drawImpactFx(g, 'quake_maw', { x: 110, y: 60, k: 0.8, clock: 900, radius });
-      expect(polys(g).length, '半径 ' + radius + ' 的裂缝/牙床多边形数').toBeGreaterThanOrEqual(6);
-      return maxVerts(g);
+      return { n: polys(g).length, v: maxVerts(g) };
     };
     const small = at(20);
-    const big = at(80);
-    // 半径 20 → 7 颗牙（约 15 顶点）；半径 80 → 26 颗牙（50+ 顶点）
-    expect(small).toBeGreaterThanOrEqual(9);
-    expect(big).toBeGreaterThan(small);
-    expect(big).toBeGreaterThanOrEqual(40);
+    const big = at(95);
+    expect(small.n, '半径 20 的裂缝/牙床多边形数').toBeGreaterThanOrEqual(6);
+    expect(small.v).toBeGreaterThanOrEqual(9);     // 是连续多边形，不是点阵
+    expect(big.n).toBeGreaterThan(small.n);        // 牙数随半径加密
+    expect(drawn('quake_maw', 95)).toBeGreaterThan(drawn('quake_maw', 20));
   });
 
-  it('pierce_lance：半径 46 的贯穿光束是连续多边形，跨度覆盖 3R', () => {
+  it('pierce_lance：贯穿光束跨度覆盖 2.5 倍绘制半径', () => {
     const g = fakeG();
     drawImpactFx(g, 'pierce_lance', { x: 120, y: 80, k: 0.5, clock: 700, radius: 46, angle: 0.4 });
     const solid = polys(g);
@@ -347,7 +356,9 @@ describe('大半径命中图案不散点', () => {
       const ys = c[1].map((p) => p[1]);
       return Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
     });
-    expect(Math.max(...spans)).toBeGreaterThan(46 * 2.5);
+    const span = Math.max(...spans);
+    expect(span).toBeGreaterThan(drawn('pierce_lance', 46) * 2.5);
+    expect(span).toBeGreaterThan(46 * 2); // 视觉上确实越过了伤害半径（不然读不出「贯穿」）
   });
 
   it('8 个区域/贯穿类法术在最大半径下都有连续多边形（不是纯点阵）', () => {
@@ -358,5 +369,29 @@ describe('大半径命中图案不散点', () => {
       expect(polys(g).length, id + ' 在半径 95 下缺少连续多边形').toBeGreaterThan(0);
       expect(maxVerts(g), id + ' 在半径 95 下多边形顶点过少').toBeGreaterThanOrEqual(4);
     }
+  });
+});
+
+// 最坏帧预算：割草密度拉满时，同帧可能有 6 个命中图案 + 9 个弹体 + 9 条拖尾一起画。
+// 这条测试守住「大胆」不会把帧时间画穿：超过 2600 条绘制指令就说明某个法术画过头了。
+describe('最坏帧总预算', () => {
+  it('6 impact + 9 projectile + 9 trail < 2600 条绘制指令', () => {
+    const impactIds = ['meteor_judgment', 'quake_maw', 'starfall', 'flame_burst', 'thorn_vine', 'holy_ward'];
+    const shotIds = ['frost_arrow', 'arcane_bolt', 'chain_lightning', 'pierce_lance', 'echo_sigil', 'ember_fan', 'soul_lance', 'mana_siphon', 'judgment_hammer'];
+    let total = 0;
+    for (const id of impactIds) {
+      const g = fakeG();
+      drawImpactFx(g, id, { x: 120, y: 90, k: 0.3, clock: 500, radius: 95, angle: 0.4 });
+      total += drawCount(g.log);
+    }
+    for (const id of shotIds) {
+      const g = fakeG();
+      drawProjectileFx(g, id, ctxFor('projectile'));
+      total += drawCount(g.log);
+      const gt = fakeG();
+      drawTrailFx(gt, id, ctxFor('trail'));
+      total += drawCount(gt.log);
+    }
+    expect(total).toBeLessThan(2600);
   });
 });

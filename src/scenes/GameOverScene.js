@@ -2,6 +2,7 @@
 import Phaser from 'phaser';
 import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, fmtTime, applyPixelZoom, FONT_DISPLAY } from '../ui/Palette.js';
 import { playCutscene } from '../ui/transition.js';
+import { loadMeta, saveMeta, settleRun } from '../logic/meta.js';
 
 const SAMPLE = {
   elapsedMs: 0, act: 1, kills: 0, shards: 0, triggers: 0, combos: 0,
@@ -17,6 +18,38 @@ export default class GameOverScene extends Phaser.Scene {
     this.data = Object.assign({}, SAMPLE, data || {});
     this.started = false;
     this.__cine = !!data?.__cine;
+    // 结算只做一次：init 每局结束只走一趟，restart 是重新开战不会再进来。
+    this.settleMeta();
+  }
+
+  // 把本局结果换成残响并写档；存档写失败不能挡住结算画面。
+  settleMeta() {
+    // ?scene=gameover 是纯排版调试入口，不写档、不发放残响。
+    const debugOnly = typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('scene') === 'gameover';
+    try {
+      const result = debugOnly
+        ? { save: loadMeta(), gained: 0, base: 0, multiplier: 0, newMilestones: [] }
+        : settleRun(loadMeta(), this.data);
+      this.settle = result;
+      if (result.gained > 0 || result.newMilestones.length > 0) saveMeta(result.save);
+      this.metaTotals = result.save;
+      if (typeof window !== 'undefined') {
+        window.__SIGILWEAVE_META__ = {
+          ...(window.__SIGILWEAVE_META__ || {}),
+          save: result.save,
+          lastSettle: {
+            gained: result.gained,
+            base: result.base,
+            multiplier: result.multiplier,
+            newMilestones: result.newMilestones,
+          },
+        };
+      }
+    } catch {
+      this.settle = null;
+      this.metaTotals = null;
+    }
   }
 
   create() {
@@ -109,7 +142,7 @@ export default class GameOverScene extends Phaser.Scene {
       noStroke: true,
       stroke: '#f0d9a8', strokeThickness: 1, letterSpacing: 4,
     }).setOrigin(0.5, 0).setDepth(3);
-    addText(this, 240, 80, this.data.victory ? '三位契约主已消灭 · 通关' : (this.data.trainingComplete ? '构筑演武结束' : ('第 ' + this.data.act + ' 幕 · 挑战中断')), 8, HEX.ink, {
+    addText(this, 240, 80, this.data.victory ? '七位契约主已消灭 · 通关' : (this.data.trainingComplete ? '构筑演武结束' : ('第 ' + this.data.act + ' 幕 · 挑战中断')), 8, HEX.ink, {
       noStroke: true,
       letterSpacing: 1,
     }).setOrigin(0.5, 0).setDepth(3);
@@ -124,14 +157,26 @@ export default class GameOverScene extends Phaser.Scene {
       ['峰值脉频', (d.peakRate || 0).toFixed(1) + '/s', '解锁符位', String(d.cells) + ' 格'],
     ];
     rows.forEach((row, i) => {
-      const y = 112 + i * 19;
+      const y = 108 + i * 17;
       addText(this, 92, y, row[0], 9, HEX.ink, { noStroke: true }).setDepth(3);
       addText(this, 222, y, row[1], 10, HEX.inkDark, { noStroke: true }).setOrigin(1, 0).setDepth(3);
       addText(this, 248, y, row[2], 9, HEX.ink, { noStroke: true }).setDepth(3);
       addText(this, 392, y, row[3], 10, HEX.inkDark, { noStroke: true }).setOrigin(1, 0).setDepth(3);
     });
+    // 局外成长：本局换成多少残响 + 累计；和上面的数据行同一套列对齐。
+    const settle = this.settle;
+    const gained = settle ? settle.gained : 0;
+    const total = settle ? settle.save.resonance : 0;
+    const y = 108 + rows.length * 17;
+    addText(this, 92, y, '残响', 9, HEX.ink, { noStroke: true }).setDepth(3);
+    addText(this, 222, y, (gained > 0 ? '+' : '') + String(gained), 10, HEX.inkDark, { noStroke: true }).setOrigin(1, 0).setDepth(3);
+    addText(this, 248, y, '残响累计', 9, HEX.ink, { noStroke: true }).setDepth(3);
+    addText(this, 392, y, String(total), 10, HEX.inkDark, { noStroke: true }).setOrigin(1, 0).setDepth(3);
     // 羊皮纸属浅底：深色字再加深色描边会糊成一团，这里关掉描边
-    addText(this, 240, 194, this.data.victory ? ('破局 ' + Object.values(this.data.bossResolutions ?? {}).filter(r => r.method === 'quiz').length + ' 次 ／ 战斗击败 ' + Object.values(this.data.bossResolutions ?? {}).filter(r => r.method === 'combat').length + ' 次') : '法阵的刻线还温着——下一局，把缺的那一角补上。', 8, HEX.ink, { noStroke: true })
+    const fresh = settle && settle.newMilestones.length > 0
+      ? '新契约 · ' + settle.newMilestones.slice(0, 3).map((m) => m.label + ' +' + m.reward).join('　')
+      : (this.data.victory ? ('破局 ' + Object.values(this.data.bossResolutions ?? {}).filter(r => r.method === 'quiz').length + ' 次 ／ 战斗击败 ' + Object.values(this.data.bossResolutions ?? {}).filter(r => r.method === 'combat').length + ' 次') : '法阵的刻线还温着——下一局，把缺的那一角补上。');
+    addText(this, 240, 194, fresh, 8, HEX.ink, { noStroke: true })
       .setOrigin(0.5, 0).setDepth(3);
   }
 

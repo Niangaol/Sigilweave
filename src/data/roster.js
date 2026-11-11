@@ -490,15 +490,81 @@ export const ENEMY_TYPES = {
     color: 0x7d6bb0,
     elite: true,
   },
+  // ================= 北斗后半段专属敌人（第 4-7 幕） =================
+  // 四幕·天权（沉钟书库）：墨与纸的机关书库。
+  ink_wisp: {
+    id: 'ink_wisp', name: '墨灵', radius: 7, damage: 2, shards: 2,
+    behavior: 'weave', hpMul: 1.3, speedMul: 1.25, color: 0x4a5a8e,
+  },
+  page_golem: {
+    id: 'page_golem', name: '纸页傀儡', radius: 10, damage: 3, shards: 3,
+    behavior: 'march', hpMul: 2.0, speedMul: 0.7, color: 0xd8c9a0,
+  },
+  // 四幕精英：索引猎犬。蓄力后长距扑咬，冲锋期接触伤害翻倍。
+  index_hound: {
+    id: 'index_hound', name: '索引猎犬', radius: 12, damage: 4, shards: 6,
+    behavior: 'lunge', hpMul: 3.6, speedMul: 1.0, color: 0x9fb4d8, elite: true,
+  },
+  // 五幕·玉衡（衡律法庭）：判词与枷锁。
+  verdict_wraith: {
+    id: 'verdict_wraith', name: '判词幽灵', radius: 7, damage: 3, shards: 3,
+    behavior: 'weave', hpMul: 1.5, speedMul: 1.15, color: 0xcfd6e0,
+  },
+  shackle_guard: {
+    id: 'shackle_guard', name: '枷锁守卫', radius: 11, damage: 4, shards: 4,
+    behavior: 'march', hpMul: 2.4, speedMul: 0.65, color: 0x9aa1ad,
+  },
+  // 五幕精英：天平裁决者。保持 130px，标记后打一发重判词弹。
+  scale_arbiter: {
+    id: 'scale_arbiter', name: '天平裁决者', radius: 12, damage: 4, shards: 7,
+    behavior: 'judge', hpMul: 3.4, speedMul: 0.95, color: 0xe0d6c8, elite: true,
+  },
+  // 六幕·开阳（熔星锻炉）：炉渣与火星。
+  slag_beast: {
+    id: 'slag_beast', name: '炉渣兽', radius: 12, damage: 4, shards: 4,
+    behavior: 'march', hpMul: 2.8, speedMul: 0.6, color: 0x8a4a2a,
+  },
+  ember_imp: {
+    id: 'ember_imp', name: '火星精', radius: 6, damage: 2, shards: 2,
+    behavior: 'weave', hpMul: 1.0, speedMul: 1.45, color: 0xff8a4d,
+  },
+  // 六幕精英：铁砧暴君。贴近后蓄力砸地，大范围震荡。
+  anvil_tyrant: {
+    id: 'anvil_tyrant', name: '铁砧暴君', radius: 14, damage: 5, shards: 8,
+    behavior: 'slam', hpMul: 4.8, speedMul: 0.5, color: 0x6b543f, elite: true,
+  },
+  // 七幕·摇光（破晓之座）：晨光与星屑。
+  dawn_shade: {
+    id: 'dawn_shade', name: '晓色之影', radius: 8, damage: 3, shards: 3,
+    behavior: 'weave', hpMul: 1.8, speedMul: 1.2, color: 0xffd98a,
+  },
+  stardust_knight: {
+    id: 'stardust_knight', name: '星屑骑士', radius: 10, damage: 4, shards: 5,
+    behavior: 'charge', hpMul: 2.6, speedMul: 0.85, color: 0xe8e0ff,
+  },
+  // 七幕精英：蚀日祭司。保持 100px，蓄力后打八向星环。
+  eclipse_priest: {
+    id: 'eclipse_priest', name: '蚀日祭司', radius: 12, damage: 4, shards: 9,
+    behavior: 'eclipse', hpMul: 4.0, speedMul: 0.9, color: 0x9a7bd8, elite: true,
+  },
 };
 
-// 三幕刷怪权重：每幕权重和恒为 1（浮点求和精确等于 1，测试可直接判等）。
+// 七幕刷怪权重：每幕权重和恒为 1（浮点求和精确等于 1，测试可直接判等）。
 // 第一幕：骷髅为主 + 少量蝠；第二幕：蝠 / 腐尸 / 骷髅 + 缝合尸魁 8%；
 // 第三幕：常规五种 + 咒誓主教 12%，骑士与邪教徒合计 44%（每幕精英只占尾部权重）。
+// 第四幕起进入北斗后半段：精英占比逐幕抬高，终幕（摇光）连缝合尸魁都回来收尾。
 export const ACT_ENEMY_WEIGHTS = {
   1: [['skeleton', 0.46], ['bat', 0.18], ['rune_spider', 0.24], ['stone_gargoyle', 0.12]],
   2: [['bat', 0.16], ['corpse', 0.18], ['skeleton', 0.1], ['rune_spider', 0.12], ['crystal_dryad', 0.12], ['clockwork_doll', 0.12], ['stone_gargoyle', 0.12], ['stitch_abomination', 0.08]],
   3: [['skeleton', 0.06], ['bat', 0.08], ['corpse', 0.07], ['cultist', 0.09], ['knight', 0.1], ['rune_spider', 0.05], ['crystal_dryad', 0.09], ['clockwork_doll', 0.06], ['stone_gargoyle', 0.08], ['wraith', 0.1], ['void_elemental', 0.1], ['brass_warden', 0.06], ['oath_bishop', 0.06]],
+  // 四幕·天权（沉钟书库）：本幕专属的墨灵/纸页傀儡/索引猎犬占 44%，旧怪只作陪衬。
+  4: [['ink_wisp', 0.18], ['page_golem', 0.18], ['index_hound', 0.08], ['clockwork_doll', 0.12], ['rune_spider', 0.08], ['wraith', 0.1], ['cultist', 0.08], ['stone_gargoyle', 0.06], ['brass_warden', 0.06], ['oath_bishop', 0.06]],
+  // 五幕·玉衡（衡律法庭）：判词幽灵/枷锁守卫/天平裁决者占 42%，骑士与主教作审判席。
+  5: [['verdict_wraith', 0.16], ['shackle_guard', 0.18], ['scale_arbiter', 0.08], ['knight', 0.12], ['cultist', 0.08], ['brass_warden', 0.08], ['oath_bishop', 0.08], ['wraith', 0.06], ['void_elemental', 0.06], ['stone_gargoyle', 0.04], ['corpse', 0.06]],
+  // 六幕·开阳（熔星锻炉）：炉渣兽/火星精/铁砧暴君占 42%，重甲压场。
+  6: [['slag_beast', 0.18], ['ember_imp', 0.16], ['anvil_tyrant', 0.08], ['knight', 0.14], ['brass_warden', 0.12], ['cultist', 0.06], ['corpse', 0.06], ['stone_gargoyle', 0.06], ['clockwork_doll', 0.04], ['wraith', 0.04], ['void_elemental', 0.06]],
+  // 七幕·摇光（破晓之座）：晓色之影/星屑骑士/蚀日祭司占 42%，全兵种终局配置。
+  7: [['dawn_shade', 0.16], ['stardust_knight', 0.16], ['eclipse_priest', 0.1], ['knight', 0.12], ['brass_warden', 0.08], ['oath_bishop', 0.08], ['void_elemental', 0.08], ['wraith', 0.06], ['cultist', 0.06], ['corpse', 0.04], ['stone_gargoyle', 0.04], ['stitch_abomination', 0.02]],
 };
 
 // 确定性刷怪映射：roll ∈ [0,1) 自上而下落在哪个权重区间就是哪种敌人。
@@ -545,11 +611,16 @@ export const DIFFICULTY = {
   waveEnd: 2,
 };
 
-// 按幕放大的密度系数：第二幕略多略快，第三幕最密（同屏上限仍由 maxAlive 兜住）。
+// 按幕放大的密度系数：越往后同屏越多、刷得越密（同屏上限仍由 maxAlive 兜住）。
+// 七幕封顶 64×1.62≈104 只，仍低于压测过的 150 只档位，留得住帧率。
 export const ACT_DENSITY = {
   1: { maxAlive: 1.00, spawnMs: 1.00 },
   2: { maxAlive: 1.15, spawnMs: 0.92 },
   3: { maxAlive: 1.30, spawnMs: 0.85 },
+  4: { maxAlive: 1.38, spawnMs: 0.82 },
+  5: { maxAlive: 1.46, spawnMs: 0.79 },
+  6: { maxAlive: 1.54, spawnMs: 0.76 },
+  7: { maxAlive: 1.62, spawnMs: 0.73 },
 };
 
 // 难度采样：difficultyAt(ms) 保持旧签名，不传 act 等价于第一幕（老调用点行为不变）。

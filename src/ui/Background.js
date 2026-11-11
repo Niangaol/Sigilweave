@@ -72,6 +72,55 @@ const THEMES = {
     flame: C.coldFlame, flameCore: C.coldFlameCore, glow: C.coldFlame,
     candles: 9,
   },
+  // —— 后四幕（北斗七星）：沿用三幕的地砖/噪点/结界/蜡烛骨架，只换主题色与本幕装饰 ——
+  // 4 天权 · 沉钟书库：墨蓝书库 + 铜金。烛火是书库的油灯色，墙钉用黄铜。
+  4: {
+    name: '沉钟书库',
+    seed: 0x6d04,
+    tileBase: 0x1a2036, tileLit: 0x242d47, tileDark: 0x121728,
+    seam: 0x0a0d17,
+    noise: [C.brassDark, C.parchment, 0x2f3a58, C.ink, 0x6c6c54],
+    wall: 0x10142a, wallEdge: C.brassDark, stud: C.brassDark,
+    pillar: 0x2a2016, pillarLit: C.brassDark, wax: C.parchment,
+    flame: C.arcane, flameCore: C.arcaneLight, glow: C.arcane,
+    candles: 12,
+  },
+  // 5 玉衡 · 衡律法庭：冷银灰大理石 + 暗红判词。火焰偏暗红，读作「判词烧过的余火」。
+  5: {
+    name: '衡律法庭',
+    seed: 0x6d05,
+    tileBase: 0x262a33, tileLit: 0x31363f, tileDark: 0x1b1e25,
+    seam: 0x0d0f13,
+    noise: [C.mute, 0x9aa1ad, C.bloodDark, C.ink, 0x4a505c],
+    wall: 0x1a1c22, wallEdge: 0x8f95a1, stud: 0x8f95a1,
+    pillar: 0x3a3f48, pillarLit: 0x9aa1ad, wax: C.parchment,
+    flame: C.blood, flameCore: C.bone, glow: C.blood,
+    candles: 10,
+  },
+  // 6 开阳 · 熔星锻炉：铁灰 + 橙红。蜡烛全部落成炉口/砧边的火种。
+  6: {
+    name: '熔星锻炉',
+    seed: 0x6d06,
+    tileBase: 0x2a2320, tileLit: 0x372d28, tileDark: 0x1c1714,
+    seam: 0x0f0b09,
+    noise: [C.arcane, C.tan, 0x4a3a30, C.ink, 0x6b543f],
+    wall: 0x191311, wallEdge: 0xa8491c, stud: C.arcane,
+    pillar: 0x30251f, pillarLit: 0x8a5a2a, wax: C.tan,
+    flame: C.arcane, flameCore: C.white, glow: C.arcane,
+    candles: 11,
+  },
+  // 7 摇光 · 破晓之座：深紫 + 金白。金白只给光，紫底承住它。
+  7: {
+    name: '破晓之座',
+    seed: 0x6d07,
+    tileBase: 0x1d1733, tileLit: 0x271f45, tileDark: 0x141026,
+    seam: 0x090714,
+    noise: [C.brass, C.parchment, C.runeDim, C.white, C.mauve],
+    wall: 0x120e22, wallEdge: C.brassLight, stud: C.brassLight,
+    pillar: 0x2b2447, pillarLit: C.brassLight, wax: C.parchment,
+    flame: C.brassLight, flameCore: C.white, glow: C.brass,
+    candles: 14,
+  },
 };
 
 export default class Background {
@@ -82,11 +131,23 @@ export default class Background {
     this.act = act;
     this.world = { w: Math.round(world.w), h: Math.round(world.h) };
     this.theme = THEMES[act] || THEMES[1];
-    // 美术升级包：三幕各一张 512 无缝石砖，铺在世界底层；有图时跳过程序化地砖
-    const floorKey = 'floor_act' + act;
+    // 美术升级包：三幕各一张 512 无缝石砖，铺在世界底层；有图时跳过程序化地砖。
+    // 第 4-7 幕没有新地板图，复用前三幕的石砖纹理并按幕染色，避免退化成 32px 素格子。
+    const FLOOR_FALLBACK = {
+      4: { key: 'floor_act1', tint: 0x9fb4d8 }, // 书库：冷蓝
+      5: { key: 'floor_act3', tint: 0xcfd6e0 }, // 法庭：银灰
+      6: { key: 'floor_act1', tint: 0xffb08a }, // 锻炉：暖橙
+      7: { key: 'floor_act3', tint: 0xffd98a }, // 破晓：金白
+    };
+    const fallback = FLOOR_FALLBACK[act];
+    const nativeKey = 'floor_act' + act;
+    const useNative = !!scene.textures?.exists(nativeKey);
+    const floorKey = useNative ? nativeKey : (fallback?.key ?? nativeKey);
     this.floorArt = scene.textures?.exists(floorKey) && typeof scene.add?.tileSprite === 'function'
       ? scene.add.tileSprite(0, 0, this.world.w, this.world.h, floorKey).setOrigin(0, 0).setDepth(-102).setAlpha(0.65).setTileScale(0.5, 0.5)
       : null;
+    // 有本幕专属地板就原样用；只有缺图时才回退到旧地板并染色。
+    if (this.floorArt && !useNative && fallback && typeof this.floorArt.setTint === 'function') this.floorArt.setTint(fallback.tint);
     this.staticG = scene.add.graphics().setDepth(-100);
     this.flickerG = scene.add.graphics().setDepth(-90);
     // 一幕地板烘焙成纹理后挂在这里（见 bakeFloor）；二/三幕恒为 null
@@ -674,6 +735,378 @@ export default class Background {
     }
   }
 
+  // ---------- 四幕「天权 · 沉钟书库」 ----------
+
+  // 高耸书架：柜体 + 层板 + 书脊，抽掉几本留出空档，斜靠一两本让排布不是琴键
+  drawShelf(g, rng, x, groundY) {
+    const bookCols = [0x2f4560, 0x3f5a3a, 0x6b4a2a, 0x5a3a4a, 0x3a4a6a, C.brassDark, 0x6b543f, 0x435070];
+    const sw = 40 + Math.floor(rng() * 22);
+    const sh = 92 + Math.floor(rng() * 62);
+    const top = groundY - sh;
+    pxRect(g, x, top, sw, sh, 0x0e1220, 1);
+    pxRect(g, x, top, 2, sh, C.brassDark, 0.9);
+    pxRect(g, x + sw - 2, top, 2, sh, C.brassDark, 0.9);
+    pxRect(g, x, top, sw, 2, C.brassDark, 1);
+    pxRect(g, x, groundY - 2, sw, 2, C.brassDark, 1);
+    // 顶檐：书架顶是这套场景里唯一「能放东西」的平面，烛光落在这里
+    pxRect(g, x - 2, top - 3, sw + 4, 3, 0x141a2c, 1);
+    pxRect(g, x - 2, top - 3, sw + 4, 1, C.brassDark, 0.9);
+    const rows = 3 + Math.floor(rng() * 3);
+    const rowH = Math.max(6, Math.floor((sh - 8) / rows));
+    for (let r = 0; r < rows; r++) {
+      const ry = top + 4 + r * rowH;
+      pxRect(g, x + 2, ry + rowH - 2, sw - 4, 1, C.brassDark, 0.55);
+      let bx = x + 3;
+      while (bx < x + sw - 4) {
+        const bw = 2 + Math.floor(rng() * 3);
+        if (rng() < 0.12) { bx += bw + 1; continue; }
+        const bh = Math.min(rowH - 5, 5 + Math.floor(rng() * 9));
+        if (bh < 2) { bx += bw + 1; continue; }
+        pxRect(g, bx, ry + rowH - 3 - bh, bw, bh, bookCols[Math.floor(rng() * bookCols.length)], 0.95);
+        pxRect(g, bx, ry + rowH - 3 - bh, 1, bh, C.parchment, 0.18);
+        if (rng() < 0.15) pxRect(g, bx + bw, ry + rowH - 5, 2, 3, bookCols[Math.floor(rng() * bookCols.length)], 0.85);
+        bx += bw + 1 + (rng() < 0.1 ? 1 : 0);
+      }
+    }
+    pxRect(g, x + 3, groundY, 4, 2, C.brassDark, 0.8);
+    pxRect(g, x + sw - 7, groundY, 4, 2, C.brassDark, 0.8);
+    // 落地投影：书架必须有「压在地上」的那条暗边，否则远看会浮起来
+    pxRect(g, x - 3, groundY + 1, sw + 6, 2, 0x080b12, 0.7);
+    pxRect(g, x - 3, groundY + 1, sw + 6, 1, C.brassDark, 0.35);
+    return { x: Math.round(x + sw / 2), y: Math.round(top - 3) };
+  }
+
+  // 垂挂铜钟：链 + 钟钮 + 阶梯收窄的钟体 + 钟舌，钟面留一道反光
+  drawBrassBell(g, rng, x, y) {
+    const chain = 18 + Math.floor(rng() * 26);
+    pxRect(g, x, y, 1, chain, C.brassDark, 0.9);
+    for (let i = 0; i < chain; i += 4) pxRect(g, x - 1, y + i, 3, 1, C.brassDark, 0.35);
+    const by = y + chain;
+    pxRect(g, x - 1, by - 2, 3, 3, C.brassDark, 1);
+    pxRect(g, x - 7, by + 1, 15, 4, C.brass, 0.95);
+    pxRect(g, x - 9, by + 5, 19, 4, C.brassDark, 0.95);
+    pxRect(g, x - 11, by + 9, 23, 3, C.brassDark, 1);
+    pxRect(g, x - 11, by + 9, 23, 1, C.brassLight, 0.5);
+    pxRect(g, x, by + 12, 2, 4, C.brassLight, 0.85);
+    if (rng() < 0.55) pxRect(g, x - 4, by + 4, 2, 5, C.parchment, 0.25);
+    return { x: Math.round(x), y: Math.round(by + 12) };
+  }
+
+  // 翻飞书页：一小片硬边纸 + 折痕 + 身后两段拖影
+  drawFlyingPage(g, rng, x, y) {
+    const pw = 4 + Math.floor(rng() * 4);
+    const ph = 3 + Math.floor(rng() * 3);
+    pxRect(g, x, y, pw, ph, C.parchment, 0.85);
+    pxRect(g, x, y + ph - 1, pw, 1, 0x8a7a5a, 0.9);
+    pxRect(g, x + 1, y + 1, 1, Math.max(1, ph - 2), 0xb9a279, 0.7);
+    pxRect(g, x - 3 - Math.floor(rng() * 3), y + 1, 2, 1, C.parchment, 0.3);
+    pxRect(g, x - 6 - Math.floor(rng() * 4), y + 2, 2, 1, C.parchment, 0.16);
+  }
+
+  drawLibrary(g, rng) {
+    const { w, h } = this.world;
+    const anchors = [];
+    const shelfN = Math.min(22, Math.max(12, Math.round((w * h) / 240000)));
+    for (const p of this.scatter(rng, shelfN, 90, 150)) {
+      const a = this.drawShelf(g, rng, Math.round(p.x), Math.round(p.y));
+      if (a && anchors.length < 6) anchors.push(a);
+    }
+    for (const p of this.scatter(rng, 4, 220, 420)) {
+      anchors.push(this.drawBrassBell(g, rng, Math.round(p.x), Math.round(p.y - 120)));
+    }
+    const pageN = Math.min(60, Math.max(34, Math.round((w * h) / 78000)));
+    for (const p of this.scatter(rng, pageN, 40, 34)) {
+      this.drawFlyingPage(g, rng, Math.round(p.x), Math.round(p.y));
+    }
+    return anchors;
+  }
+
+  // ---------- 五幕「玉衡 · 衡律法庭」 ----------
+
+  // 大理石柱：柱身凹槽 + 柱头柱础，左受光右背光；少数柱身留有暗红判词残痕
+  drawMarbleColumn(g, rng, x, groundY) {
+    const ch = 70 + Math.floor(rng() * 54);
+    const top = groundY - ch;
+    const cw = 12 + Math.floor(rng() * 4);
+    pxRect(g, x - cw, top, cw * 2, ch, 0x3a3f48, 1);
+    pxRect(g, x - cw + 1, top, 2, ch, 0x9aa1ad, 0.75);
+    pxRect(g, x + cw - 3, top, 2, ch, 0x14161b, 0.85);
+    for (let i = -cw + 4; i < cw - 3; i += 4) pxRect(g, x + i, top + 6, 1, Math.max(1, ch - 12), 0x2a2e36, 0.9);
+    pxRect(g, x - cw - 3, top, cw * 2 + 6, 4, 0x4a505c, 1);
+    pxRect(g, x - cw - 3, top, cw * 2 + 6, 1, 0xb8bec9, 0.8);
+    pxRect(g, x - cw - 3, groundY - 4, cw * 2 + 6, 4, 0x4a505c, 1);
+    pxRect(g, x - cw - 3, groundY - 4, cw * 2 + 6, 1, 0x9aa1ad, 0.6);
+    if (rng() < 0.32) pxRect(g, x - 2, top + 12 + Math.floor(rng() * Math.max(1, ch - 30)), 3, 2, C.blood, 0.45);
+    pxRect(g, x - cw - 6, groundY + 1, cw * 2 + 12, 2, 0x080b12, 0.65);
+    return { x: Math.round(x), y: Math.round(top) };
+  }
+
+  // 天平：立柱 + 微微倾斜的横梁 + 两侧吊绳与托盘
+  drawScales(g, rng, x, groundY) {
+    const postH = 42 + Math.floor(rng() * 16);
+    const top = groundY - postH;
+    pxRect(g, x - 6, groundY - 4, 13, 4, 0x2a2e36, 1);
+    pxRect(g, x, top, 2, postH, 0x9aa1ad, 0.9);
+    const span = 26 + Math.floor(rng() * 10);
+    const tilt = rng() < 0.5 ? -3 : 3;
+    pxRect(g, x - span, top + 2 + tilt, span * 2 + 1, 2, 0x9aa1ad, 1);
+    for (const dir of [-1, 1]) {
+      const px0 = x + dir * span;
+      const py = top + 4 + (dir < 0 ? tilt : -tilt);
+      pxRect(g, px0, py, 1, 8, 0x8f95a1, 0.8);
+      pxRect(g, px0 - 5, py + 8, 11, 2, 0x9aa1ad, 1);
+      pxRect(g, px0 - 5, py + 10, 11, 1, C.bloodDark, 0.55);
+    }
+    pxRect(g, x - 2, top - 3, 5, 3, C.blood, 0.7);
+    return { x: Math.round(x), y: Math.round(top - 3) };
+  }
+
+  // 判词石碑：断口 + 暗红短行判词 + 碑座
+  drawVerdictStele(g, rng, x, groundY) {
+    const sw = 14 + Math.floor(rng() * 8);
+    const sh = 26 + Math.floor(rng() * 18);
+    const top = groundY - sh;
+    pxRect(g, x - sw / 2, top, sw, sh, 0x3a3f48, 1);
+    pxRect(g, x - sw / 2, top, 1, sh, 0x9aa1ad, 0.7);
+    pxRect(g, x + sw / 2 - 1, top, 1, sh, 0x14161b, 0.8);
+    pxRect(g, x - sw / 2 - 2, groundY - 3, sw + 4, 3, 0x2a2e36, 1);
+    pxRect(g, x - sw / 2 + Math.floor(sw * 0.6), top, Math.max(2, Math.floor(sw * 0.4)), 2 + Math.floor(rng() * 3), C.ink, 1);
+    const lines = 3 + Math.floor(rng() * 3);
+    for (let i = 0; i < lines; i++) {
+      const lw = 3 + Math.floor(rng() * Math.max(1, sw - 6));
+      pxRect(g, x - sw / 2 + 3 + Math.floor(rng() * Math.max(1, sw - 6 - lw)), top + 6 + i * 4, lw, 1, C.blood, 0.75);
+    }
+    return { x: Math.round(x), y: Math.round(top) };
+  }
+
+  drawCourt(g, rng) {
+    const { w, h } = this.world;
+    const anchors = [];
+    const colN = Math.min(18, Math.max(10, Math.round((w * h) / 300000)));
+    const cols = this.scatter(rng, colN, 110, 170);
+    for (const p of cols) {
+      const a = this.drawMarbleColumn(g, rng, Math.round(p.x), Math.round(p.y));
+      if (anchors.length < 8) anchors.push(a);
+    }
+    for (const p of this.scatter(rng, 3, 240, 520, cols)) {
+      anchors.push(this.drawScales(g, rng, Math.round(p.x), Math.round(p.y)));
+    }
+    const steleN = Math.min(9, Math.max(6, Math.round((w * h) / 520000)));
+    for (const p of this.scatter(rng, steleN, 140, 220, cols)) {
+      this.drawVerdictStele(g, rng, Math.round(p.x), Math.round(p.y));
+    }
+    return anchors;
+  }
+
+  // ---------- 六幕「开阳 · 熔星锻炉」 ----------
+
+  // 铁砧：砧面 + 砧角 + 墩身，偶尔留一撮刚打过的余烬
+  drawAnvil(g, rng, x, groundY) {
+    pxRect(g, x - 10, groundY - 4, 21, 4, 0x141010, 1);
+    pxRect(g, x - 5, groundY - 12, 11, 8, 0x2a2422, 1);
+    pxRect(g, x - 11, groundY - 22, 23, 6, 0x3a3230, 1);
+    pxRect(g, x - 11, groundY - 22, 23, 1, 0x6b5a52, 0.9);
+    pxRect(g, x - 15, groundY - 20, 5, 3, 0x3a3230, 1);
+    pxRect(g, x - 3, groundY - 16, 3, 4, 0x2a2422, 1);
+    if (rng() < 0.6) {
+      pxRect(g, x + 4, groundY - 26, 1, 2, C.arcane, 0.8);
+      pxRect(g, x + 8, groundY - 30, 1, 1, C.tan, 0.7);
+    }
+    pxRect(g, x - 13, groundY + 1, 27, 2, 0x080605, 0.65);
+    pxRect(g, x - 13, groundY + 1, 27, 1, 0x6b5a52, 0.3);
+    return { x: Math.round(x), y: Math.round(groundY - 22) };
+  }
+
+  // 炉膛：石砌炉体 + 三段阶梯拱口 + 硬边火芯 + 火星
+  drawFurnace(g, rng, x, groundY) {
+    const fw = 26 + Math.floor(rng() * 14);
+    const fh = 26 + Math.floor(rng() * 14);
+    const top = groundY - fh;
+    pxRect(g, x - fw / 2 - 4, top - 4, fw + 8, fh + 4, 0x1c1512, 1);
+    pxRect(g, x - fw / 2 - 4, top - 4, fw + 8, 2, 0x4a3a30, 0.9);
+    pxRect(g, x - fw / 2, top + 8, fw, fh - 8, 0x0b0705, 1);
+    pxRect(g, x - fw / 2 + 3, top + 8, fw - 6, 4, 0x0b0705, 1);
+    const flick = rng() < 0.5 ? 0 : 1;
+    pxRect(g, x - fw / 2 + 2, top + 12, fw - 4, Math.max(2, fh - 14), 0x8a2f10, 0.95);
+    pxRect(g, x - fw / 2 + 4, top + 16 + flick, fw - 8, Math.max(2, fh - 22), C.arcane, 0.95);
+    pxRect(g, x - fw / 2 + 7, top + 20 + flick, Math.max(2, fw - 14), Math.max(2, fh - 28), C.arcaneLight, 0.9);
+    pxRect(g, x - 2, top + 22 + flick, 5, 4, C.white, 0.9);
+    for (let i = 0; i < 4; i++) {
+      pxRect(g, x + Math.round((rng() - 0.5) * fw), top - 6 - Math.floor(rng() * 14), 1, 1, C.arcane, 0.5 + rng() * 0.4);
+    }
+    pxRect(g, x - fw / 2 - 6, groundY + 1, fw + 12, 2, 0x080605, 0.7);
+    return { x: Math.round(x), y: Math.round(top - 6) };
+  }
+
+  // 吊链：交替粗细的链环，末端一截未锻的料
+  drawHangingChain(g, rng, x, y) {
+    const len = 22 + Math.floor(rng() * 40);
+    for (let i = 0; i < len; i += 3) {
+      pxRect(g, x - (i % 6 === 0 ? 0 : 1), y + i, i % 6 === 0 ? 3 : 2, 2, 0x6b5a52, 0.9);
+    }
+    pxRect(g, x - 4, y + len, 9, 2, 0x4a3a30, 1);
+    pxRect(g, x - 2, y + len + 2, 5, 3, 0x2a2422, 1);
+  }
+
+  drawForge(g, rng) {
+    const { w, h } = this.world;
+    const anchors = [];
+    const furnN = Math.min(10, Math.max(6, Math.round((w * h) / 480000)));
+    const furn = this.scatter(rng, furnN, 160, 320);
+    for (const p of furn) {
+      const a = this.drawFurnace(g, rng, Math.round(p.x), Math.round(p.y));
+      if (anchors.length < 6) anchors.push(a);
+    }
+    const anvilN = Math.min(12, Math.max(8, Math.round((w * h) / 360000)));
+    for (const p of this.scatter(rng, anvilN, 120, 200, furn)) {
+      this.drawAnvil(g, rng, Math.round(p.x), Math.round(p.y));
+    }
+    for (const p of this.scatter(rng, 6, 200, 340, furn)) {
+      this.drawHangingChain(g, rng, Math.round(p.x), Math.round(p.y - 90));
+    }
+    const sparkN = Math.min(70, Math.max(40, Math.round((w * h) / 64000)));
+    for (let i = 0; i < sparkN; i++) {
+      pxRect(g, WALL_T + 8 + Math.floor(rng() * (w - WALL_T * 2 - 16)),
+        WALL_T + 8 + Math.floor(rng() * (h - WALL_T * 2 - 16)),
+        1, 1 + (rng() < 0.2 ? 1 : 0), rng() < 0.6 ? C.arcane : C.tan, 0.25 + rng() * 0.45);
+    }
+    return anchors;
+  }
+
+  // ---------- 七幕「摇光 · 破晓之座」 ----------
+
+  // 断裂王座：椅背右上被整块削掉、断面阶梯、碎块飞散，座面留七芒徽记
+  drawBrokenThrone(g, rng, x, groundY) {
+    const gold = C.brassLight;
+    const back = 0x3b3164;          // 椅背提亮一档：断面才看得见
+    const seat = 0x2b2447;
+    // 台座两级
+    pxRect(g, x - 28, groundY - 4, 57, 4, seat, 1);
+    pxRect(g, x - 28, groundY - 4, 57, 1, gold, 0.4);
+    pxRect(g, x - 22, groundY - 10, 45, 6, seat, 1);
+    pxRect(g, x - 22, groundY - 10, 45, 1, gold, 0.6);
+    // 椅背：右上角被整块削掉，断面做成三级阶梯，断口描一道亮金 = 断口受光
+    pxRect(g, x - 15, groundY - 54, 29, 44, back, 1);
+    pxRect(g, x - 15, groundY - 54, 1, 44, gold, 0.55);
+    pxRect(g, x + 14, groundY - 54, 1, 44, C.void, 0.9);
+    pxRect(g, x + 3, groundY - 54, 12, 11, C.void, 1);
+    pxRect(g, x + 3, groundY - 43, 8, 8, C.void, 1);
+    pxRect(g, x + 3, groundY - 35, 4, 6, C.void, 1);
+    pxRect(g, x + 3, groundY - 54, 12, 1, gold, 0.55);
+    pxRect(g, x + 3, groundY - 43, 8, 1, gold, 0.4);
+    // 断面崩落的碎块
+    pxRect(g, x + 17, groundY - 52, 4, 3, back, 0.95);
+    pxRect(g, x + 23, groundY - 58, 3, 3, back, 0.8);
+    pxRect(g, x + 28, groundY - 50, 2, 2, back, 0.6);
+    // 扶手 + 座面
+    pxRect(g, x - 21, groundY - 24, 7, 15, seat, 1);
+    pxRect(g, x - 21, groundY - 24, 7, 1, gold, 0.5);
+    pxRect(g, x + 15, groundY - 22, 7, 13, seat, 1);
+    pxRect(g, x + 15, groundY - 22, 7, 1, gold, 0.5);
+    pxRect(g, x - 14, groundY - 21, 29, 6, seat, 1);
+    pxRect(g, x - 14, groundY - 21, 29, 1, gold, 0.75);
+    // 七芒徽记
+    pxDiamond(g, x, groundY - 36, 5, gold, 0.75, false);
+    pxDiamond(g, x, groundY - 36, 2, C.white, 0.9, true);
+    pxRect(g, x - 30, groundY + 1, 61, 2, C.void, 0.5);
+    return { x: Math.round(x), y: Math.round(groundY - 54) };
+  }
+
+  // 黎明地平线：北缘一条硬边金带。像素风不做平滑渐变，改用「等高层带 + 抖动碎边」：
+  // 每 3px 一条整幅色带（alpha 随高度递减），带沿再撒短块把边界咬碎，远看就是晨光褪淡。
+  drawDawnBands(g, rng) {
+    const { w, h } = this.world;
+    const bandH = Math.min(96, Math.round(h * 0.08));
+    const inner = w - WALL_T * 2;
+    for (let y = 0; y < bandH; y += 3) {
+      const k = 1 - y / bandH;
+      pxRect(g, WALL_T, WALL_T + y, inner, 3, y < bandH * 0.45 ? C.brassLight : C.brass, 0.035 + k * 0.11);
+    }
+    // 抖动碎边：每层随机短块，让色阶交界不是一条直线
+    for (let y = 0; y < bandH; y += 3) {
+      const k = 1 - y / bandH;
+      const n = 6 + Math.floor(rng() * 10);
+      for (let i = 0; i < n; i++) {
+        const bw = 4 + Math.floor(rng() * 22);
+        const bx = WALL_T + Math.floor(rng() * Math.max(1, inner - bw));
+        pxRect(g, bx, WALL_T + y, bw, 1, y < bandH * 0.45 ? C.brassLight : C.brass, 0.12 + k * 0.2);
+      }
+    }
+    pxRect(g, WALL_T, WALL_T, inner, 2, C.brassLight, 0.45);
+    pxRect(g, WALL_T, WALL_T + 2, inner, 1, C.brass, 0.3);
+    // 斜向晨光柱：从北缘斜插进来，越远越稀
+    for (let i = 0; i < 5; i++) {
+      const x0 = WALL_T + (i * 0.19 + 0.06) * inner;
+      const len = Math.round(h * (0.26 + rng() * 0.22));
+      for (let k = 0; k < len; k += 9) {
+        pxRect(g, x0 + k * 0.35, WALL_T + k, 4, 3, C.brassLight, 0.04 + rng() * 0.05);
+      }
+    }
+  }
+
+  // 七颗星连成勺形（北斗）：节点按世界尺寸取相对坐标，连线 + 星芒
+  drawDipper(g) {
+    const { w, h } = this.world;
+    const pts = [
+      [0.16, 0.62], [0.28, 0.53], [0.4, 0.47], [0.51, 0.45],
+      [0.47, 0.63], [0.62, 0.67], [0.68, 0.53],
+    ].map(([u, v]) => ({ x: Math.round(u * w), y: Math.round(v * h) }));
+    const links = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 3]];
+    // 连线走 1px 矢量线：逐像素 pxLine 在 2500px 宽的地图上要几千条指令，只留硬边走线即可
+    for (const [a, b] of links) {
+      g.lineStyle(1, C.brassDark, 0.6);
+      g.lineBetween(pts[a].x, pts[a].y, pts[b].x, pts[b].y);
+      const mx = Math.round((pts[a].x + pts[b].x) / 2);
+      const my = Math.round((pts[a].y + pts[b].y) / 2);
+      pxRect(g, mx - 6, my, 13, 1, C.brass, 0.28);
+    }
+    for (const p of pts) {
+      pxRing(g, p.x, p.y, 7, C.brass, 0.35, 2);
+      pxDiamond(g, p.x, p.y, 4, C.brassLight, 0.8, true);
+      pxDiamond(g, p.x, p.y, 2, C.white, 0.95, true);
+      pxRect(g, p.x - 1, p.y - 9, 1, 3, C.brassLight, 0.4);
+      pxRect(g, p.x - 9, p.y, 3, 1, C.brassLight, 0.4);
+      pxRect(g, p.x + 7, p.y, 3, 1, C.brassLight, 0.4);
+      pxRect(g, p.x - 1, p.y + 7, 1, 3, C.brassLight, 0.4);
+    }
+  }
+
+  // 晨光池：抖动堆出的硬边金色光斑，把整张地图的中部也照亮
+  drawDawnPools(g, rng) {
+    const { w, h } = this.world;
+    for (let i = 0; i < 4; i++) {
+      const cx = w * (0.08 + rng() * 0.84);
+      const cy = h * (0.1 + rng() * 0.8);
+      const rx = 60 + rng() * 110;
+      const ry = 34 + rng() * 70;
+      for (let y = -ry; y <= ry; y += 6) {
+        for (let x = -rx; x <= rx; x += 6) {
+          const d = (x * x) / (rx * rx) + (y * y) / (ry * ry);
+          if (d > 1) continue;
+          if (rng() > (1 - d) * 0.55) continue;
+          pxRect(g, cx + x, cy + y, 4, 1, C.brassLight, 0.08 + rng() * 0.08);
+        }
+      }
+    }
+  }
+
+  drawDawnCourt(g, rng) {
+    const { w, h } = this.world;
+    const anchors = [];
+    this.drawDawnPools(g, rng);
+    this.drawDawnBands(g, rng);
+    anchors.push(this.drawBrokenThrone(g, rng, Math.round(w * 0.22), Math.round(h * 0.34)));
+    anchors.push(this.drawBrokenThrone(g, rng, Math.round(w * 0.74), Math.round(h * 0.78)));
+    this.drawDipper(g);
+    const moteN = Math.min(46, Math.max(28, Math.round((w * h) / 105000)));
+    for (let i = 0; i < moteN; i++) {
+      pxRect(g, WALL_T + 8 + Math.floor(rng() * (w - WALL_T * 2 - 16)),
+        WALL_T + 8 + Math.floor(rng() * (h - WALL_T * 2 - 16)),
+        1, 1 + (rng() < 0.25 ? 1 : 0), rng() < 0.5 ? C.brassLight : C.parchment, 0.2 + rng() * 0.4);
+    }
+    return anchors;
+  }
+
   // ---------- 蜡烛底座 / 结界墙 ----------
 
   drawCandleBase(g, T, c) {
@@ -732,6 +1165,10 @@ export default class Background {
     let candleAnchors = [];
     if (this.act === 2) candleAnchors = this.drawSwampCathedral(g, rng);
     else if (this.act === 3) this.drawStarCourt(g, rng);
+    else if (this.act === 4) candleAnchors = this.drawLibrary(g, rng);
+    else if (this.act === 5) candleAnchors = this.drawCourt(g, rng);
+    else if (this.act === 6) candleAnchors = this.drawForge(g, rng);
+    else if (this.act === 7) candleAnchors = this.drawDawnCourt(g, rng);
     else this.drawGraveyard(g, rng);
 
     this.candles = this.makeCandles(rng, candleAnchors);

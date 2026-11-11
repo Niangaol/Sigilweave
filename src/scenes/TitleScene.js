@@ -3,6 +3,9 @@ import Phaser from 'phaser';
 import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, applyPixelZoom, FONT_DISPLAY } from '../ui/Palette.js';
 import { playCutscene } from '../ui/transition.js';
 
+// ?scene=xxx 调试跳转只在本次页面加载后生效一次：从祭坛 ESC 回标题时不该被再弹回去
+let jumpConsumed = false;
+
 export default class TitleScene extends Phaser.Scene {
   constructor() {
     super('TitleScene');
@@ -17,9 +20,14 @@ export default class TitleScene extends Phaser.Scene {
     applyPixelZoom(this);
     // 调试直达：?scene=battle / ?scene=gameover
     const params = new URLSearchParams(window.location.search);
-    const jump = params.get('scene');
+    const jump = jumpConsumed ? null : params.get('scene');
+    if (jump) jumpConsumed = true;
     if (jump === 'battle') {
       this.scene.start('BattleScene');
+      return;
+    }
+    if (jump === 'meta') {
+      this.scene.start('MetaScene');
       return;
     }
     if (jump === 'gameover') {
@@ -69,7 +77,7 @@ export default class TitleScene extends Phaser.Scene {
       .setOrigin(ox, 0).setDepth(10);
     addText(this, px, 220, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 暂停菜单', 8, HEX.mute)
       .setOrigin(ox, 0).setDepth(10);
-    addText(this, px, 236, 'H 查看玩法说明　·　沿途问答 · 幕间构筑 · 识破契约', 7, HEX.brassDark)
+    addText(this, px, 236, 'H 玩法说明　·　B 残响祭坛　·　沿途问答 · 幕间构筑 · 识破契约', 7, HEX.brassDark)
       .setOrigin(ox, 0).setDepth(10);
     this.buildHelp();
 
@@ -77,9 +85,12 @@ export default class TitleScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-ENTER', this.begin, this);
     this.input.keyboard.on('keydown-SPACE', this.begin, this);
     this.input.on('pointerdown', this.begin, this);
+    // B：局外成长入口（帮说明面板开着时不抢按键）
+    this.input.keyboard.on('keydown-B', this.openMeta, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.keyboard.off('keydown-ENTER', this.begin, this);
       this.input.keyboard.off('keydown-SPACE', this.begin, this);
+      this.input.keyboard.off('keydown-B', this.openMeta, this);
       this.input.off('pointerdown', this.begin, this);
     });
 
@@ -119,6 +130,12 @@ export default class TitleScene extends Phaser.Scene {
     for (const t of this.helpTexts) t.setVisible(this.helpOpen);
     this.prompt.setVisible(!this.helpOpen);
     window.__SIGILWEAVE_TITLE_HELP__ = this.helpOpen;
+  }
+
+  openMeta() {
+    if (this.helpOpen) return;
+    this.started = true;
+    this.scene.start('MetaScene');
   }
 
   begin() {

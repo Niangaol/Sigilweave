@@ -18,7 +18,7 @@ try {
     } else {
       await page.evaluate(() => {
         const s = window.__SIGILWEAVE_BATTLE__;
-        const need = { 1: 5, 2: 8, 3: 11 }[s.act];
+        const need = { 1: 5, 2: 8, 3: 11, 4: 14, 5: 17, 6: 20, 7: 23 }[s.act];
         while (s.run.progression.level < need) s.run.progression.level++;
       });
     }
@@ -63,14 +63,14 @@ try {
   await takeRewards();
   const hand = await page.evaluate(() => Object.entries(window.__SIGILWEAVE_WORKSHOP__.workshop.hand).filter(([, n]) => n > 0).map(([k]) => k));
   const key = hand[0];
-  await click(352, 85); // 第一张手牌（82行起）
+  await click(352, 91); // 第一张手牌（82行起）
   await click(201, 118); // 8号空位
   const placed = await page.evaluate(() => window.__SIGILWEAVE_WORKSHOP__.workshop.draft.slots[7]);
   assert.equal(placed.kind + ':' + placed.defId, key);
   await page.screenshot({ path: 'docs/p2-幕间编辑.png' });
   // 出口编辑：第7格关掉右出口，出发后应保留单向配置
   await click(201, 118);
-  await click(425, 70);
+  await click(425, 80);
   await click(168, 243); // 出口编辑里的「右」开关，不是誓约按钮
   await click(117, 258);
   await click(352, 261);

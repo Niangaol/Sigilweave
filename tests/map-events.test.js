@@ -11,8 +11,12 @@ const EXPECTED = {
   1: { npc: '艾琳', miniboss: '守墓傀儡' },
   2: { npc: '瑟维安', miniboss: '腐沼巨尸' },
   3: { npc: '莉芙拉', miniboss: '裂瞳主教' },
+  4: { npc: '梅薇', miniboss: '缄默书吏' },
+  5: { npc: '奥菲', miniboss: '铁面陪审' },
+  6: { npc: '铎恩', miniboss: '淬火傀儡' },
+  7: { npc: '黎恩', miniboss: '残星骑士' },
 };
-const ACTS = [1, 2, 3];
+const ACTS = [1, 2, 3, 4, 5, 6, 7];
 
 const squared = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
 const quadrantOf = (p, w, h) => (p.x < w / 2 ? 'L' : 'R') + (p.y < h / 2 ? 'T' : 'B');
@@ -72,15 +76,15 @@ describe('getEventPoints · 布置约束', () => {
   }
 });
 
-describe('getEventPoints · 三幕坐标互不相同', () => {
-  it('各幕默认世界下 9 个点坐标两两不同', () => {
+describe('getEventPoints · 七幕坐标互不相同', () => {
+  it('各幕默认世界下 21 个点坐标两两不同', () => {
     const all = ACTS.flatMap((act) => getEventPoints(act, WORLD_SIZES[act]));
-    expect(all).toHaveLength(9);
-    expect(new Set(all.map((p) => p.x + ',' + p.y)).size).toBe(9);
+    expect(all).toHaveLength(21);
+    expect(new Set(all.map((p) => p.x + ',' + p.y)).size).toBe(21);
   });
-  it('同一 800×800 世界下 9 个点坐标仍两两不同（锚点比例互不相同）', () => {
+  it('同一 800×800 世界下 21 个点坐标仍两两不同（锚点比例互不相同）', () => {
     const all = ACTS.flatMap((act) => getEventPoints(act, { w: 800, h: 800 }));
-    expect(new Set(all.map((p) => p.x + ',' + p.y)).size).toBe(9);
+    expect(new Set(all.map((p) => p.x + ',' + p.y)).size).toBe(21);
   });
 });
 
@@ -96,8 +100,8 @@ describe('getEventPoints · 确定性', () => {
 });
 
 describe('getEventPoints · 非法输入返回空数组且不抛错', () => {
-  it('非法 act：非 1/2/3 整数或类型不符', () => {
-    for (const act of [0, 4, -1, 1.5, '1', null, undefined, NaN, {}, []]) {
+  it('非法 act：非 1-7 整数或类型不符', () => {
+    for (const act of [0, 8, -1, 1.5, '1', null, undefined, NaN, {}, []]) {
       expect(() => getEventPoints(act, WORLD_SIZES[1])).not.toThrow();
       expect(getEventPoints(act, WORLD_SIZES[1])).toEqual([]);
     }

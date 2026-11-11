@@ -39,14 +39,31 @@ export function levelStats(level) {
   return { hpMul: 1 + 0.16 * L, damageMul: 1 + 0.08 * L, speedMul: 1 + Math.min(0.3, 0.02 * L) };
 }
 
-export const MAJOR_BOSS_LEVEL = Object.freeze({ 1: 5, 2: 8, 3: 11 });
+// 七幕大 Boss 触发等级：每幕 +3。等级与经验跨幕保留，所以后四幕的入场等级本来就高。
+export const MAJOR_BOSS_LEVEL = Object.freeze({ 1: 5, 2: 8, 3: 11, 4: 14, 5: 17, 6: 20, 7: 23 });
 
 export function shouldTriggerMajorBoss(act, level) {
-  return Number.isInteger(act) && act >= 1 && act <= 3 && validLevel(level) && level >= MAJOR_BOSS_LEVEL[act];
+  return Number.isInteger(act) && act >= 1 && act <= 7 && validLevel(level) && level >= MAJOR_BOSS_LEVEL[act];
 }
 
-function buff(id, name, desc, update) {
-  return { id, name, desc, apply(target) { if (object(target)) update(target); return desc; } };
+// 局外等级：0 表示未点亮，只走基础增益；1-5 走「残响祭坛」的追加增益。
+const MAX_META_LEVEL = 5;
+const metaLevelOf = (level) => (Number.isSafeInteger(level) && level > 0 ? Math.min(MAX_META_LEVEL, level) : 0);
+
+function buff(id, name, desc, update, extra) {
+  return {
+    id,
+    name,
+    desc,
+    // level 缺省为 0，保证所有旧调用点的行为与数值完全不变。
+    apply(target, level = 0) {
+      if (!object(target)) return desc;
+      const lv = metaLevelOf(level);
+      update(target);
+      if (lv > 0 && typeof extra === 'function') extra(target, lv);
+      return desc;
+    },
+  };
 }
 
 export const CHARACTER_BUFFS = [
@@ -54,20 +71,34 @@ export const CHARACTER_BUFFS = [
     const maxHp = numberOr(t.maxHp, 0) + 20;
     const hp = Math.min(maxHp, numberOr(t.hp, 0) + 20);
     if (Number.isFinite(maxHp) && Number.isFinite(hp)) { t.maxHp = maxHp; t.hp = hp; }
+  }, (t, lv) => {
+    const maxHp = numberOr(t.maxHp, 0) + 2 * lv;
+    const hp = Math.min(maxHp, numberOr(t.hp, 0) + 2 * lv);
+    if (Number.isFinite(maxHp) && Number.isFinite(hp)) { t.maxHp = maxHp; t.hp = hp; }
   }),
-  buff('swift', '轻盈步伐', '移动速度提高 8%。', (t) => { t.speed = numberOr(t.speed, 0) * 1.08; }),
-  buff('magnet', '引晶之手', '拾取半径 +12。', (t) => { t.pickupRadius = numberOr(t.pickupRadius, 0) + 12; }),
-  buff('tough', '坚韧余辉', '受伤无敌时间增加 0.15 秒。', (t) => { t.iframeBonus = numberOr(t.iframeBonus, 0) + 0.15; }),
-  buff('aegis', '庇护印记', '护盾上限 +10。', (t) => { t.shieldCap = numberOr(t.shieldCap, 0) + 10; }),
+  buff('swift', '轻盈步伐', '移动速度提高 8%。', (t) => { t.speed = numberOr(t.speed, 0) * 1.08; },
+    (t, lv) => { t.speed = numberOr(t.speed, 0) * (1 + 0.008 * lv); }),
+  buff('magnet', '引晶之手', '拾取半径 +12。', (t) => { t.pickupRadius = numberOr(t.pickupRadius, 0) + 12; },
+    (t, lv) => { t.pickupRadius = numberOr(t.pickupRadius, 0) + 1.5 * lv; }),
+  buff('tough', '坚韧余辉', '受伤无敌时间增加 0.15 秒。', (t) => { t.iframeBonus = numberOr(t.iframeBonus, 0) + 0.15; },
+    (t, lv) => { t.iframeBonus = numberOr(t.iframeBonus, 0) + 0.02 * lv; }),
+  buff('aegis', '庇护印记', '护盾上限 +10。', (t) => { t.shieldCap = numberOr(t.shieldCap, 0) + 10; },
+    (t, lv) => { t.shieldCap = numberOr(t.shieldCap, 0) + 1.5 * lv; }),
 ];
 
 export const COMPASS_BUFFS = [
-  buff('might', '强能刻度', '罗盘伤害倍率 +0.12，上限 1.6。', (c) => { c.damageMul = Math.min(1.6, numberOr(c.damageMul, 1) + 0.12); }),
-  buff('haste', '疾转轴心', '触发间隔乘以 0.92，最低 0.55。', (c) => { c.intervalMul = Math.max(0.55, numberOr(c.intervalMul, 1) * 0.92); }),
-  buff('chill', '冷凝回路', '冷却时间乘以 0.90，最低 0.55。', (c) => { c.cooldownMul = Math.max(0.55, numberOr(c.cooldownMul, 1) * 0.90); }),
-  buff('wide', '扩域环带', '命中范围 +6，累计上限 +18。', (c) => { c.hitBonus = Math.min(18, numberOr(c.hitBonus, 0) + 6); }),
-  buff('chain', '延续之链', '连击窗口乘以 1.25，上限 2。', (c) => { c.comboWindowMul = Math.min(2, numberOr(c.comboWindowMul, 1) * 1.25); }),
-  buff('greed', '求知棱镜', '经验倍率 +0.15，上限 1.6。', (c) => { c.expMul = Math.min(1.6, numberOr(c.expMul, 1) + 0.15); }),
+  buff('might', '强能刻度', '罗盘伤害倍率 +0.12，上限 1.6。', (c) => { c.damageMul = Math.min(1.6, numberOr(c.damageMul, 1) + 0.12); },
+    (c, lv) => { c.damageMul = Math.min(1.6, numberOr(c.damageMul, 1) + 0.015 * lv); }),
+  buff('haste', '疾转轴心', '触发间隔乘以 0.92，最低 0.55。', (c) => { c.intervalMul = Math.max(0.55, numberOr(c.intervalMul, 1) * 0.92); },
+    (c, lv) => { c.intervalMul = Math.max(0.55, numberOr(c.intervalMul, 1) * (1 - 0.006 * lv)); }),
+  buff('chill', '冷凝回路', '冷却时间乘以 0.90，最低 0.55。', (c) => { c.cooldownMul = Math.max(0.55, numberOr(c.cooldownMul, 1) * 0.90); },
+    (c, lv) => { c.cooldownMul = Math.max(0.55, numberOr(c.cooldownMul, 1) * (1 - 0.006 * lv)); }),
+  buff('wide', '扩域环带', '命中范围 +6，累计上限 +18。', (c) => { c.hitBonus = Math.min(18, numberOr(c.hitBonus, 0) + 6); },
+    (c, lv) => { c.hitBonus = Math.min(18, numberOr(c.hitBonus, 0) + 0.8 * lv); }),
+  buff('chain', '延续之链', '连击窗口乘以 1.25，上限 2。', (c) => { c.comboWindowMul = Math.min(2, numberOr(c.comboWindowMul, 1) * 1.25); },
+    (c, lv) => { c.comboWindowMul = Math.min(2, numberOr(c.comboWindowMul, 1) * (1 + 0.04 * lv)); }),
+  buff('greed', '求知棱镜', '经验倍率 +0.15，上限 1.6。', (c) => { c.expMul = Math.min(1.6, numberOr(c.expMul, 1) + 0.15); },
+    (c, lv) => { c.expMul = Math.min(1.6, numberOr(c.expMul, 1) + 0.02 * lv); }),
 ];
 
 // rng 是显式注入的随机源；不偷偷回退到 Math.random，便于复盘。

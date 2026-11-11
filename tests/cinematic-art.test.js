@@ -110,4 +110,27 @@ describe('编舞工具库', () => {
     art.drawNumeral(zero, { cx: 240, cy: 135, act: 2, accent: 0xc9a227, alpha: 0 });
     expect(zero.count).toBe(0);
   });
+
+  it('drawNumeral 支持 IV/V/VI/VII：有绘制且同参数确定性', () => {
+    for (const act of [4, 5, 6, 7]) {
+      const g1 = makeCounting();
+      const g2 = makeCounting();
+      art.drawNumeral(g1, { cx: 240, cy: 135, act, accent: 0xc9a227, alpha: 0.14 });
+      art.drawNumeral(g2, { cx: 240, cy: 135, act, accent: 0xc9a227, alpha: 0.14 });
+      expect(g1.count).toBeGreaterThan(0);
+      expect(g1.count).toBe(g2.count);
+    }
+  });
+
+  it('drawStage 七幕剪影都有绘制且确定性（4-7 幕各有专属舞台）', () => {
+    for (const act of [1, 2, 3, 4, 5, 6, 7]) {
+      const opts = { w: 480, h: 270, kind: 'act', act, veil: 1, t: 1000, accent: 0xc9a227 };
+      const g1 = makeCounting();
+      const g2 = makeCounting();
+      art.drawStage(g1, opts);
+      art.drawStage(g2, opts);
+      expect(g1.count).toBeGreaterThan(0);
+      expect(g1.count).toBe(g2.count);
+    }
+  });
 });

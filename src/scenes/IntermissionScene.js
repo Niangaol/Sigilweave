@@ -1,7 +1,6 @@
 // 幕间工作台独立于战斗：只编辑草稿，出发时一次提交；右下罗盘布局仅用于战斗。
 import Phaser from 'phaser';
-import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxDiamond, drawGlyph, applyPixelZoom, isPortrait, CANVAS_H_PORTRAIT } from '../ui/Palette.js';
-import { decoratePlan } from '../ui/board-decor.js';
+import { C, HEX, addText, pxRect, pxFrame, pxDiamond, drawGlyph, applyPixelZoom, isPortrait, CANVAS_H_PORTRAIT } from '../ui/Palette.js';
 import { cardVisual, RUNE_GLYPHS } from '../data/roster.js';
 import { createGrid } from '../logic/grid.js';
 import { applyDraft, draftFromGrid, unlockToTarget, AUX_TARGETED, missingAuxTargets, auxTargetCandidates } from '../logic/build.js';
@@ -10,22 +9,11 @@ import { neighborsOf } from '../logic/grid.js';
 import { createWorkshop, chooseReward, placeCard, removeCard, installRune, removeRune, canDepart } from '../logic/workshop.js';
 import { ACTS, ORTHO_DIRS } from '../logic/constants.js';
 import { playCutscene } from '../ui/transition.js';
+import { kitPanel, kitBoard, kitBoardMotion, kitHeader, kitSteps, kitCell, kitHandRow, clipText } from '../ui/editor-ui.js';
+import { CARD_HINTS } from '../data/card-hints.js';
 
 const names = { ...SIGIL_DEFS, ...AUX_DEFS, ...RUNE_DEFS };
-const hints = {
-  arcane_bolt: '单体 12 伤害', frost_arrow: '10 伤害／减速 40%', flame_burst: '邻近最多 3 目标，各 9 伤害',
-  holy_ward: '贴身伤害 6／护盾 +14', mana_siphon: '8 伤害／回复 2 生命', judgment_hammer: '18 伤害／破甲 +50%',
-  thorn_vine: '区域 5 伤害／定身 1.2 秒', starfall: '半径 70 区域 22 伤害／内圈 -30%',
-  chain_lightning: '12 伤害／向附近再跳 2 次（逐跳 -30%）', pierce_lance: '沿直线贯穿 15 伤害',
-  echo_sigil: '本格与对侧扇区各打 11 伤害', ember_fan: '邻近 3 目标 10 伤害／减速 25%',
-  quake_maw: '半径 80 区域 14 伤害／定身 0.6 秒', soul_lance: '15 伤害／回复 3 生命',
-  aegis_ring: '贴身 8 伤害／护盾 +20（上限 60）', meteor_judgment: '半径 95 区域 26 伤害／内圈 -40%',
-  resonance_stone: '正交邻格间隔与冷却 -25%', slow_field: '近身 90 范围敌人减速 40%',
-  shard_resonance: '大幅扩大碎片吸取范围', sacrifice: '指向邻格：每次触发扣 8 护盾换双倍伤害',
-  hourglass: '指向邻格：冷却 -30%', wide_runes: '指向邻格：增加全部八向出口',
-  forge: '本格伤害 +50%', relay: '本格不出手，出发间隔 -40%', sever: '本格断流，保留配置出口',
-  silence: '触发时压制正交邻格冷却',
-};
+const hints = CARD_HINTS;
 const OATH_LIST = [['lone_star', '孤星'], ['watcher', '守夜'], ['martyr', '殉道']];
 
 export default class IntermissionScene extends Phaser.Scene {
@@ -50,9 +38,14 @@ export default class IntermissionScene extends Phaser.Scene {
     this.view = this.add.container(0, 0);
     // 悬停高亮独立成层：移鼠标只清这一层，不重建整页文字
     this.hoverG = this.add.graphics().setDepth(5);
+    // 法阵盘动态层：静态 view 之上、悬停层之下，约 30fps 重绘
+    this.animG = this.add.graphics().setDepth(4);
+    this.animAcc = 0;
+    this.animFrames = 0;
     this.paint();
     window.__SIGILWEAVE_WORKSHOP__ = this;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.animG?.destroy(); this.animG = null;
       if (window.__SIGILWEAVE_WORKSHOP__ === this) window.__SIGILWEAVE_WORKSHOP__ = null;
     });
   }
@@ -61,17 +54,7 @@ export default class IntermissionScene extends Phaser.Scene {
   }
   // —— 视觉构件 ——
   // 分区面板：底 + 双层黄铜边框 + 四角铆钉，统一所有区块的仪式感
-  panel(g, x, y, w, h, opts = {}) {
-    // 画风同步：面板底不透明 + 最外 1px 暗描边（对齐素材描边语言）
-    pxRect(g, x, y, w, h, opts.fill ?? C.ink, opts.alpha ?? 1);
-    pxFrame(g, x, y, w, h, opts.frame ?? C.brassDark);
-    pxFrame(g, x + 2, y + 2, w - 4, h - 4, C.brass, 1, 0.2);
-    pxFrame(g, x - 1, y - 1, w + 2, h + 2, C.outline, 1, 1);
-    for (const [sx, sy] of [[x, y], [x + w - 3, y], [x, y + h - 3], [x + w - 3, y + h - 3]]) {
-      pxRect(g, sx, sy, 3, 3, C.brass, 0.9);
-      pxRect(g, sx + 1, sy + 1, 1, 1, C.brassLight, 1);
-    }
-  }
+  panel(g, x, y, w, h, opts = {}) { kitPanel(g, x, y, w, h, opts); }
 
   // 悬停高亮画在独立图层：只清这一层，不必重建整页文字
   hoverRect(x, y, w, h, color = C.brassLight) {
@@ -119,16 +102,11 @@ export default class IntermissionScene extends Phaser.Scene {
     return this.zone(x, y, w, h, action);
   }
 
-  // 手牌行：图标 + 名称 + 右对齐效果说明，选中时整行符文高亮
-  handRow(x, y, w, h, defId, label, hint, selected, action) {
+  // 手牌行：与战斗内暂停改阵共用同一组件
+  handRow(x, y, w, h, o) {
     const g = this.add.graphics(); this.view.add(g);
-    pxRect(g, x, y, w, h, selected ? C.nightSoft : C.night, 0.95);
-    pxFrame(g, x, y, w, h, selected ? C.arcane : C.stoneLight);
-    const glyph = this.glyphOf(defId);
-    if (glyph) drawGlyph(g, x + 3, y + 3, glyph, selected ? C.arcaneLight : C.parchment, { alpha: 0.95 });
-    this.text(x + 14, y + 4, label, 8, selected ? HEX.arcaneLight : HEX.parchment);
-    if (hint) this.text(x + w - 4, y + 4, hint, 7, HEX.mute).setOrigin(1, 0);
-    return this.zone(x, y, w, h, action, C.arcaneLight);
+    kitHandRow(g, (X, Y, s, size, color) => this.text(X, Y, s, size, color), { x, y, w, h }, o);
+    return this.zone(x, y, w, h, o.action, C.arcaneLight);
   }
 
   // 布局：横屏维持原坐标（workshop-smoke 依赖），竖屏重排为大触控版式
@@ -143,13 +121,13 @@ export default class IntermissionScene extends Phaser.Scene {
         rewardHintY: 50,
         infoY: 63,
         statsPanel: { x: 10, y: 196, w: 224, h: 62 },
-        statsY: [200, 212],
-        // 誓约整体上移 7px：原来状态栏（noteY）正好压在誓约按钮上，长提示会糊成一团
-        oathLabelY: 226,
-        oathBtn: (i) => ({ x: 44 + i * 52, y: 224, w: 48, h: 12 }),
-        oathCurrentY: 236,
+        statsY: [200, 211, 220],
+        // 详情行下移后给誓约留出的空间：226 标签 / 230 按钮 / 240 当前誓约（状态行走 246）
+        oathLabelY: 228,
+        oathBtn: (i) => ({ x: 52 + i * 58, y: 232, w: 54, h: 12 }),
+        oathCurrentY: 0,
         handPanel: { x: 240, y: 72, w: 230, h: 190 },
-        handRow: (row) => ({ x: 244, y: 82 + row * 16, w: 216, h: 14 }),
+        handRow: (row) => ({ x: 244, y: 88 + row * 16, w: 216, h: 14 }),
         runeBtn: (i) => ({ x: (i % 2 ? 355 : 244), y: 192 + Math.floor(i / 2) * 17, w: 105, h: 15 }),
         runeSlot: (i) => ({ x: 244 + i * 111, y: 226, w: 105, h: 15 }),
         noteY: 246,
@@ -171,7 +149,7 @@ export default class IntermissionScene extends Phaser.Scene {
       rewardHintY: 92,
       infoY: 116,
       statsPanel: { x: 10, y: 400, w: 460, h: 46 },
-      statsY: [404, 416],
+      statsY: [404, 416, 428],
       oathLabelY: 456,
       oathBtn: (i) => ({ x: 60 + i * 104, y: 450, w: 96, h: 24 }),
       oathCurrentY: 478,
@@ -210,17 +188,13 @@ export default class IntermissionScene extends Phaser.Scene {
     pxFrame(g, 6, 6, 468, L.canvasH - 12, C.brassDark);
     pxFrame(g, 8, 8, 464, L.canvasH - 16, C.brass, 1, 0.18);
 
-    // 标题栏：菱形纹章 + 幕数 + 碎片计数
-    pxRect(g, 10, 10, 460, 14, C.ink, 0.95);
-    pxRect(g, 10, 23, 460, 1, C.brassDark, 0.9);
-    pxDiamond(g, 14, 17, 3, C.brass, 0.95, false);
-    this.text(21, 11, '幕间构筑', 12, HEX.brassLight);
-    this.text(97, 13, '第 ' + w.draft.act + ' 幕准备', 8, HEX.mute);
-    pxRect(g, 396, 11, 70, 12, C.nightDeep, 1);
-    pxFrame(g, 396, 11, 70, 12, C.brassDark);
-    pxDiamond(g, 403, 17, 3, C.teal, 0.95, true);
-    this.text(409, 13, '碎片', 8, HEX.mute);
-    this.text(462, 13, String(w.shards), 9, HEX.teal).setOrigin(1, 0);
+    // 标题栏：与战斗内暂停改阵共用同一组件，只换标题/副标题
+    kitHeader(g, (x, y, s, size, color) => this.text(x, y, s, size, color), {
+      x: 10, y: 10, w: 460,
+      title: '幕间构筑',
+      subtitle: '第 ' + w.draft.act + ' 幕准备 · 奖励 ' + w.roundsRemaining + ' 轮 · 已解封 ' + w.draft.unlocked.length + '/16',
+      rightLabel: '碎片', rightValue: w.shards, rightColor: HEX.teal,
+    });
 
     // 奖励区
     this.panel(g, L.rewardPanel.x, L.rewardPanel.y, L.rewardPanel.w, L.rewardPanel.h, { fill: C.ink, alpha: 0.88 });
@@ -237,54 +211,44 @@ export default class IntermissionScene extends Phaser.Scene {
       this.text(20, 42, '三轮奖励已领取 · 选右侧手牌，再点左侧符位放置', 8, HEX.teal);
     }
 
-    // 信息行
-    pxRect(g, 14, L.infoY - 1, 222, 1, C.brassDark, 0.45);
-    pxDiamond(g, 16, L.infoY + 3, 2, C.brass, 0.8, false);
-    this.text(22, L.infoY, '奖励剩余 ' + w.roundsRemaining + ' 轮', 8, HEX.brass);
-    pxDiamond(g, 104, L.infoY + 3, 2, C.brass, 0.8, false);
-    this.text(110, L.infoY, '已解封 ' + w.draft.unlocked.length + ' / 16 格', 8, HEX.mute);
+    // 引导条：三步流程 + 右端奖励/解封信息；两处编辑器同一位置、同一组件
+    kitSteps(g, (x, y, s, size, color) => this.text(x, y, s, size, color), 14, L.infoY - 3, 440, {
+      active: this.auxPending !== null ? 2 : this.selectedCard ? 1 : 0,
+    });
 
     // 法阵区
     this.panel(g, L.gridPanel.x, L.gridPanel.y, L.gridPanel.w, L.gridPanel.h, { fill: C.nightDeep, alpha: 0.82 });
+    // 法阵盘装饰：板框 / 四向罗盘钉 / 格间导线 / 侧边符刻（横竖屏共用，按格子几何自动伸缩）
+    const c0 = L.cell(0), c1 = L.cell(1), c4 = L.cell(4);
+    kitBoard(g, {
+      panel: L.gridPanel,
+      cells: { x0: c0.x, y0: c0.y, cw: c0.w, ch: c0.h, gapX: c1.x - c0.x - c0.w, gapY: c4.y - c0.y - c0.h },
+    });
     const grid = createGrid();
     applyDraft(grid, w.draft, { phase: 'intermission' });
-    const glyphScale = isPortrait() ? 2 : 1;
+    const auxNeighbors = this.auxPending !== null
+      ? new Set(neighborsOf(this.auxPending, ORTHO_DIRS).map(n => n.id))
+      : null;
     for (let id = 0; id < 16; id++) {
-      const c = L.cell(id);
-      const x = c.x, y = c.y, cw = c.w, ch = c.h;
-      const unlocked = w.draft.unlocked.includes(id), slot = w.draft.slots[id];
-      const selected = id === this.focusCell || id === this.auxPending;
-      pxRect(g, x, y, cw, ch, unlocked ? C.stone : C.night);
-      if (unlocked) {
-        pxRect(g, x + 1, y + 1, cw - 2, 1, C.groove, 0.3);
-        pxRect(g, x + 1, y + ch - 2, cw - 2, 1, C.nightDeep, 0.45);
-      }
-      pxFrame(g, x, y, cw, ch, selected ? C.arcane : C.stoneLight, selected ? 2 : 1);
-      // 角落 / 边上 / 中心三种区位装饰，与战斗罗盘同一份规则
-      const plan = decoratePlan(id, [{ x, y }, { x: x + cw, y }, { x: x + cw, y: y + ch }, { x, y: y + ch }], { inset: 1, arm: 8, centerInset: 1 });
-      if (plan) {
-        const dim = unlocked ? 1 : 0.7;
-        if (plan.wash) pxPoly(g, plan.wash.quad, C[plan.wash.color], plan.wash.alpha * dim);
-        for (const line of plan.lines) pxLine(g, line.a.x, line.a.y, line.b.x, line.b.y, C[line.color], line.alpha * dim, line.width ?? 1);
-        for (const dot of plan.dots) {
-          const size = dot.size ?? 1;
-          pxRect(g, Math.round(dot.x), Math.round(dot.y), size, size, C[dot.color], dot.alpha * dim);
-        }
-      }
-      if (!unlocked) {
-        pxDiamond(g, x + cw / 2, y + ch / 2, 4, C.stoneDark, 0.9, false);
-        this.text(x + 3, y + 2, '封印', 8, HEX.mute);
-      } else if (slot) {
-        const visual = cardVisual(slot);
-        if (visual.glyph) drawGlyph(g, x + 4, y + 4, visual.glyph, visual.color ?? C.arcaneLight, { scale: glyphScale, alpha: 0.95 });
-        this.text(x + 5 + 9 * glyphScale, y + 2, names[slot.defId]?.name ?? '?', 8, slot.kind === 'auxiliary' ? HEX.teal : HEX.parchment);
-      } else {
-        this.text(x + 3, y + 2, '空符位', 8, HEX.mute);
-      }
-      const runeCount = (w.draft.runes[id] ?? []).filter(Boolean).length;
-      const target = w.draft.auxTargets[id];
-      this.text(x + 3, y + ch - 12, (id + 1) + ' · 铭' + runeCount + ' 出' + this.currentExits(id).length + (target !== undefined ? (' →' + (target + 1)) : ''), 7, HEX.mute);
-      this.zone(x, y, cw, ch, () => this.clickCell(id), C.arcaneLight);
+      const cellRect = L.cell(id);
+      const unlocked = w.draft.unlocked.includes(id);
+      const slot = w.draft.slots[id];
+      kitCell(g, (x, y, s, size, color) => this.text(x, y, s, size, color), id, cellRect, {
+        unlocked,
+        slot,
+        focus: this.focusCell,
+        auxSrc: this.auxPending === id ? id : null,
+        auxValid: !!auxNeighbors?.has(id) && slot?.kind === 'sigil',
+        selecting: !!this.selectedCard,
+        target: w.draft.auxTargets[id],
+        runes: (w.draft.runes[id] ?? []).filter(Boolean).length,
+        exits: this.currentExits(id).length,
+        exitList: this.currentExits(id),
+        glyphScale: isPortrait() ? 2 : 1,
+        nameSize: isPortrait() ? 10 : 8,
+        subSize: isPortrait() ? 8 : 7,
+      });
+      this.zone(cellRect.x, cellRect.y, cellRect.w, cellRect.h, () => this.clickCell(id), C.arcaneLight);
     }
 
     const cell = grid.cells[this.focusCell];
@@ -314,10 +278,14 @@ export default class IntermissionScene extends Phaser.Scene {
     const auxes = Object.values(w.draft.slots).filter(s => s?.kind === 'auxiliary').length;
     const empties = w.draft.unlocked.filter(id => !w.draft.slots[id]).length;
     this.text(16, L.statsY[0], '输出 ' + outputs + ' / 辅助 ' + auxes + ' / 空位 ' + empties, 8, HEX.teal);
-    const statsLine = '选中 ' + (this.focusCell + 1) + ' 号  间隔 ' + (cell.effIntervalMs / 1000).toFixed(2) + 's / 冷却 ' + (cell.effCooldownMs / 1000).toFixed(2) + 's'
-      + '　上幕：触发 ' + (this.report.triggers ?? 0) + ' 受阻 ' + (this.report.blocked ?? 0) + ' 击杀 ' + (this.report.kills ?? 0);
-    // 横屏这一行本来就顶出面板压到右侧栏，截断到能放下的长度
-    this.text(16, L.statsY[1], isPortrait() ? statsLine : this.clipText(statsLine, 31), 8, HEX.mute);
+    this.text(232, L.statsY[0], '上幕 触发 ' + (this.report.triggers ?? 0) + ' · 击杀 ' + (this.report.kills ?? 0), 7, HEX.mute).setOrigin(1, 0);
+    const focusSlot = w.draft.slots[this.focusCell];
+    const focusName = focusSlot ? (names[focusSlot.defId]?.name ?? focusSlot.defId) : '空符位';
+    this.text(16, L.statsY[1], (this.focusCell + 1) + ' 号 · ' + focusName + '　间隔 ' + (cell.effIntervalMs / 1000).toFixed(2) + 's / 冷却 ' + (cell.effCooldownMs / 1000).toFixed(2) + 's', 8, HEX.parchment);
+    const runeText = (w.draft.runes[this.focusCell] ?? []).filter(Boolean).map(r => names[r]?.name ?? r).join(' / ') || '无';
+    const exitText = this.currentExits(this.focusCell).map(d => ({ up: '上', down: '下', left: '左', right: '右' })[d]).join('') || '无';
+    const focusTarget = w.draft.auxTargets[this.focusCell];
+    this.text(16, L.statsY[2], '铭文 ' + runeText + ' · 出口 ' + exitText + (focusTarget !== undefined ? ' · 目标 ' + (focusTarget + 1) + '号' : ''), 7, HEX.mute);
 
     // 誓约
     this.text(16, L.oathLabelY, '誓约', 8, HEX.brass);
@@ -326,18 +294,22 @@ export default class IntermissionScene extends Phaser.Scene {
       this.button(r.x, r.y, r.w, r.h, label, () => this.setOath(w.draft.oath === id ? null : id),
         w.draft.oath === id ? HEX.teal : HEX.mute, { fill: w.draft.oath === id ? C.stone : C.nightDeep });
     });
-    this.text(16, L.oathCurrentY, w.draft.oath ? ('当前：' + OATH_DEFS[w.draft.oath].name) : '未立誓（全局生效，最多一个）', 7, HEX.mute);
+    if (L.oathCurrentY > 0) this.text(16, L.oathCurrentY, w.draft.oath ? ('当前：' + OATH_DEFS[w.draft.oath].name) : '未立誓（全局生效，最多一个）', 7, HEX.mute);
 
     // 手牌与操作
     const handTypes = Object.values(w.hand).filter(Boolean).length;
     const handTotal = Object.values(w.hand).reduce((a, b) => a + b, 0);
     this.panel(g, L.handPanel.x, L.handPanel.y, L.handPanel.w, L.handPanel.h, { fill: C.ink, alpha: 0.9 });
-    this.text(16, L.handPanel.y + 4, '手牌 ' + handTypes + ' 种 / ' + handTotal + ' 张', 8, HEX.brass);
+    const selDefId = this.selectedCard ? this.selectedCard.split(':')[1] : null;
+    const selName = selDefId ? (names[selDefId]?.name ?? selDefId) : null;
+    this.text(L.handPanel.x + 4, L.handPanel.y + 4,
+      selName ? clipText('已选 ' + selName + ' · 点左侧空符位放置', 17) : ('手牌 ' + handTypes + ' 种 / ' + handTotal + ' 张'),
+      8, selName ? HEX.teal : HEX.brass);
     // 出口编辑入口：横屏压在面板右上角（原位），竖屏放标题行右侧
     if (isPortrait()) {
       this.button(386, L.handPanel.y + 2, 78, 16, '出口编辑', () => { this.exitMode = true; this.auxPending = null; this.paint(); }, HEX.brassLight, { fill: C.nightDeep });
     } else {
-      this.button(390, 64, 70, 13, '出口编辑', () => { this.exitMode = true; this.auxPending = null; this.paint(); }, HEX.brassLight, { fill: C.nightDeep });
+      this.button(390, 74, 70, 12, '出口编辑', () => { this.exitMode = true; this.auxPending = null; this.paint(); }, HEX.brassLight, { fill: C.nightDeep });
     }
     let row = 0;
     const maxRows = isPortrait() ? 6 : 5;
@@ -345,13 +317,19 @@ export default class IntermissionScene extends Phaser.Scene {
       if (!count || row >= maxRows) continue;
       const defId = key.split(':')[1];
       const r = L.handRow(row);
-      this.handRow(r.x, r.y, r.w, r.h, defId, names[defId]?.name + ' ×' + count, hints[defId] ?? '',
-        this.selectedCard === key, () => {
+      this.handRow(r.x, r.y, r.w, r.h, {
+        defId,
+        kind: key.split(':')[0],
+        count,
+        hint: hints[defId] ?? '',
+        selected: this.selectedCard === key,
+        action: () => {
           this.selectedCard = this.selectedCard === key ? null : key;
           this.auxPending = null;
-          this.note = this.selectedCard ? (hints[defId] + '；点击符位安装') : '已取消选择';
+          this.note = this.selectedCard ? (hints[defId] + '；点击左侧空符位安装') : '已取消选择';
           this.paint();
-        });
+        },
+      });
       row++;
     }
     if (!row) this.text(20, L.handPanel.y + 24, '暂时没有手牌，请先领取上方奖励。', 8, HEX.mute);
@@ -382,6 +360,28 @@ export default class IntermissionScene extends Phaser.Scene {
     const dp = L.depart;
     this.button(dp.x, dp.y, dp.w, dp.h, '确认构筑 · 出发', () => this.depart(), ready.ok ? HEX.teal : HEX.mute,
       { fill: ready.ok ? C.stoneDark : C.nightDeep, frame: ready.ok ? C.teal : C.brassDark, size: isPortrait() ? 11 : 9 });
+  }
+
+  // 幕间法阵盘的动态层：约 30fps，出发后停止并清空
+  update(time, delta) {
+    if (!this.animG) return;
+    if (this.departed) { this.animG.clear(); return; }
+    if (!this.workshop) return;
+    this.animAcc = (this.animAcc ?? 0) + delta;
+    if (this.animAcc < 33) return;
+    this.animAcc = 0;
+    this.animFrames = (this.animFrames ?? 0) + 1;
+    const L = this.layout();
+    const c0 = L.cell(0), c1 = L.cell(1), c4 = L.cell(4);
+    kitBoardMotion(this.animG, {
+      panel: L.gridPanel,
+      cells: { x0: c0.x, y0: c0.y, cw: c0.w, ch: c0.h, gapX: c1.x - c0.x - c0.w, gapY: c4.y - c0.y - c0.h },
+      t: time,
+      focusId: this.focusCell,
+      selecting: !!this.selectedCard,
+      unlocked: this.workshop.draft.unlocked,
+      slots: Object.entries(this.workshop.draft.slots ?? {}).map(([id, slot]) => ({ id: +id, slot })),
+    });
   }
 
   act(result) { this.note = result.message; this.paint(); }
@@ -478,6 +478,7 @@ export default class IntermissionScene extends Phaser.Scene {
     const result = applyDraft(grid, this.workshop.draft, { phase: 'intermission' });
     if (!result.ok) { this.act({ message: '构筑未通过校验，请检查目标与插槽' }); return; }
     this.departed = true;
+    this.animG?.clear();
     this.run.draft = result.snapshot;
     this.run.shards = this.workshop.shards;
     this.run.hand = { ...this.workshop.hand };

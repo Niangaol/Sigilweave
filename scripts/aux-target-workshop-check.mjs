@@ -18,7 +18,7 @@ try {
     });
     else await page.evaluate(() => {
       const s = window.__SIGILWEAVE_BATTLE__;
-      const need = { 1: 5, 2: 8, 3: 11 }[s.act];
+      const need = { 1: 5, 2: 8, 3: 11, 4: 14, 5: 17, 6: 20, 7: 23 }[s.act];
       while (s.run.progression.level < need) s.run.progression.level++;
     });
     await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.phase === 'encounter', null, { timeout: 25000 });

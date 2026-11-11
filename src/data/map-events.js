@@ -50,6 +50,42 @@ const ACT_THEMES = {
       minibossB: '星陨回廊的尽头，两尊主教石像共用同一双眼睛',
     },
   },
+  4: {
+    npcName: '梅薇',
+    minibossName: '缄默书吏',
+    hints: {
+      npc: '一排高到看不见顶的书架之间，有人正借着铜钟的微光抄经',
+      minibossA: '借阅厅的柜台后，一本翻开的书自己翻了一页',
+      minibossB: '断页厅的地上散着纸屑，一册残书悬在半空',
+    },
+  },
+  5: {
+    npcName: '奥菲',
+    minibossName: '铁面陪审',
+    hints: {
+      npc: '法庭的书记席上，羽毛笔在无人时自己记录',
+      minibossA: '东席陪审团的席位后，一排铁面具同时转向你',
+      minibossB: '西席的断秤悬在梁上，秤盘还在轻轻晃动',
+    },
+  },
+  6: {
+    npcName: '铎恩',
+    minibossName: '淬火傀儡',
+    hints: {
+      npc: '炉膛的白火旁，铸星者正把一块星铁翻面',
+      minibossA: '淬火池冒着白汽，池底有什么东西缓缓立起',
+      minibossB: '铁砧旁悬着一柄没人握的巨锤，正在自己起落',
+    },
+  },
+  7: {
+    npcName: '黎恩',
+    minibossName: '残星骑士',
+    hints: {
+      npc: '断裂的王座前，守望者数着天上第七颗星',
+      minibossA: '星桥中央，一名骑士的盾上钉着七枚星钉',
+      minibossB: '晓色门前，七盏灯只亮着三盏',
+    },
+  },
 };
 
 // 手工标定的象限锚点 [fx, fy]（比例坐标，乘世界宽高得像素坐标）。
@@ -58,6 +94,10 @@ const ACT_LAYOUTS = {
   1: { npc: [0.2, 0.22], minibossA: [0.76, 0.18], minibossB: [0.24, 0.74] }, // 左上 / 右上 / 左下
   2: { npc: [0.78, 0.26], minibossA: [0.18, 0.72], minibossB: [0.74, 0.78] }, // 右上 / 左下 / 右下
   3: { npc: [0.74, 0.76], minibossA: [0.22, 0.2], minibossB: [0.78, 0.24] }, // 右下 / 左上 / 右上
+  4: { npc: [0.2, 0.76], minibossA: [0.78, 0.2], minibossB: [0.26, 0.2] }, // 左下 / 右上 / 左上
+  5: { npc: [0.24, 0.24], minibossA: [0.8, 0.78], minibossB: [0.78, 0.22] }, // 左上 / 右下 / 右上
+  6: { npc: [0.76, 0.24], minibossA: [0.2, 0.2], minibossB: [0.26, 0.76] }, // 右上 / 左上 / 左下
+  7: { npc: [0.2, 0.24], minibossA: [0.8, 0.2], minibossB: [0.24, 0.78] }, // 左上 / 右上 / 左下
 };
 
 // 解析世界尺寸：接受 {w,h}（WORLD_SIZES 的形状）或 {width,height} 别名；
@@ -74,7 +114,7 @@ function worldDimensions(world) {
 // 返回某一幕的事件点数组：[npc-<act>, miniboss-<act>-a, miniboss-<act>-b]。
 // act 非法（非 1/2/3 整数）或 world 非法时返回 []。
 export function getEventPoints(act, world) {
-  if (!Number.isInteger(act) || act < 1 || act > 3) return [];
+  if (!Number.isInteger(act) || act < 1 || act > 7) return [];
   const dims = worldDimensions(world);
   if (!dims) return [];
   const theme = ACT_THEMES[act];

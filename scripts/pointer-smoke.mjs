@@ -52,7 +52,7 @@ try {
   await click(240, 156); // 编辑法阵
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editOpen === true, null, { timeout: 6000 });
   done.pauseEdit = 'click';
-  await click(434, 236); // 完成
+  await click(355, 243); // 完成
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.editOpen === false, null, { timeout: 6000 });
   await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.menuOpen === true);
   await click(240, 108); // 继续战斗

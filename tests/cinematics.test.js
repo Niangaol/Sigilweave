@@ -81,8 +81,8 @@ describe('跳过语义', () => {
 });
 
 describe('标题卡与文案', () => {
-  it('三幕标题卡齐全、幕名唯一、字幕是单行短句', () => {
-    expect(Object.keys(ACT_CARDS)).toEqual(['1', '2', '3']);
+  it('七幕标题卡齐全、幕名唯一、字幕是单行短句', () => {
+    expect(Object.keys(ACT_CARDS)).toEqual(['1', '2', '3', '4', '5', '6', '7']);
     const titles = new Set();
     for (const [act, card] of Object.entries(ACT_CARDS)) {
       expect(card.title.length).toBeGreaterThan(1);
@@ -95,18 +95,23 @@ describe('标题卡与文案', () => {
       expect(Number.isInteger(card.tint)).toBe(true);
       titles.add(card.title);
     }
-    expect(titles.size).toBe(3);
+    expect(titles.size).toBe(7);
+    // 北斗七星：每一幕都必须有唯一星名
+    const stars = new Set(Object.values(ACT_CARDS).map((card) => card.star));
+    expect(stars.size).toBe(7);
+    expect(Object.values(ACT_CARDS).map((card) => card.star)).toEqual(['天枢', '天璇', '天玑', '天权', '玉衡', '开阳', '摇光']);
   });
 
   it('buildCard(act)：幕序号、标题、提示、主题色都取当幕；越界回退第一幕', () => {
     const card = buildCard('act', 2);
     expect(card.compact).toBe(false);
-    expect(card.eyebrow).toBe('第 2 幕 · ACT II');
+    expect(card.eyebrow).toBe('第 2 幕 · ACT II · 天璇');
     expect(card.title).toBe(ACT_CARDS[2].title);
     expect(card.accent).toBe(ACT_CARDS[2].accent);
     expect(card.stats).toEqual([]);
+    expect(buildCard('act', 7).eyebrow).toBe('第 7 幕 · ACT VII · 摇光');
     expect(buildCard('act', 99).title).toBe(ACT_CARDS[1].title);
-    expect(buildCard('act', 'x').eyebrow).toBe('第 1 幕 · ACT I');
+    expect(buildCard('act', 'x').eyebrow).toBe('第 1 幕 · ACT I · 天枢');
   });
 
   it('clear 卡带本幕四项数据，victory 卡带总计数据', () => {

@@ -1,11 +1,12 @@
 // 过场动画的剧本与时间轴：纯数据 + 纯函数，不依赖 Phaser，可在 Node 里直接单测。
 // 接入点见 src/ui/transition.js；画面实现在 src/scenes/CutsceneScene.js。
 
-// 三幕标题卡。文案与现有世界观（契约、契约主、脉流、法阵）保持一致；
-// 幕名取自 Background 的三幕主题，不新造地名。
+// 七幕标题卡（北斗七星）。文案与现有世界观（契约、契约主、脉流、法阵）保持一致；
+// 幕名取自 Background 的七幕主题；star 是北斗星名，标题卡眉栏与 HUD 都会显示。
 export const ACT_CARDS = Object.freeze({
   1: Object.freeze({
     numeral: 'I',
+    star: '天枢',
     title: '荒废墓园',
     subtitle: '第一枚契约钉进碑石。以脉流为笔，替沉默者补完未竟的仪式。',
     hint: '方向键走位 · 踩亮符印出手 · 答对问答可直接处决契约主',
@@ -14,6 +15,7 @@ export const ACT_CARDS = Object.freeze({
   }),
   2: Object.freeze({
     numeral: 'II',
+    star: '天璇',
     title: '腐沼教堂',
     subtitle: '潮声把祷词泡烂。第二枚契约沉在钟下，债主只认答对的名字。',
     hint: '二幕解封 12 格 · 进入幕间先重排罗盘，再决定带什么走',
@@ -22,11 +24,48 @@ export const ACT_CARDS = Object.freeze({
   }),
   3: Object.freeze({
     numeral: 'III',
+    star: '天玑',
     title: '星陨王庭',
     subtitle: '星纹垂落如审判。最后一位契约主记得所有名字，包括你的。',
     hint: '三幕十六格全开 · 这一局所有选择都会在这里结算',
     accent: 0x7fd7ff,
     tint: 0x171b36,
+  }),
+  4: Object.freeze({
+    numeral: 'IV',
+    star: '天权',
+    title: '沉钟书库',
+    subtitle: '书页在钟声里合拢。第四位契约主，把名字写进了索引。',
+    hint: '四幕仍十六格 · 书库的问答比刀更利',
+    accent: 0x9fb4d8,
+    tint: 0x1a1e2e,
+  }),
+  5: Object.freeze({
+    numeral: 'V',
+    star: '玉衡',
+    title: '衡律法庭',
+    subtitle: '天平两端都是罪。第五位契约主，只认等价的东西。',
+    hint: '五幕四脉流 · 每一格都要称量价值',
+    accent: 0xcfd6e0,
+    tint: 0x241f26,
+  }),
+  6: Object.freeze({
+    numeral: 'VI',
+    star: '开阳',
+    title: '熔星锻炉',
+    subtitle: '炉火把夜烧穿。第六位契约主，在铁砧上等一记重锤。',
+    hint: '六幕密度再升 · 熔火与铁屑一起砸下来',
+    accent: 0xff8a4d,
+    tint: 0x2a1814,
+  }),
+  7: Object.freeze({
+    numeral: 'VII',
+    star: '摇光',
+    title: '破晓之座',
+    subtitle: '七颗星连成一线。最后一位契约主，记得所有名字。',
+    hint: '七幕终局 · 这一局所有选择都在这里结算',
+    accent: 0xffd98a,
+    tint: 0x1a1630,
   }),
 });
 
@@ -110,14 +149,14 @@ const COMPACT = Object.freeze({
 
 // 统一的卡片内容给 CutsceneScene 用；返回 null 表示这一类只走视觉、不压字。
 export function buildCard(kind, act = 1, report = null) {
-  const safeAct = [1, 2, 3].includes(Number(act)) ? Number(act) : 1;
+  const safeAct = [1, 2, 3, 4, 5, 6, 7].includes(Number(act)) ? Number(act) : 1;
   const actCard = ACT_CARDS[safeAct];
   switch (kind) {
     case 'act':
       return {
         kind,
         compact: false,
-        eyebrow: '第 ' + safeAct + ' 幕 · ACT ' + actCard.numeral,
+        eyebrow: '第 ' + safeAct + ' 幕 · ACT ' + actCard.numeral + ' · ' + actCard.star,
         title: actCard.title,
         subtitle: actCard.subtitle,
         hint: actCard.hint,
@@ -156,9 +195,9 @@ export function buildCard(kind, act = 1, report = null) {
       return {
         kind,
         compact: false,
-        eyebrow: '终局 · 三契尽解',
+        eyebrow: '终局 · 七契尽解',
         title: '契约终结',
-        subtitle: '三枚契约主归于沉默。共振法阵第一次，安静下来。',
+        subtitle: '七枚契约主归于沉默。共振法阵第一次，安静下来。',
         hint: '查看本局结算',
         stats,
         accent: 0xe0c35a,

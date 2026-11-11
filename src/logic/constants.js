@@ -25,11 +25,16 @@ export const COOLDOWN_FLOOR_MS = 600;
 // 共鸣石：对正交四邻的间隔与冷却同时乘算 -25%
 export const RESONANCE_FACTOR = 0.75;
 
-// 三幕参数
+// 七幕参数（北斗七星）：前三幕沿用旧曲线，第四幕起间隔继续小幅压缩、脉流 3→4 条。
+// unlocked 上限就是 4×4 法阵的 16 格，后四幕不再解封新格，靠手牌/铭文/誓约继续成长。
 export const ACTS = [
   { act: 1, baseIntervalMs: 1400, starts: 2, unlocked: 6 },
   { act: 2, baseIntervalMs: 1200, starts: 3, unlocked: 12 },
   { act: 3, baseIntervalMs: 1000, starts: 3, unlocked: 16 },
+  { act: 4, baseIntervalMs: 980, starts: 3, unlocked: 16 },
+  { act: 5, baseIntervalMs: 960, starts: 4, unlocked: 16 },
+  { act: 6, baseIntervalMs: 940, starts: 4, unlocked: 16 },
+  { act: 7, baseIntervalMs: 920, starts: 4, unlocked: 16 },
 ];
 
 export const MAX_REROUTE = 2;          // 冷却受阻最多改道两次
@@ -45,8 +50,13 @@ export const SECTOR_FAR_X = 480;
 export const SECTOR_FAR_Y = 270;
 
 // 大地图：每幕一张固定世界（像素），屏幕逻辑分辨率仍 480×270，摄像机跟随
+// 第 4-6 幕沿用三幕的世界尺度；终幕「摇光」放大一档，给收束与 Boss 战留空间。
 export const WORLD_SIZES = Object.freeze({
   1: { w: 1920, h: 1440 },
   2: { w: 2400, h: 1600 },
   3: { w: 2400, h: 1800 },
+  4: { w: 2400, h: 1800 },
+  5: { w: 2400, h: 1800 },
+  6: { w: 2400, h: 1800 },
+  7: { w: 2560, h: 1920 },
 });

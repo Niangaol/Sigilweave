@@ -1,9 +1,34 @@
 // 特效层：方位光迹（设计稿 2.3 核心）、冷却折线、消散、联组链带、受击红边
 // 所有特效按内部时钟推进，暂停时 dt=0 即冻结，不依赖 Phaser tween。
-import { C, HEX, addText, pxRect, pxLine, pxDiamond } from './Palette.js';
+import { C, HEX, addText, pxRect, pxLine, pxDiamond, pxRing } from './Palette.js';
 import { drawCastFx, drawImpactFx, drawWardFx, drawLinkFx } from './spell-fx.js';
+import { drawMeteorStrike, drawQuakeStrike, METEOR_STRIKE_DUR, QUAKE_STRIKE_DUR } from './strike-fx.js';
+
+// 演出层分派：只有这两个高级法术有整套演出，其它 defId 不进来
+const STRIKE_DRAW = { meteor_judgment: drawMeteorStrike, quake_maw: drawQuakeStrike };
+const STRIKE_DUR = { meteor_judgment: METEOR_STRIKE_DUR, quake_maw: QUAKE_STRIKE_DUR };
 
 const BATTLE = { top: 20, bottom: 158, left: 2, right: 478 };
+
+// 命中特效寿命（毫秒）：轻 360~420 / 中 520~640 / 重 760~980
+const IMPACT_DUR = {
+  frost_arrow: 380,
+  arcane_bolt: 400,
+  chain_lightning: 420,
+  echo_sigil: 520,
+  mana_siphon: 520,
+  flame_burst: 560,
+  ember_fan: 560,
+  thorn_vine: 600,
+  soul_lance: 560,
+  holy_ward: 640,
+  aegis_ring: 640,
+  pierce_lance: 620,
+  starfall: 680,
+  judgment_hammer: 780,
+  quake_maw: 860,
+  meteor_judgment: 980,
+};
 
 function clampRect(r) {
   const x1 = Math.max(BATTLE.left, r.x);
@@ -65,6 +90,19 @@ export default class EffectsLayer {
     this.push({ kind: 'impact', dur: 260, x, y, color, empty: !!empty });
   }
 
+  // 屏幕内没有可选目标时的「待机」提示：法杖端点一圈淡环，表示这一格在等怪进屏（不出手）。
+  hold(x, y, color) {
+    this.push({ kind: 'hold', dur: 300, x, y, color: color ?? C.arcane });
+  }
+
+  // 受击火花：沿「命中来向」的反方向喷出的定向火星 + 白核 + 小冲击环。
+  // power 0~1 决定火星长度（重击更炸）；纯绘制，不做粒子系统，同屏几十只也扛得住。
+  hitSpark(x, y, dx, dy, color, power = 0.6) {
+    const len = Math.hypot(dx, dy) || 1;
+    const p = Number.isFinite(power) ? Math.max(0, Math.min(1, power)) : 0.6;
+    this.push({ kind: 'hitSpark', dur: 220, x, y, nx: dx / len, ny: dy / len, power: p, color: color ?? C.arcane });
+  }
+
   burst(x, y, color, count = 10) {
     const particles = [];
     for (let i = 0; i < count; i++) {
@@ -91,10 +129,12 @@ export default class EffectsLayer {
     this.push({ kind: 'spellCast', defId, x, y, angle, dur: 320 });
   }
 
-  // 命中/落点：16 个法术各自的爆点图案；陨星/地裂给更长寿命
+  // 命中/落点：16 个法术各自的爆点图案。
+  // 寿命按「重量」分档：轻法术干脆利落（短），重击留足余韵（长），
+  // 这样同屏几十发齐射时短特效快速让位，重击还能在屏幕上停住。
   // angle 供贯穿/回声/噬魂/余烬这类有方向的命中图案用（不传＝0，朝右）
   spellImpact(defId, x, y, radius = 14, angle = 0) {
-    const dur = defId === 'meteor_judgment' ? 900 : defId === 'quake_maw' ? 700 : 520;
+    const dur = IMPACT_DUR[defId] ?? 480;
     this.push({ kind: 'spellImpact', defId, x, y, radius, angle, dur });
   }
 
@@ -115,9 +155,54 @@ export default class EffectsLayer {
     });
   }
 
+  // 高级法术的多段演出（1.4~1.6s）：和 spellImpact 的瞬发图案并行，一个管「打到了」，一个管「后果」
+  spellStrike(defId, x, y, radius = 90, angle = 0) {
+    const dur = STRIKE_DUR[defId];
+    if (!dur) return;
+    this.push({ kind: 'spellStrike', defId, x, y, radius, angle, dur });
+  }
+
+  // 屏幕级演出反馈：四边压暗再回弹（不闪全屏，避免挡住战场）
+  vignette(strength = 1, dur = 460) {
+    this.push({ kind: 'vignette', dur, strength });
+  }
+
   // 割草死亡反馈：比 deathBurst 轻得多，同屏几十个也不掉帧
   killBurst(x, y, color) {
     this.push({ kind: 'killBurst', x, y, color: color ?? C.bone, dur: 420 });
+  }
+
+  // 小怪爆散：首帧白闪 + 冲击环 + 10/16 块身体碎片（抛物线飞散）+ 骨屑尘。
+  // 纯绘制、不用粒子系统；碎片方向/速度由击杀位置确定性推导，同一位置重播一致。
+  deathScatter(x, y, color, opts = {}) {
+    const elite = !!opts.elite;
+    const count = elite ? 18 : 12;
+    const seed = ((x * 0.37 + y * 0.11) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    const shards = [];
+    for (let i = 0; i < count; i++) {
+      const a = seed + (i / count) * Math.PI * 2;
+      // 前 3 块是「大块身体」：慢、大、带描边，读作确实被打碎了一块；
+      // 剩下的才是细骨屑。没有大块的话，远看只是一圈白烟。
+      const big = i < 3;
+      const speed = big ? 34 + ((i * 19) % 24) : (elite ? 74 : 50) + ((i * 29) % 52);
+      shards.push({
+        vx: Math.cos(a) * speed,
+        vy: Math.sin(a) * speed - (big ? 22 : elite ? 58 : 38),
+        size: big ? 4 : i % 4 === 0 ? 3 : i % 2 === 0 ? 2 : 1,
+        color: big ? (i === 0 ? (color ?? C.bone) : C.bone) : i % 3 === 0 ? C.stoneLight : C.bone,
+        gravity: big ? 120 : 140 + (i % 3) * 32,
+      });
+    }
+    this.push({
+      kind: 'deathScatter', x, y, elite,
+      color: color ?? C.bone, shards,
+      dur: elite ? 760 : 560,
+    });
+  }
+
+  // 经验粒子被吸收：极短的青色小环，给「吸进去了」一个落点，不刷文字。
+  expPop(x, y) {
+    this.push({ kind: 'expPop', x, y, dur: 180 });
   }
 
   // 连斩上报：n>=2 才显示，1.5 秒内没有新击杀自动消失
@@ -143,6 +228,97 @@ export default class EffectsLayer {
       const dist = 3 + k * 13;
       pxRect(g, Math.round(x + Math.cos(ang) * dist), Math.round(y + Math.sin(ang) * dist) - Math.round(k * k * 4), 1, 1, it.color, a * 0.85);
     }
+  }
+
+  // 伤害数字：小字号上浮，重击用黄铜色并放大一点。
+  // 只给 ≤3 目标的单体命中用，避免范围法术一次糊满屏数字。
+  damageNumber(x, y, amount, color = HEX.white, heavy = false) {
+    const n = Math.max(0, Math.round(Number(amount) || 0));
+    if (!n) return;
+    const jitter = ((n * 37) % 7) - 3;
+    const obj = addText(this.scene, Math.round(x) + jitter, Math.round(y), String(n), heavy ? 9 : 8, color)
+      .setOrigin(0.5, 1).setDepth(916);
+    this.texts.push({ obj, y0: Math.round(y), t: 0, dur: 620, rise: heavy ? 18 : 14, pop: true });
+  }
+
+  // 受击火花：白核 + 沿命中来向反向喷出的 4 条定向火星 + 扩散冲击环。
+  drawHitSpark(g, it, k, a) {
+    const x = Math.round(it.x);
+    const y = Math.round(it.y);
+    const { nx, ny, power } = it;
+    const tx = -ny;
+    const ty = nx;
+    if (k < 0.55) {
+      pxDiamond(g, x, y, 3 + Math.round(2 * a), C.outline, a * 0.9, false);
+      pxDiamond(g, x, y, 2 + Math.round(2 * a), C.white, a, true);
+    }
+    for (let i = 0; i < 4; i++) {
+      const off = (i - 1.5) * 0.55;
+      const dirX = -nx + tx * off;
+      const dirY = -ny + ty * off;
+      const dl = Math.hypot(dirX, dirY) || 1;
+      const ux = dirX / dl;
+      const uy = dirY / dl;
+      const d0 = 2 + 12 * k;
+      const len = (3 + 8 * power) * (1 - k * 0.35);
+      const x0 = Math.round(x + ux * d0);
+      const y0 = Math.round(y + uy * d0);
+      const x1 = Math.round(x + ux * (d0 + len));
+      const y1 = Math.round(y + uy * (d0 + len));
+      pxLine(g, x0, y0 + 1, x1, y1 + 1, C.outline, a * 0.85, 1);
+      pxLine(g, x0, y0, x1, y1, i === 0 ? C.white : it.color, a, 1);
+    }
+    pxRing(g, x, y, 2 + Math.round(9 * k), it.color, a * 0.75, 2);
+  }
+
+  // 爆散：首帧白闪十字 + 扩散冲击环 + 抛物线碎片 + 贴地骨屑。
+  drawDeathScatter(g, it, k, a) {
+    const x = Math.round(it.x);
+    const y = Math.round(it.y);
+    const t = k * (it.dur / 1000);
+    // 首帧白闪只留 ~70ms：够亮，但不盖住后面飞出来的碎片
+    if (k < 0.12) {
+      const f = 1 - k / 0.12;
+      pxDiamond(g, x, y, 4 + Math.round(8 * k), C.outline, 0.8 * f, false);
+      pxDiamond(g, x, y, 3 + Math.round(6 * k), C.white, 0.95 * f, true);
+      pxRect(g, x - 11, y, 23, 1, C.white, 0.7 * f);
+      pxRect(g, x, y - 11, 1, 23, C.white, 0.7 * f);
+    }
+    const ring = Math.min(1, Math.max(0, (k - 0.03) / 0.5));
+    if (ring > 0 && ring < 1) {
+      pxDiamond(g, x, y, 5 + Math.round(26 * ring), it.elite ? C.brassLight : C.white, (1 - ring) * 0.4, false);
+    }
+    for (const s of it.shards) {
+      const px = x + s.vx * t;
+      const py = y + s.vy * t + 0.5 * s.gravity * t * t;
+      if (py > y + 52) continue; // 沉到地面线以下就不画
+      const sx = Math.round(px);
+      const sy = Math.round(py);
+      pxRect(g, sx, sy, s.size, s.size, C.outline, a * 0.9);
+      pxRect(g, sx, sy, Math.max(1, s.size - 1), Math.max(1, s.size - 1), s.color, a);
+    }
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2 + 0.4;
+      const dist = 3 + 20 * k;
+      pxRect(g, Math.round(x + Math.cos(ang) * dist), Math.round(y + 6 + Math.sin(ang) * dist * 0.35), 1, 1, C.fog, a * 0.35);
+    }
+  }
+
+  // 经验吸收：小环从 2px 扩到 7px 后消失。
+  drawExpPop(g, it, k, a) {
+    const x = Math.round(it.x);
+    const y = Math.round(it.y);
+    pxDiamond(g, x, y, 2 + Math.round(5 * k), C.teal, a * 0.8, false);
+    pxRect(g, x, y, 1, 1, C.white, a);
+  }
+
+  // 待机环：不指向任何方向，只说明这一格「看到目标前不出手」。
+  drawHold(g, it, k, a) {
+    const x = Math.round(it.x);
+    const y = Math.round(it.y);
+    pxRing(g, x, y, 3 + Math.round(7 * k), it.color, 0.5 * a, 2);
+    pxDiamond(g, x, y, 3, C.outline, 0.5 * a, false);
+    pxDiamond(g, x, y, 2, it.color, 0.45 * a, false);
   }
 
   text(x, y, str, color, fixed = false) {
@@ -300,8 +476,38 @@ export default class EffectsLayer {
         });
       } else if (it.kind === 'spellLink') {
         drawLinkFx(g, it.defId, { from: it.from, to: it.to, k, clock: this.clock, index: it.index });
+      } else if (it.kind === 'spellStrike') {
+        const fn = STRIKE_DRAW[it.defId];
+        if (fn) fn(g, { x: it.x, y: it.y, k, clock: this.clock, radius: it.radius, angle: it.angle });
+      } else if (it.kind === 'vignette') {
+        // 暗角脉冲：四边硬边黑框，先压力后回弹（峰值在 k≈0.18）
+        const s = it.strength * Math.sin(Math.min(1, k / 0.55) * Math.PI * 0.5) * (1 - k * 0.55);
+        const vh = Math.round(26 * s);
+        const vw = Math.round(34 * s);
+        if (vh > 0) {
+          pxRect(vg, 0, 0, 480, vh, C.void, 0.42 * s);
+          pxRect(vg, 0, 270 - vh, 480, vh, C.void, 0.42 * s);
+        }
+        if (vw > 0) {
+          pxRect(vg, 0, 0, vw, 270, C.void, 0.34 * s);
+          pxRect(vg, 480 - vw, 0, vw, 270, C.void, 0.34 * s);
+        }
+        // 四角加重，读作「镜头收了一下」
+        const cs = Math.round(18 * s);
+        pxRect(vg, 0, 0, cs, cs, C.void, 0.3 * s);
+        pxRect(vg, 480 - cs, 0, cs, cs, C.void, 0.3 * s);
+        pxRect(vg, 0, 270 - cs, cs, cs, C.void, 0.3 * s);
+        pxRect(vg, 480 - cs, 270 - cs, cs, cs, C.void, 0.3 * s);
       } else if (it.kind === 'killBurst') {
         this.drawKillBurst(g, it, k, a);
+      } else if (it.kind === 'deathScatter') {
+        this.drawDeathScatter(g, it, k, a);
+      } else if (it.kind === 'expPop') {
+        this.drawExpPop(g, it, k, a);
+      } else if (it.kind === 'hitSpark') {
+        this.drawHitSpark(g, it, k, a);
+      } else if (it.kind === 'hold') {
+        this.drawHold(g, it, k, a);
       } else if (it.kind === 'impact') {
         const rr = 2 + k * 5;
         // 命中：描边菱形扩张 + 本色环 + 白核十字
@@ -372,8 +578,9 @@ export default class EffectsLayer {
       const tx = this.texts[i];
       tx.t += dtMs;
       const k = Math.min(1, tx.t / tx.dur);
-      tx.obj.y = tx.y0 - 12 * k;
+      tx.obj.y = tx.y0 - (tx.rise ?? 12) * k;
       tx.obj.setAlpha(1 - k);
+      if (tx.pop) tx.obj.setScale(1 + 0.28 * Math.max(0, 1 - k * 4));
       if (k >= 1) {
         tx.obj.destroy();
         this.texts.splice(i, 1);

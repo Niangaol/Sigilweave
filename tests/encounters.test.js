@@ -19,14 +19,16 @@ const unchangedFailure = (state, fn) => {
 };
 
 describe('遭遇定义', () => {
-  it('包含三幕各一个 NPC、一个大 Boss、两个小 Boss，名字和题目均不重复', () => {
+  it('包含七幕各一个 NPC、一个大 Boss、两个小 Boss，名字和题目均不重复', () => {
     expect(Object.keys(ENCOUNTERS).sort()).toEqual([
-      'boss-1', 'boss-2', 'boss-3',
+      'boss-1', 'boss-2', 'boss-3', 'boss-4', 'boss-5', 'boss-6', 'boss-7',
       'miniboss-1a', 'miniboss-1b', 'miniboss-2a', 'miniboss-2b', 'miniboss-3a', 'miniboss-3b',
-      'npc-1', 'npc-2', 'npc-3',
+      'miniboss-4a', 'miniboss-4b', 'miniboss-5a', 'miniboss-5b', 'miniboss-6a', 'miniboss-6b',
+      'miniboss-7a', 'miniboss-7b',
+      'npc-1', 'npc-2', 'npc-3', 'npc-4', 'npc-5', 'npc-6', 'npc-7',
     ]);
-    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.name)).size).toBe(12);
-    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.question)).size).toBe(12);
+    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.name)).size).toBe(28);
+    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.question)).size).toBe(28);
     // 大 Boss 无 tier，小 Boss 必须 tier=mini
     for (const d of Object.values(ENCOUNTERS)) {
       if (d.id.startsWith('miniboss-')) expect(d.tier).toBe('mini');
@@ -58,7 +60,7 @@ describe('遭遇定义', () => {
       }
     });
   }
-  it.each([null, undefined, NaN, Infinity, 0, -1, 4, 1.5, '1', {}, Symbol('act')])('拒绝非法幕号 %s', (act) => {
+  it.each([null, undefined, NaN, Infinity, 0, -1, 8, 1.5, '1', {}, Symbol('act')])('拒绝非法幕号 %s', (act) => {
     expect(getEncounterForAct(act, 'npc')).toBeNull();
   });
   it.each(['constructor', '__proto__', 'boss-1', null, {}, Symbol('kind')])('拒绝非法种类 %s', (kind) => {

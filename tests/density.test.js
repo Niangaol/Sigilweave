@@ -57,27 +57,37 @@ describe('difficultyAt：割草密度曲线', () => {
     });
   });
 
-  it('第二/三幕按 ACT_DENSITY 抬高同屏上限、压缩刷怪间隔', () => {
+  it('第二至七幕按 ACT_DENSITY 抬高同屏上限、压缩刷怪间隔', () => {
     expect(difficultyAt(0, 2).maxAlive).toBe(35);                     // round(30 × 1.15)
     expect(difficultyAt(0, 3).maxAlive).toBe(39);                     // round(30 × 1.30)
+    expect(difficultyAt(0, 4).maxAlive).toBe(41);                     // round(30 × 1.38)
+    expect(difficultyAt(0, 5).maxAlive).toBe(44);                     // round(30 × 1.46)
+    expect(difficultyAt(0, 6).maxAlive).toBe(46);                     // round(30 × 1.54)
+    expect(difficultyAt(0, 7).maxAlive).toBe(49);                     // round(30 × 1.62)
     expect(difficultyAt(0, 2).spawnMs).toBeCloseTo(700 * 0.92, 6);
     expect(difficultyAt(0, 3).spawnMs).toBeCloseTo(700 * 0.85, 6);
+    expect(difficultyAt(0, 7).spawnMs).toBeCloseTo(700 * 0.73, 6);
     expect(difficultyAt(DIFFICULTY.rampMs, 2).maxAlive).toBe(74);     // round(64 × 1.15)
     expect(difficultyAt(DIFFICULTY.rampMs, 3).maxAlive).toBe(83);     // round(64 × 1.30)
+    expect(difficultyAt(DIFFICULTY.rampMs, 4).maxAlive).toBe(88);     // round(64 × 1.38)
+    expect(difficultyAt(DIFFICULTY.rampMs, 5).maxAlive).toBe(93);     // round(64 × 1.46)
+    expect(difficultyAt(DIFFICULTY.rampMs, 6).maxAlive).toBe(99);     // round(64 × 1.54)
+    expect(difficultyAt(DIFFICULTY.rampMs, 7).maxAlive).toBe(104);    // round(64 × 1.62)
     expect(difficultyAt(DIFFICULTY.rampMs, 2).spawnMs).toBeCloseTo(520 * 0.92, 6);
     expect(difficultyAt(DIFFICULTY.rampMs, 3).spawnMs).toBeCloseTo(520 * 0.85, 6);
+    expect(difficultyAt(DIFFICULTY.rampMs, 7).spawnMs).toBeCloseTo(520 * 0.73, 6);
 
-    // 第三幕永远是同屏最多、刷得最密的那一幕
+    // 第七幕永远是同屏最多、刷得最密的那一幕
     for (const ms of [0, 60000, DIFFICULTY.rampMs]) {
-      expect(difficultyAt(ms, 3).maxAlive).toBeGreaterThan(difficultyAt(ms, 1).maxAlive);
-      expect(difficultyAt(ms, 3).spawnMs).toBeLessThan(difficultyAt(ms, 1).spawnMs);
+      expect(difficultyAt(ms, 7).maxAlive).toBeGreaterThan(difficultyAt(ms, 1).maxAlive);
+      expect(difficultyAt(ms, 7).spawnMs).toBeLessThan(difficultyAt(ms, 1).spawnMs);
     }
   });
 
-  it('幕密度只放大上限与间隔：血量/速度/伤害/单波数量三幕相同', () => {
+  it('幕密度只放大上限与间隔：血量/速度/伤害/单波数量七幕相同', () => {
     for (const ms of [0, 45000, DIFFICULTY.rampMs]) {
       const base = difficultyAt(ms, 1);
-      for (const act of [2, 3]) {
+      for (const act of [2, 3, 4, 5, 6, 7]) {
         const dif = difficultyAt(ms, act);
         for (const key of ['hp', 'speed', 'damage', 'wave']) {
           expect(dif[key]).toBe(base[key]);
@@ -93,7 +103,7 @@ describe('difficultyAt：割草密度曲线', () => {
   });
 
   it('非法 act 一律回退第一幕', () => {
-    for (const act of [0, 4, -1, 1.5, '2', null, Number.NaN, Infinity, true, {}, undefined]) {
+    for (const act of [0, 8, -1, 1.5, '2', null, Number.NaN, Infinity, true, {}, undefined]) {
       expect(difficultyAt(60000, act)).toEqual(difficultyAt(60000, 1));
     }
   });
@@ -134,10 +144,14 @@ describe('difficultyAt：割草密度曲线', () => {
     }
   });
 
-  it('ACT_DENSITY 三幕系数就是设计值', () => {
+  it('ACT_DENSITY 七幕系数就是设计值', () => {
     expect(ACT_DENSITY[1]).toEqual({ maxAlive: 1, spawnMs: 1 });
     expect(ACT_DENSITY[2]).toEqual({ maxAlive: 1.15, spawnMs: 0.92 });
     expect(ACT_DENSITY[3]).toEqual({ maxAlive: 1.3, spawnMs: 0.85 });
+    expect(ACT_DENSITY[4]).toEqual({ maxAlive: 1.38, spawnMs: 0.82 });
+    expect(ACT_DENSITY[5]).toEqual({ maxAlive: 1.46, spawnMs: 0.79 });
+    expect(ACT_DENSITY[6]).toEqual({ maxAlive: 1.54, spawnMs: 0.76 });
+    expect(ACT_DENSITY[7]).toEqual({ maxAlive: 1.62, spawnMs: 0.73 });
   });
 });
 
@@ -169,7 +183,7 @@ describe('敌人接触伤害：密度上调后同步下调', () => {
     expect(ACT_ENEMY_WEIGHTS[1]).toEqual([
       ['skeleton', 0.46], ['bat', 0.18], ['rune_spider', 0.24], ['stone_gargoyle', 0.12],
     ]);
-    for (const act of [1, 2, 3]) {
+    for (const act of [1, 2, 3, 4, 5, 6, 7]) {
       expect(ACT_ENEMY_WEIGHTS[act].reduce((sum, [, w]) => sum + w, 0)).toBeCloseTo(1, 12);
     }
   });

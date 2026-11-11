@@ -14,6 +14,10 @@ const ALL_DEFS = [
   'stitch_abomination', 'oath_bishop',
   'rune_spider', 'stone_gargoyle', 'crystal_dryad',
   'clockwork_doll', 'void_elemental', 'wraith', 'brass_warden',
+  'ink_wisp', 'page_golem', 'index_hound',
+  'verdict_wraith', 'shackle_guard', 'scale_arbiter',
+  'slag_beast', 'ember_imp', 'anvil_tyrant',
+  'dawn_shade', 'stardust_knight', 'eclipse_priest',
 ];
 
 // 按固定步长连续推进，喂回上一帧坐标（和 BattleScene / Enemy 的用法一致）
@@ -53,6 +57,64 @@ describe('新怪行为冒烟', () => {
       if (id === 'crystal_dryad') expect(shots).toBeGreaterThanOrEqual(VOLLEY_RULE.shots);
       if (id === 'void_elemental') expect(shots).toBeGreaterThanOrEqual(PHASE_RULE.burstShots - 1);
     }
+  });
+});
+
+describe('北斗后半段精英行为', () => {
+  it('索引猎犬：蓄力后进入高速扑咬（windup + charging 都出现）', () => {
+    const brain = createBrain('index_hound', { seed: 1 });
+    let pos = { x: 240, y: 60 };
+    let windup = false;
+    let charging = false;
+    for (let i = 0; i < 420; i++) {
+      const r = stepBrain(brain, { dtMs: 16, now: i * 16, self: { ...pos, speed: 40, radius: 12 }, player: PLAYER, opts: OPTS });
+      if (r.windup) windup = true;
+      if (r.charging) charging = true;
+      pos = { x: r.x, y: r.y };
+    }
+    expect(windup).toBe(true);
+    expect(charging).toBe(true);
+  });
+
+  it('铁砧暴君：贴近后蓄力并产出 46px 大范围 stomp 事件', () => {
+    const brain = createBrain('anvil_tyrant', { seed: 2 });
+    let pos = { x: 240, y: 200 };
+    let stomp = null;
+    for (let i = 0; i < 260 && !stomp; i++) {
+      const r = stepBrain(brain, { dtMs: 16, now: i * 16, self: { ...pos, speed: 30, radius: 14 }, player: PLAYER, opts: OPTS });
+      if (r.stomp) stomp = r.stomp;
+      pos = { x: r.x, y: r.y };
+    }
+    expect(stomp).not.toBeNull();
+    expect(stomp.radius).toBe(46);
+    expect(stomp.damage).toBeGreaterThanOrEqual(16);
+  });
+
+  it('天平裁决者：蓄力后打出一发慢速重弹', () => {
+    const brain = createBrain('scale_arbiter', { seed: 3 });
+    let pos = { x: 240, y: 120 };
+    let shot = null;
+    for (let i = 0; i < 640 && !shot; i++) {
+      const r = stepBrain(brain, { dtMs: 16, now: i * 16, self: { ...pos, speed: 40, radius: 12 }, player: PLAYER, opts: OPTS });
+      if (r.shots.length) shot = r.shots[0];
+      pos = { x: r.x, y: r.y };
+    }
+    expect(shot).not.toBeNull();
+    expect(Math.hypot(shot.vx, shot.vy)).toBeCloseTo(72, 5);
+    expect(shot.damage).toBeGreaterThanOrEqual(12);
+  });
+
+  it('蚀日祭司：蓄力后打出八向星环', () => {
+    const brain = createBrain('eclipse_priest', { seed: 4 });
+    let pos = { x: 240, y: 120 };
+    let shots = [];
+    for (let i = 0; i < 960 && shots.length === 0; i++) {
+      const r = stepBrain(brain, { dtMs: 16, now: i * 16, self: { ...pos, speed: 40, radius: 12 }, player: PLAYER, opts: OPTS });
+      if (r.shots.length) shots = r.shots;
+      pos = { x: r.x, y: r.y };
+    }
+    expect(shots).toHaveLength(8);
+    expect(new Set(shots.map((s) => Math.round(Math.atan2(s.vy, s.vx) * 100))).size).toBe(8);
   });
 });
 
@@ -646,7 +708,7 @@ describe('roster：敌人数据与三幕权重', () => {
     expect(ENEMY_TYPES.skeleton.elite).toBeUndefined();  // 普通杂兵不带精英标记
   });
 
-  it.each([1, 2, 3])('第 %i 幕权重和约为 1', (act) => {
+  it.each([1, 2, 3, 4, 5, 6, 7])('第 %i 幕权重和约为 1', (act) => {
     const table = ACT_ENEMY_WEIGHTS[act];
     expect(Array.isArray(table)).toBe(true);
     expect(table.length).toBeGreaterThanOrEqual(2);
@@ -680,10 +742,32 @@ describe('roster：敌人数据与三幕权重', () => {
     expect(weightOf(3, 'brass_warden')).toBeCloseTo(0.06, 10);
     expect(weightOf(3, 'knight')).toBeCloseTo(0.1, 10);
     expect(weightOf(3, 'stitch_abomination')).toBe(0);
+
+    // 后四幕：每幕专属敌人占大头，旧怪只作陪衬
+    for (const act of [4, 5, 6, 7]) {
+      expect(ACT_ENEMY_WEIGHTS[act].length).toBeGreaterThanOrEqual(10);
+      expect(weightOf(act, 'brass_warden')).toBeGreaterThan(0);
+    }
+    expect(weightOf(4, 'ink_wisp')).toBeCloseTo(0.18, 10);
+    expect(weightOf(4, 'page_golem')).toBeCloseTo(0.18, 10);
+    expect(weightOf(4, 'index_hound')).toBeCloseTo(0.08, 10);
+    expect(weightOf(4, 'clockwork_doll')).toBeCloseTo(0.12, 10);
+    expect(weightOf(5, 'verdict_wraith')).toBeCloseTo(0.16, 10);
+    expect(weightOf(5, 'shackle_guard')).toBeCloseTo(0.18, 10);
+    expect(weightOf(5, 'scale_arbiter')).toBeCloseTo(0.08, 10);
+    expect(weightOf(5, 'knight')).toBeCloseTo(0.12, 10);
+    expect(weightOf(6, 'slag_beast')).toBeCloseTo(0.18, 10);
+    expect(weightOf(6, 'ember_imp')).toBeCloseTo(0.16, 10);
+    expect(weightOf(6, 'anvil_tyrant')).toBeCloseTo(0.08, 10);
+    expect(weightOf(6, 'oath_bishop')).toBe(0);
+    expect(weightOf(7, 'dawn_shade')).toBeCloseTo(0.16, 10);
+    expect(weightOf(7, 'stardust_knight')).toBeCloseTo(0.16, 10);
+    expect(weightOf(7, 'eclipse_priest')).toBeCloseTo(0.1, 10);
+    expect(weightOf(7, 'stitch_abomination')).toBeCloseTo(0.02, 10);
   });
 
   it('roll 落入哪个区间就返回哪种敌人（按当前权重逐段验证）', () => {
-    for (const act of [1, 2, 3]) {
+    for (const act of [1, 2, 3, 4, 5, 6, 7]) {
       let acc = 0;
       for (const [id, weight] of ACT_ENEMY_WEIGHTS[act]) {
         expect(pickEnemyType(act, acc + weight / 2).id).toBe(id);
@@ -695,7 +779,7 @@ describe('roster：敌人数据与三幕权重', () => {
   });
 
   it('同 act/roll 永远返回同一种敌人对象', () => {
-    for (const act of [1, 2, 3]) {
+    for (const act of [1, 2, 3, 4, 5, 6, 7]) {
       for (let i = 0; i < 50; i++) {
         const roll = (i + 0.37) / 50;
         const first = pickEnemyType(act, roll);
@@ -705,9 +789,9 @@ describe('roster：敌人数据与三幕权重', () => {
     }
   });
 
-  it('三幕遍历覆盖全部十四种敌人，且从不返回表外敌人', () => {
+  it('七幕遍历覆盖全部二十六种敌人，且从不返回表外敌人', () => {
     const appeared = new Set();
-    for (const act of [1, 2, 3]) {
+    for (const act of [1, 2, 3, 4, 5, 6, 7]) {
       for (let i = 0; i < 200; i++) {
         const def = pickEnemyType(act, i / 200);
         expect(ENEMY_TYPES[def.id]).toBe(def);
@@ -715,14 +799,16 @@ describe('roster：敌人数据与三幕权重', () => {
       }
     }
     expect([...appeared].sort()).toEqual([
-      'bat', 'brass_warden', 'clockwork_doll', 'corpse', 'crystal_dryad', 'cultist',
-      'knight', 'oath_bishop', 'rune_spider', 'skeleton', 'stitch_abomination',
-      'stone_gargoyle', 'void_elemental', 'wraith',
+      'anvil_tyrant', 'bat', 'brass_warden', 'clockwork_doll', 'corpse', 'crystal_dryad',
+      'cultist', 'dawn_shade', 'eclipse_priest', 'ember_imp', 'index_hound', 'ink_wisp',
+      'knight', 'oath_bishop', 'page_golem', 'rune_spider', 'scale_arbiter', 'shackle_guard',
+      'skeleton', 'slag_beast', 'stardust_knight', 'stitch_abomination', 'stone_gargoyle',
+      'verdict_wraith', 'void_elemental', 'wraith',
     ]);
   });
 
   it.each([
-    [0, 0.5], [4, 0.5], [-1, 0.5], [1.5, 0.5], ['2', 0.5], [null, 0.5], [undefined, 0.5],
+    [0, 0.5], [8, 0.5], [-1, 0.5], [1.5, 0.5], ['2', 0.5], [null, 0.5], [undefined, 0.5],
     [1, -0.1], [1, 1], [1, 1.0001], [1, Number.NaN], [1, Infinity], [1, '0.5'], [1, null], [1, undefined],
   ])('非法输入 act=%j roll=%j 回退骷髅兵', (act, roll) => {
     expect(pickEnemyType(act, roll)).toBe(ENEMY_TYPES.skeleton);

@@ -16,7 +16,7 @@ describe('构筑输入边界', () => {
     expect(() => validateDraft(draft)).not.toThrow();
     expect(validateDraft(draft).length).toBeGreaterThan(0);
   });
-  it.each([0, 4, -1, 1.5, '2', null])('非法幕数 %j', act => {
+  it.each([0, 8, -1, 1.5, '2', null])('非法幕数 %j', act => {
     expect(codes({ ...fixture(), act })).toContain('invalid_act');
   });
   it.each([-1, 16, 1.5, '6', null])('非法格号 %j', id => {
@@ -114,7 +114,7 @@ describe('构筑提交与回读', () => {
   });
   it.each([
     { ...emptyDraft(1), unlocked: [16], slots: { 16: { kind: 'sigil', defId: 'arcane_bolt' } } },
-    { ...emptyDraft(4), unlocked: [5] },
+    { ...emptyDraft(8), unlocked: [5] },
     { ...emptyDraft(1), unlocked: [0, 1, 2, 3, 4, 5, 6] },
   ])('失败提交保持旧配置与冷却完整', bad => {
     const grid = createGrid(); applyDraft(grid, fixture()); grid.cells[6].cooldownUntil = 4321;

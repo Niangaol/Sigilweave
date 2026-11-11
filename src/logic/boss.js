@@ -1,9 +1,13 @@
 // Boss 基础行为：纯模拟时钟、600ms预警、固定瞄准后发射；UI与命中由战斗层处理。
-// 三位 Boss 使用不同弹幕模板：一扇形、二环形、三宽扇高速
+// 七位 Boss 使用不同弹幕模板：一扇形、二环形、三宽扇高速；四起是后四幕的专属弹幕。
 export const BOSS_PATTERNS = Object.freeze({
   1: { name: '扇形五连', count: 5, spread: 0.42, speed: 53, damage: 8 },
   2: { name: '环封八向', count: 8, ring: true, speed: 38, damage: 7 },
   3: { name: '裂空七线', count: 7, spread: 0.62, speed: 69, damage: 8 },
+  4: { name: '书页扇幕', count: 6, spread: 0.5, speed: 56, damage: 8 },
+  5: { name: '天平十向', count: 10, ring: true, speed: 42, damage: 7 },
+  6: { name: '熔火三叉', count: 3, spread: 0.5, speed: 74, damage: 9 },
+  7: { name: '终星九线', count: 9, spread: 0.7, speed: 78, damage: 9 },
 });
 
 export function bossPattern(act) {
@@ -11,7 +15,7 @@ export function bossPattern(act) {
 }
 
 export function createBossModel(act = 1) {
-  if (!Number.isInteger(act) || act < 1 || act > 3) throw new RangeError('Boss幕数无效');
+  if (!Number.isInteger(act) || act < 1 || act > 7) throw new RangeError('Boss幕数无效');
   return { act, attackIn: 1200, windupLeft: 0, aim: null, shots: 0 };
 }
 export function stepBoss(model, dtMs, position, target) {
@@ -43,7 +47,7 @@ export function stepBoss(model, dtMs, position, target) {
 
 // 通关收据独立于普通伤害/掉落链，一幕只奖励一次。
 export function resolveBossOnce(run, act, bossId, method, tier = 'major') {
-  if (!run || typeof run !== 'object' || Array.isArray(run) || (run.act !== undefined && run.act !== act) || !Number.isInteger(act) || act < 1 || act > 3 || typeof bossId !== 'string' || !bossId
+  if (!run || typeof run !== 'object' || Array.isArray(run) || (run.act !== undefined && run.act !== act) || !Number.isInteger(act) || act < 1 || act > 7 || typeof bossId !== 'string' || !bossId
     || !['quiz', 'combat'].includes(method) || !['major', 'mini'].includes(tier)) return { ok: false, reward: 0 };
   if (run.bossResolutions !== undefined && (run.bossResolutions === null || typeof run.bossResolutions !== 'object' || Array.isArray(run.bossResolutions))) return { ok: false, reward: 0 };
   run.bossResolutions ??= {};

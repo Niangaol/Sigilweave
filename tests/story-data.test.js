@@ -45,16 +45,28 @@ describe('开场分镜数据', () => {
     expect(canSkipStory(150)).toBe(true);
   });
 
-  it('journey 配置覆盖二/三幕，文案与幕名符合规格', () => {
-    expect(Object.keys(JOURNEYS)).toEqual(['2', '3']);
+  it('journey 配置覆盖二至七幕，文案、幕名与北斗星名符合规格', () => {
+    expect(Object.keys(JOURNEYS)).toEqual(['2', '3', '4', '5', '6', '7']);
     expect(JOURNEYS[2].label).toBe('第贰幕 · 腐沼教堂');
     expect(JOURNEYS[2].subtitle).toBe('潮声把祷词泡烂。第二枚契约，沉在钟下。');
     expect(JOURNEYS[2].stage).toBe('swamp');
     expect(JOURNEYS[3].label).toBe('第叁幕 · 星陨王庭');
     expect(JOURNEYS[3].subtitle).toBe('星纹垂落如审判。最后一位契约主，记得所有名字。');
     expect(JOURNEYS[3].stage).toBe('star');
+    expect(JOURNEYS[4].label).toBe('第肆幕 · 天权 · 沉钟书库');
+    expect(JOURNEYS[4].stage).toBe('library');
+    expect(JOURNEYS[5].label).toBe('第伍幕 · 玉衡 · 衡律法庭');
+    expect(JOURNEYS[5].stage).toBe('court');
+    expect(JOURNEYS[6].label).toBe('第陆幕 · 开阳 · 熔星锻炉');
+    expect(JOURNEYS[6].stage).toBe('forge');
+    expect(JOURNEYS[7].label).toBe('第柒幕 · 摇光 · 破晓之座');
+    expect(JOURNEYS[7].stage).toBe('sunrise');
     expect(JOURNEYS[2].accent).toBe(0x7cc9a8);
     expect(JOURNEYS[3].accent).toBe(0x7fd7ff);
+    expect(JOURNEYS[4].accent).toBe(0x9fb4d8);
+    expect(JOURNEYS[5].accent).toBe(0xcfd6e0);
+    expect(JOURNEYS[6].accent).toBe(0xff8a4d);
+    expect(JOURNEYS[7].accent).toBe(0xffd98a);
   });
 
   it('数据全部冻结，运行期不会被 accidental 修改', () => {
@@ -82,7 +94,7 @@ describe('结局分镜数据', () => {
       expect(s.stage).toBe(s.id);
       expect(s.cue).toBeTruthy();
     });
-    expect(tl.shots[0].subtitle).toBe('三枚契约主，归于沉默。');
+    expect(tl.shots[0].subtitle).toBe('七枚契约主，归于沉默。');
     expect(tl.shots[1].subtitle).toBe('共振法阵第一次，安静下来。');
     expect(tl.shots[2].subtitle).toBe('星陨平息。黎明落在无人记得的碑上。');
     expect(tl.shots[3].subtitle).toBe('');
