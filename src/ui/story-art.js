@@ -1607,4 +1607,4 @@ export const ENDING_STAGES = {
 
 // journey 六幕的静态三层 + 逐帧动态件已拆到独立文件（T17）；
 // 这里保持对外导出面不变：JOURNEY_STAGES[stage](g, ctx) 仍然只画动态。
-export { JOURNEY_STATIC, JOURNEY_STAGES, journeyLayout, journeyPan } from './journey-static.js';
+export { JOURNEY_STATIC, JOURNEY_STAGES, journeyLayout, journeyPan, swampFrame, swampBenches, swampProps, courtBalance } from './journey-static.js';

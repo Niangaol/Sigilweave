@@ -393,8 +393,9 @@ export function mid(g, L) {
   // 起点退到地平线下方 14px 之后：钟的落地影必须落在石板上，毯不能盖住影子。
   const rugTop = horizon + Math.max(14, R(18 * u));
   const rugH = Math.max(8, ground - rugTop);
-  const rugWTop = Math.max(12, R(w * 0.055));
-  const rugWBot = Math.max(18, R(w * 0.15));
+  // 毯宽：横屏 0.055→0.072、0.15→0.185；竖屏 480 宽的 15% 只有 72px，1x 下毯细得像个柱础
+  const rugWTop = Math.max(14, R(w * 0.072));
+  const rugWBot = Math.max(22, R(w * 0.185));
   const rugHalf = (t) => R((rugWTop + (rugWBot - rugWTop) * t) / 2);
   const rugPts = [
     { x: cx - R(rugWTop / 2), y: rugTop },

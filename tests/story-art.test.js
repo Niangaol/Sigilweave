@@ -490,3 +490,138 @@ describe('结局三镜的物件与动作', () => {
   });
 });
 
+describe('腐沼教堂与衡律法庭的构图修补', () => {
+  const W = 480;
+
+  it('钟架：出挑短、两根斜撑、石础落地、横梁上有绞盘与滑轮', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.journeyLayout('swamp', W, h);
+      const f = storyArt.swampFrame(L);
+      const u = L.u;
+      expect(f.colXs).toHaveLength(2);
+      // 出挑：短，否则读成秋千的横杆
+      expect(f.colXs[0] - f.beamX0).toBeLessThanOrEqual(Math.round(9 * u));
+      expect(f.beamX1 - f.colXs[1]).toBeLessThanOrEqual(Math.round(9 * u));
+      expect(f.colXs[0] - f.beamX0).toBeGreaterThanOrEqual(Math.round(3 * u));
+      // 斜撑：从柱身斜向上收进横梁，两根成对
+      expect(f.braces).toHaveLength(2);
+      for (const br of f.braces) {
+        expect(br.from[1] - f.beamY, '斜撑起点在柱身上 h=' + h).toBeGreaterThanOrEqual(Math.round(20 * u));
+        expect(Math.abs(br.to[0] - br.from[0]), '斜撑水平跨度 h=' + h).toBeGreaterThanOrEqual(Math.round(18 * u));
+        expect(Math.abs(br.to[1] - f.beamY), '斜撑收在梁上 h=' + h).toBeLessThanOrEqual(Math.round(4 * u));
+      }
+      // 石础落在地平线
+      expect(f.footY).toBe(L.horizon);
+      expect(f.footW).toBeGreaterThan(f.colW);
+      // 绞盘骑在横梁上，滑轮正对钟顶
+      expect(f.winch.y).toBeLessThanOrEqual(f.beamY);
+      expect(f.winch.y + f.winch.h).toBeGreaterThanOrEqual(f.beamY);
+      expect(f.pulley.x).toBe(L.bellX);
+    }
+  });
+
+  it('长椅：每条 ≥2 条铸铁椅腿伸进水里，其中一张翻倒', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.journeyLayout('swamp', W, h);
+      const bs = storyArt.swampBenches(L);
+      expect(bs).toHaveLength(3);
+      let over = 0;
+      for (const b of bs) {
+        expect(b.legs.length).toBeGreaterThanOrEqual(2);
+        for (const lg of b.legs) {
+          expect(lg.y + lg.h, '椅腿入水 h=' + h).toBeGreaterThan(b.y);
+          expect(lg.foot, '弯脚 h=' + h).toBeGreaterThanOrEqual(2);
+        }
+        if (b.overturned) over++;
+      }
+      expect(over).toBe(1);
+    }
+  });
+
+  it('沼水：远岸芦苇 8–14 株、彩窗/月光有竖直反光条、钟影处有涟漪、墙上有祭坛与吊香炉', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.journeyLayout('swamp', W, h);
+      const s = storyArt.swampProps(L);
+      expect(s.reeds.length).toBeGreaterThanOrEqual(8);
+      expect(s.reeds.length).toBeLessThanOrEqual(14);
+      for (const r of s.reeds) {
+        expect(r.x).toBeGreaterThanOrEqual(0);
+        expect(r.x).toBeLessThan(W);
+        expect(r.h).toBeGreaterThanOrEqual(Math.round(6 * L.u));
+      }
+      expect(s.streaks.length).toBeGreaterThanOrEqual(3);
+      for (const st of s.streaks) expect(st.len).toBeGreaterThanOrEqual(Math.round(8 * L.u));
+      expect(s.bellRipples.length).toBeGreaterThanOrEqual(2);
+      expect(s.altar.baseY).toBeLessThanOrEqual(L.horizon + 2);
+      expect(s.altar.w).toBeGreaterThan(Math.round(20 * L.u));
+      expect(s.censer.y1).toBeGreaterThan(s.censer.y0);
+    }
+  });
+
+  it('沼水像素：芦苇立得住、月光有倒影（原先是一片平绿）', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.journeyLayout('swamp', W, h);
+      const r = createRaster(W, h, 0x000000);
+      storyArt.JOURNEY_STATIC.swamp.back(r.g, L);
+      // 竖向连续 ≥4px 的绿色茎秆列数（芦苇）
+      const y0 = Math.max(0, L.horizon - Math.round(18 * L.u));
+      let stems = 0;
+      for (let x = 0; x < W; x++) {
+        let run = 0, best = 0;
+        for (let y = y0; y < L.horizon - 1; y++) {
+          const o = (y * W + x) * 4;
+          const green = r.buffer[o + 1] > r.buffer[o] + 5 && r.buffer[o + 1] > r.buffer[o + 2] + 3;
+          run = green ? run + 1 : 0;
+          if (run > best) best = run;
+        }
+        if (best >= 4) stems++;
+      }
+      expect(stems, '芦苇茎 h=' + h).toBeGreaterThanOrEqual(6);
+      // 月亮正下方要有竖直反光条
+      const mx = Math.round(W * 0.86);
+      let glint = 0;
+      for (let y = L.horizon + 1; y < L.horizon + Math.round(34 * L.u); y++) {
+        for (let x = mx - 2; x <= mx + 2; x++) {
+          const o = (y * W + x) * 4;
+          if (r.buffer[o + 1] > 80 && r.buffer[o + 1] >= r.buffer[o]) glint++;
+        }
+      }
+      expect(glint, '月光倒影 h=' + h).toBeGreaterThan(8);
+    }
+  });
+
+  it('天平：整体抬到碑顶之上（≥8px），秤盘补出第二节吊链', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.journeyLayout('court', W, h);
+      const B = storyArt.courtBalance(L);
+      expect(B.apexY - B.panBottom, '盘底高于碑顶 h=' + h).toBeGreaterThanOrEqual(8);
+      expect(B.apexY - B.beamY, '横梁高于碑顶 h=' + h).toBeGreaterThanOrEqual(8);
+      expect(B.chains).toHaveLength(4);
+      for (const c of B.chains) {
+        expect(c[1][1], '吊链落到盘沿 h=' + h).toBeGreaterThan(c[0][1]);
+        expect(Math.abs(c[1][1] - B.panTop)).toBeLessThanOrEqual(1);
+      }
+      // 两盘横向落在画布内
+      expect(B.x - B.half).toBeGreaterThan(0);
+      expect(B.x + B.half).toBeLessThan(W);
+    }
+  });
+
+  it('天平像素：抬升后梁与盘都不再压在中碑的碑面上', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.journeyLayout('court', W, h);
+      const B = storyArt.courtBalance(L);
+      const r = createRaster(W, h, 0x000000);
+      storyArt.JOURNEY_STAGES.court(r.g, { w: W, h, t: 2400, p: 0.5, accent: 0xc9a227, stars: [] });
+      const sw = Math.round(34 * L.u);
+      const x0 = L.steleXs[1] - Math.round(sw / 2), x1 = L.steleXs[1] + Math.round(sw / 2);
+      // 碑面顶部 12px 内不该有黄铜横梁
+      let brass = 0;
+      for (let y = B.apexY; y < B.apexY + Math.round(12 * L.u); y++) {
+        for (let x = x0; x < x1; x++) if (warm(r, x, y)) brass++;
+      }
+      expect(brass, '梁压碑面 h=' + h).toBe(0);
+    }
+  });
+});
+

@@ -5,7 +5,7 @@
 //   近景 150–186：错缝石板路 + 主裂缝 + 枯草 + 低雾
 // 材质线全部依附实体：碑面凿痕、砖缝、苔（贴石基）、锈（贴栅栏）。
 import {
-  fill, courses, pointedArch, column, disc, ring, cracks, moss, silhouette, candle,
+  fill, courses, pointedArch, column, disc, ring, cracks, moss, silhouette, candle, rubble,
 } from '../diorama-kit.js';
 import { C } from '../Palette.js';
 
@@ -48,7 +48,8 @@ function tombTop(g, x, baseY, w, h, kind, u) {
 }
 
 // 一根枯树：锥形主干 + 三级分叉（主枝→副枝→枝梢），剪影式
-function deadTree(g, x, baseY, h, color, alpha, spread = 1) {
+// twigs=1 只画主副枝、不画枝梢：远景框架树省指令，近景主树才用满两级
+function deadTree(g, x, baseY, h, color, alpha, spread = 1, twigs = 2) {
   const line = (x1, y1, x2, y2, w = 1) => {
     if (w <= 1) silhouette(g, [{ x: rnd(x1), y: rnd(y1) }, { x: rnd(x2), y: rnd(y2) }], color, alpha);
     else fill(g, rnd(x1), rnd(Math.min(y1, y2)), w, rnd(Math.abs(y2 - y1)), color, alpha);
@@ -70,7 +71,7 @@ function deadTree(g, x, baseY, h, color, alpha, spread = 1) {
     if (depth) {
       const mx = (sx + tx) / 2, my = (sy + tyy) / 2;
       line(mx, my, mx + (tx - sx) * 0.5, my - h * 0.09);
-      line(mx, my, mx - (tx - sx) * 0.7, my - h * 0.05);
+      if (twigs > 1) line(mx, my, mx - (tx - sx) * 0.7, my - h * 0.05);
     }
   }
   fill(g, x - 4, baseY - 3, 9, 3, color, alpha);
@@ -92,23 +93,124 @@ export function back(g, L) {
   const stars = [[0.05, 0.10], [0.16, 0.07], [0.31, 0.14], [0.42, 0.05], [0.55, 0.17], [0.63, 0.09], [0.74, 0.13], [0.84, 0.06], [0.91, 0.18], [0.36, 0.23], [0.68, 0.21]];
   stars.forEach(([sx, sy], i) => fill(g, rnd(w * sx), rnd(horizon * sy), 1, 1, accent, i % 3 === 0 ? 0.5 : 0.24));
 
+  // —— 高空亮星：2×2 星核 + 四向星芒，星等分档，横向铺开 ——
+  // 1px 的星点在 480 宽的画布上只是一点灰，天幕要读得出来得有实实在在的亮块
+  const brightStars = [[0.075, 0.155], [0.205, 0.075], [0.455, 0.115], [0.655, 0.055], [0.885, 0.085], [0.415, 0.345]];
+  for (const [bsx, bsy] of brightStars) {
+    const px = rnd(w * bsx), py = rnd(horizon * bsy);
+    fill(g, px, py, 2, 2, C.bone, 0.85);
+    fill(g, px - 1, py, 1, 2, C.bone, 0.26);
+    fill(g, px + 2, py, 1, 2, C.bone, 0.26);
+    fill(g, px, py - 1, 2, 1, C.bone, 0.26);
+    fill(g, px, py + 2, 2, 1, C.bone, 0.26);
+  }
+
   // 残月（accent）+ 月晕
   disc(g, light.x, light.y, rnd(13 * u), accent, 0.92);
   ring(g, light.x, light.y, rnd(19 * u), accent, 0.13, 28);
   disc(g, light.x + rnd(5 * u), light.y - rnd(3 * u), rnd(11 * u), C.nightDeep, 0.94);
 
   // 残月冷晕：给暗紫天幕补一档冷色，月亮周围才不是一块平色
+  // 用同心环而不是实心盘：实心盘会在月周留下一圈硬边，读起来像贴着个月亮的气泡
   ring(g, light.x, light.y, rnd(26 * u), C.glassBlue, 0.1, 30);
-  disc(g, light.x, light.y, rnd(31 * u), C.runeCold, 0.04);
+  ring(g, light.x, light.y, rnd(33 * u), C.runeCold, 0.055, 34);
+  ring(g, light.x, light.y, rnd(44 * u), C.glassBlue, 0.04, 38);
+  ring(g, light.x, light.y, rnd(56 * u), C.runeCold, 0.025, 42);
 
-  // 两条薄云
-  for (const [cy, cw, ca] of [[0.3, 0.52, 0.10], [0.4, 0.74, 0.07]]) {
-    fill(g, rnd(w * 0.1), rnd(horizon * cy), rnd(w * cw), 2, C.stoneLight, ca);
-    fill(g, rnd(w * 0.32), rnd(horizon * cy) + 3, rnd(w * cw * 0.45), 1, C.stoneLight, ca * 0.7);
+  // —— 月照云堤：三团紧凑的积云，把上空三分之一的空暗天幕填出体积 ——
+  // 不用通栏长条：长条的中间段左右邻格同值，软渲染里几乎不产生边缘，读起来像天花板；
+  // 改成 5–6 个高低错落的"云球"拼一朵云（像素云只有硬边），底边压平、顶沿擦银棱
+  const clouds = [
+    { x: 0.30, y: 0.195, w: 0.235, a: 0.105, rim: 0.2 },
+    { x: 0.575, y: 0.40, w: 0.205, a: 0.09, rim: 0.17 },
+    { x: 0.045, y: 0.545, w: 0.175, a: 0.075, rim: 0.15 },
+  ];
+  clouds.forEach((b, bi) => {
+    const bx = rnd(w * b.x), by = rnd(horizon * b.y), bw = rnd(w * b.w);
+    const H = (n) => Math.max(2, rnd(n * u));
+    // [x 偏移比例, 宽比例, 高比例]：中间最高、两端矮，云头才是一个隆起的包
+    const lobes = [[0, 0.30, 0.34], [0.2, 0.34, 0.62], [0.42, 0.34, 1], [0.62, 0.28, 0.66], [0.82, 0.18, 0.38]];
+    lobes.forEach((lo, li) => {
+      const lx = bx + rnd(bw * lo[0]), lw = Math.max(3, rnd(bw * lo[1])), lh = H(13 * lo[2]);
+      fill(g, lx, by - lh, lw, lh, C.bone, b.a * (li === 2 ? 1 : 0.92));
+      // 每个云球的顶沿各擦一道银棱（月光在前上方），左侧那道最亮
+      if (lo[2] > 0.34) fill(g, lx + 1, by - lh, Math.max(2, lw - 2), 1, C.bone, b.rim * (li === 2 ? 1 : 0.8));
+    });
+    // 底边压平 + 一道背光暗边 + 一条向下拖的雾丝，云脚不悬空
+    fill(g, bx, by, rnd(bw * 1.05), H(2), C.bone, b.a * 0.8);
+    fill(g, bx, by + H(2) - 1, rnd(bw * 1.05), 1, C.void, 0.2 + bi * 0.02);
+    fill(g, bx + rnd(bw * 0.22), by + H(2), rnd(bw * 0.34), 1, C.bone, b.a * 0.5);
+  });
+
+  // —— 荒冢丘陵：矮墙背后连续低起伏的土丘，把天与地接起来（最远一层）——
+  // 顶边只留 1px 冷受光棱：先画一条上移 2px 的冷色剪影当前景光，再让实心山体压掉下面
+  const hillStep = 8;
+  const crestPts = [];
+  for (let x = 0; x <= w; x += hillStep) {
+    const t = x / w;
+    const rise = 25 * u + 11 * u * Math.sin(t * 6.2832 * 1.15 + 0.8) + 5 * u * Math.sin(t * 6.2832 * 3.3 + 2.4);
+    crestPts.push({ x, y: rnd(horizon - Math.max(8 * u, rise)) });
   }
+  silhouette(g, [...crestPts.map((p) => ({ x: p.x, y: p.y - 2 })), { x: w, y: horizon }, { x: 0, y: horizon }], C.glassBlue, 0.14);
+  silhouette(g, [{ x: 0, y: horizon }, ...crestPts, { x: w, y: horizon }], C.void, 0.9);
+  // 山体顶部 7px 的受光坡带：丘陵不是一块平剪影——坡顶被月光照亮，坡脚仍埋在暗里
+  // alpha 0.5 是这一层能读出来的下限：再淡就只是天空里的一条脏线
+  silhouette(g, [...crestPts, ...crestPts.slice().reverse().map((p) => ({ x: p.x, y: p.y + rnd(7 * u) }))], C.stoneDark, 0.5);
+  // 坡顶再压一层更窄的枯草（sage），让受光坡有土色而不是一块灰
+  silhouette(g, [...crestPts, ...crestPts.slice().reverse().map((p) => ({ x: p.x, y: p.y + Math.max(2, rnd(3 * u)) }))], C.sage, 0.14);
+  g.lineStyle(1, C.glassBlue, 0.34);
+  g.strokePoints(crestPts, false);
+  g.lineStyle(1, C.bone, 0.12);
+  g.strokePoints(crestPts.map((p) => ({ x: p.x, y: p.y - 1 })), false);
+
+  // —— 远处枯林带：一排 2–4px 宽的枯树剪影站在丘陵顶线上，间距忽密忽疏 ——
+  const forest = [0.02, 0.055, 0.083, 0.13, 0.158, 0.215, 0.26, 0.315, 0.345, 0.41, 0.465, 0.52, 0.575, 0.63, 0.715, 0.79, 0.87, 0.94];
+  forest.forEach((fx, i) => {
+    const tx = rnd(w * fx);
+    const ci = Math.max(0, Math.min(crestPts.length - 1, rnd(tx / hillStep)));
+    const cy = crestPts[ci].y;
+    const th = rnd((7 + ((i * 13) % 9)) * u);
+    const tw = 2 + (i % 2);
+    fill(g, tx, cy - th, tw, th, C.void, 0.9);
+    fill(g, tx - rnd(2 * u), cy - rnd(th * 0.62), tw, 1, C.void, 0.72);
+    fill(g, tx + tw, cy - rnd(th * 0.42), tw, 1, C.void, 0.72);
+  });
+
+  // —— 家族墓室（骨龛墙）：比礼拜堂更远的第二层次，横向石椁 + 一排小拱龛 + 檐口 ——
+  const ox = rnd(w * 0.455);
+  const ow = rnd(w * 0.29);
+  const oTop = horizon - rnd(48 * u);
+  const oBase = horizon - rnd(4 * u);
+  // 远建筑在月光雾里是一块中调石色，不是一块死黑：只有比天空更淡，才能读出它是"远"
+  fill(g, ox, oTop, ow, oBase - oTop, C.stoneDark, 0.6);
+  const wallTop = horizon - rnd(20 * u);
+  fill(g, ox, oTop, rnd(3 * u), oBase - oTop, C.stoneLight, 0.2);
+  fill(g, ox + ow - rnd(3 * u), oTop, rnd(3 * u), oBase - oTop, C.void, 0.3);
+  fill(g, ox - rnd(2 * u), oTop - rnd(2 * u), rnd(5 * u), oBase - oTop, C.stoneDark, 0.8);
+  fill(g, ox + ow - rnd(2 * u), oTop - rnd(2 * u), rnd(5 * u), oBase - oTop, C.void, 0.35);
+  // 檐口：比墙身宽出一圈，顶上一道月光棱
+  fill(g, ox - rnd(3 * u), oTop - rnd(3 * u), ow + rnd(6 * u), rnd(3 * u), C.stoneDark, 0.95);
+  fill(g, ox - rnd(3 * u), oTop - rnd(3 * u), ow + rnd(6 * u), 1, C.bone, 0.28);
+  fill(g, ox - rnd(2 * u), oTop + rnd(4 * u), ow + rnd(4 * u), 1, C.void, 0.6);
+  // 一排骨龛：暗龛口 + 两像素亮框 + 龛底台，龛口是这片墙上唯一有节奏的东西，必须读得出来
+  // 龛位整体上提到矮墙顶之上（wallTop 以下全被墙吃掉，压在下面等于白画）
+  const oDoor = ox + rnd(ow / 2);
+  const nichBase = oBase - rnd(24 * u);
+  for (let i = 0; i < 6; i++) {
+    const ncx = ox + rnd(ow * (0.1 + i * 0.148));
+    if (Math.abs(ncx - oDoor) < rnd(ow * 0.11)) continue;
+    fill(g, ncx - rnd(4 * u), nichBase - rnd(9 * u), rnd(8 * u), rnd(9 * u), C.void, 0.8);
+    pointedArch(g, { cx: ncx, baseY: nichBase, w: rnd(8 * u), h: rnd(12 * u), t: 2, color: C.stoneLight, alpha: 0.5, segs: 5 });
+    fill(g, ncx - rnd(3 * u), nichBase - 1, rnd(6 * u), 2, C.stoneLight, 0.34);
+  }
+  // 中央山墙 + 铁十字：墓室的叙事焦点，也是一眼能认出的"这是墓"
+  fill(g, oDoor - rnd(10 * u), oTop - rnd(7 * u), rnd(20 * u), rnd(7 * u), C.stoneDark, 0.75);
+  fill(g, oDoor - rnd(10 * u), oTop - rnd(7 * u), rnd(20 * u), 1, C.bone, 0.2);
+  fill(g, oDoor - 1, oTop - rnd(16 * u), 2, rnd(9 * u), C.void, 0.95);
+  fill(g, oDoor - rnd(5 * u), oTop - rnd(13 * u), rnd(10 * u), 2, C.void, 0.95);
+  pointedArch(g, { cx: oDoor, baseY: wallTop + rnd(2 * u), w: rnd(14 * u), h: rnd(22 * u), t: 2, color: C.stoneLight, alpha: 0.5, fillColor: C.void, fillAlpha: 0.95, segs: 8 });
 
   // 墓园矮墙（带 5 个垛口）
-  const wallTop = horizon - rnd(20 * u);
   courses(g, { x: 0, y: wallTop, w, h: horizon - wallTop, rowH: rnd(6 * u), color: C.stoneDark, alpha: 0.42, light: C.stoneLight, lightAlpha: 0.16 });
   fill(g, 0, wallTop, w, 1, C.stoneLight, 0.4);
   fill(g, 0, wallTop + 1, w, 1, C.glassBlue, 0.12);
@@ -133,7 +235,9 @@ export function back(g, L) {
   // 尖拱门洞：0.16W 宽、0.48H 高，双圈拱券 + 门内铁门竖条 + 一盏铜灯
   const gate = L.anchors.gate;
   const gw = rnd(w * 0.16);
-  const gh = rnd(horizon * 0.62);
+  // 门洞高度同时受"地平线高度"和"门宽"约束：竖屏地平线翻倍，若只按 horizon 缩放，
+  // 门会长成一根 77×210 的尖针，外面两圈拱券还会再放大成一顶占满上半个画面的尖帐篷
+  const gh = rnd(Math.min(horizon * 0.62, gw * 1.25));
   pointedArch(g, {
     cx: gate.x, baseY: horizon, w: gw, h: gh, t: 2,
     color: C.stoneLight, alpha: 0.45, fillColor: C.void, fillAlpha: 0.95, segs: 14,
@@ -181,11 +285,18 @@ export function back(g, L) {
     fill(g, rnd(w * cx0), rnd(horizon * cy), rnd(w * cw2), rnd(3 * u), C.stoneLight, ca);
     fill(g, rnd(w * cx0) + rnd(w * 0.06), rnd(horizon * cy) + rnd(3 * u), rnd(w * cw2 * 0.6), 1, C.stoneLight, ca * 0.8);
   }
-  // 三只夜鸟（V 形 2px）
-  for (const [bx, by] of [[0.62, 0.09], [0.68, 0.12], [0.74, 0.08]]) {
-    fill(g, rnd(w * bx), rnd(horizon * by), 1, 1, C.void, 0.6);
-    fill(g, rnd(w * bx) - 1, rnd(horizon * by) - 1, 1, 1, C.void, 0.6);
-    fill(g, rnd(w * bx) + 1, rnd(horizon * by) - 1, 1, 1, C.void, 0.6);
+
+  // 五只盘旋的乌鸦：翼展 5px 的 V 形，位置固定（绕着礼拜堂塔尖打旋，不随机）
+  // 位置贴着第二团云的上缘走：纯黑剪影压在骨白的云顶上才读得出来，
+  // 放到 y≈0.1 的天顶只剩五个看不见的黑点（天顶是全画面最暗的地方）
+  const crows = [[0.605, 0.285, 1], [0.655, 0.335, -1], [0.705, 0.30, 1], [0.745, 0.36, -1], [0.775, 0.315, 1]];
+  for (const [bx, by, up] of crows) {
+    const cx = rnd(w * bx), cy = rnd(horizon * by);
+    fill(g, cx, cy, 1, 1, C.void, 0.85);
+    fill(g, cx - 1, cy, 1, 1, C.void, 0.8);
+    fill(g, cx + 1, cy, 1, 1, C.void, 0.8);
+    fill(g, cx - 2, cy + up, 1, 1, C.void, 0.7);
+    fill(g, cx + 2, cy + up, 1, 1, C.void, 0.7);
   }
 
   // 墙后远景枯树线 6 丛（比墙更暗，压在雾里）
@@ -224,8 +335,13 @@ export function mid(g, L) {
     fill(g, 0, y, w, 1, C.groove, 0.42);
     fill(g, 0, y + 1, w, 1, C.ink, 0.5);
     const off = r % 2 === 0 ? 0 : rnd(w / 14);
-    // 竖屏石缝少画两道：地面更高，多画只会让地面发糊
-    for (let c = -1; c < (L.tall ? 5 : 7); c++) fill(g, off + c * rnd(w / 6), y, 1, rowH, C.groove, 0.3);
+    // 竖屏石缝少画两道：地面更高，多画只会让地面发糊；
+    // 竖屏每道只画半截：通高竖线在 70px 高的带里会读成墙板拼缝，打断后才像石块接缝
+    for (let c = -1; c < (L.tall ? 4 : 7); c++) {
+      const sx = off + c * rnd(w / 6);
+      if (L.tall) fill(g, sx, y + rnd(rowH * 0.34), 1, Math.max(6, rnd(rowH * 0.5)), C.groove, 0.3);
+      else fill(g, sx, y, 1, rowH, C.groove, 0.3);
+    }
   }
   for (let i = 0; i < (L.tall ? 6 : 9); i++) {
     const gx2 = rnd(w * (0.04 + i * 0.11));
@@ -233,8 +349,22 @@ export function mid(g, L) {
   }
   fill(g, 0, horizon, w, 1, C.mossTileLit, 0.22);
   fill(g, rnd(w * 0.18), horizon + rowH, rnd(w * 0.3), rowH - 2, C.stoneLight, 0.1);
-  cracks(g, { x: rnd(w * 0.46), y: horizon + 1, len: Math.min(56, Math.max(10, rnd((L.h - horizon) * 0.6))), seed: 17, color: C.inkDark, alpha: 0.9, branches: 1, drift: 0.4 });
+  cracks(g, { x: rnd(w * 0.46), y: horizon + 1, len: Math.min(L.tall ? 34 : 52, Math.max(10, rnd((L.h - horizon) * 0.6))), seed: 17, color: C.inkDark, alpha: 0.9, branches: 1, drift: 0.4 });
   fill(g, 0, horizon, w, 1, C.sage, 0.1);
+  // 泥斑四处：地面不是一张均匀的灰毯，土色块让远近两层地面在 10px 尺度上有起伏
+  [[0.14, 0.42, 0.22, 0.5], [0.46, 0.68, 0.16, 0.34], [0.62, 0.5, 0.2, 0.42], [0.82, 0.74, 0.14, 0.3]].forEach(([px, py, pw, pa]) => {
+    fill(g, rnd(w * px), horizon + rnd((L.h - horizon) * 0.55) + rnd((L.h - horizon) * py * 0.3), rnd(w * pw), rnd(Math.max(4, (L.h - horizon) * 0.05)), C.stoneDark, pa * 0.6);
+  });
+
+  // 塌陷墓穴：碑群之间唯一一处"开口"——暗坑 + 掀翻的盖板 + 坑边土堆（预算从中景旧件里腾出来的）
+  const pitX = rnd(w * 0.255), pitY = ground - rnd(5 * u);
+  fill(g, pitX, pitY, rnd(30 * u), rnd(6 * u), C.void, 0.85);
+  fill(g, pitX, pitY, rnd(30 * u), 1, C.stoneLight, 0.28);
+  fill(g, pitX - 1, pitY + rnd(6 * u), rnd(32 * u), 1, C.inkDark, 0.9);
+  fill(g, pitX + rnd(21 * u), pitY - rnd(4 * u), rnd(14 * u), rnd(3 * u), C.stone, 0.95);
+  fill(g, pitX + rnd(23 * u), pitY - rnd(6 * u), rnd(9 * u), rnd(2 * u), C.stoneLight, 0.55);
+  fill(g, pitX - rnd(5 * u), pitY - rnd(2 * u), rnd(9 * u), rnd(3 * u), C.stoneDark, 0.95);
+  rubble(g, { x: pitX - rnd(3 * u), y: pitY - rnd(3 * u), w: rnd(36 * u), h: rnd(4 * u), seed: 53, color: C.stoneDark, color2: C.stone, count: 5, alpha: 0.8 });
 
 
   // 主体：倾斜的大十字碑 + 基座 + 石瓮，撑住画面左中
@@ -258,12 +388,15 @@ export function mid(g, L) {
   // 石瓮（顶部）
   fill(g, scx - rnd(4 * u), hy - hh - rnd(6 * u), rnd(8 * u), rnd(4 * u), C.stone, 1);
   fill(g, scx - rnd(3 * u), hy - hh - rnd(2 * u), rnd(6 * u), rnd(2 * u), C.stoneDark, 1);
+  // 十字碑的东向投影：与碑群同一光源，影长按碑体高度给
+  fill(g, hx - rnd(14 * u), hy + rnd(3 * u), rnd(30 * u), 1, C.void, 0.28);
+  fill(g, hx + rnd(6 * u), hy + rnd(4 * u), rnd(18 * u), 1, C.void, 0.16);
   // 停在上面的乌鸦剪影（活物给静场一点不安）
   fill(g, scx + rnd(6 * u), hy - rnd(hh * 0.72) - rnd(6 * u), 3, 2, C.void, 1);
   fill(g, scx + rnd(9 * u), hy - rnd(hh * 0.72) - rnd(5 * u), 1, 1, C.void, 1);
 
   // 构图框架：左缘一株高树，与右侧主树一起把中央空场框住
-  deadTree(g, rnd(w * 0.03), ground - rnd(1 * u), rnd(150 * u), C.void, 0.9, 1.1);
+  deadTree(g, rnd(w * 0.03), ground - rnd(1 * u), rnd(150 * u), C.void, 0.9, 1.1, 1);
 
   // 大枯树：右侧最高剪影，树冠铺开
   const treeX = rnd(w * 0.655);
@@ -287,6 +420,7 @@ export function mid(g, L) {
     { x: rnd(w * 0.775), w: rnd(16 * u), h: rnd(32 * u), top: 'point', a: 0.86, base: midRow },
     { x: rnd(w * 0.83), w: rnd(12 * u), h: rnd(20 * u), top: 'cross', a: 0.7, base: far },
   ];
+  let nearMark = 0; // 近排三块碑的碑额浮雕按出现顺序轮换，不用数组下标（近排下标是 0/3/6，全同余）
   stones.forEach((s, i) => {
     const x = s.x + (i === 1 || i === 7 ? 1 : 0);
     const baseY = s.base;
@@ -297,8 +431,9 @@ export function mid(g, L) {
     fill(g, x + 1, topY + (s.top === 'cross' ? rnd(10 * u) : 0), Math.max(2, rnd(s.w * 0.45)), s.h - rnd(2 * u), C.stoneLight, 0.5 * s.a);
     fill(g, x + Math.max(2, rnd(s.w * 0.52)), topY, Math.max(2, rnd(s.w * 0.44)), s.h, C.stoneDark, 0.4);
     fill(g, x + s.w - 2, topY, 1, s.h, C.stoneDark, 0.9);
-    // 月光投影：碑体向右下拖一条斜影（三行矩形，比多边形便宜）
-    const sl = rnd(s.h * 0.45);
+    // 月光投影：月在西侧（light 锚点），碑影一律向东（右）倒；越远的碑影越短，方向不许各走各的
+    const depth = s.base === near ? 1 : (s.base === midRow ? 0.58 : 0.34);
+    const sl = rnd(s.h * 0.45 * depth);
     fill(g, x, baseY, s.w + rnd(sl * 0.4), 1, C.void, 0.3);
     fill(g, x + rnd(sl * 0.35), baseY + 1, rnd(sl * 0.55), 1, C.void, 0.2);
     fill(g, x + rnd(sl * 0.75), baseY + 2, rnd(sl * 0.4), 1, C.void, 0.12);
@@ -322,8 +457,50 @@ export function mid(g, L) {
       fill(g, x + 2, topY + rnd(s.h * (0.32 + k * 0.2)), Math.max(3, s.w - 6), 1, C.groove, 0.55);
     }
     fill(g, x + s.w - 5, topY + rnd(s.h * 0.58), 2, 2, C.void, 0.9);
-    if (i % 2 === 0) moss(g, { x: x - 2, y: baseY - 4, w: s.w + 5, h: 4, seed: 21 + i, color: C.mossTileLit, count: 5, alpha: 0.6 });
+    if (i % 2 === 0) moss(g, { x: x - 2, y: baseY - 4, w: s.w + 5, h: 4, seed: 21 + i, color: C.mossTileLit, count: 4, alpha: 0.6 });
+    // 近排三块碑的"可读"细节：墓志刻线 + 圆盘浮雕 + 顶部小尖饰 + 碑脚碎石与枯草
+    if (s.base === near) {
+      const capRise = s.top === 'cross' ? rnd(9 * u) : rnd(s.w / 2);
+      // 顶部压顶石：碑头不再收在一条水平线上（原来是一根 1×4 的针，1x 下读作天线）
+      const capX = x + rnd(s.w * 0.28);
+      fill(g, capX, topY - capRise - Math.max(1, rnd(2 * u)), Math.max(5, rnd(s.w * 0.52)), Math.max(1, rnd(3 * u)), C.stone, 0.95);
+      fill(g, capX, topY - capRise - Math.max(1, rnd(2 * u)), Math.max(5, rnd(s.w * 0.52)), 1, C.stoneLight, 0.4);
+      // 三行墓志：碑面刻线，长度错落（1px，只在近排，远了读不出来也不必画）
+      const lx = ix + 2, lw = Math.max(4, iw - 4);
+      for (let k = 0; k < 3; k++) {
+        fill(g, lx, iy + rnd(ih * 0.24) + k * Math.max(3, rnd(4 * u)), Math.max(4, rnd(lw * (0.86 - k * 0.14))), 1, C.bone, 0.42);
+      }
+      // 碑额浮雕按碑轮换：十字 / 斜刻菱形 / 小圆盘。三块碑共用同一个圆环会被读成
+      // 「同一排展板上的圆窗」——碑的辨识恰恰来自它们不一样。
+      const mx = x + rnd(s.w / 2), myy = iy + rnd(ih * 0.26);
+      const mark = nearMark++ % 3;
+      if (mark === 0) {
+        fill(g, mx, myy - 2, 1, 5, C.bone, 0.5);
+        fill(g, mx - 2, myy, 5, 1, C.bone, 0.5);
+      } else if (mark === 1) {
+        // 斜刻菱形：四边各 3 点，1x 下读作一颗刻进石面的菱形记号
+        for (let k = 0; k <= 2; k++) {
+          for (const sx of [-1, 1]) {
+            for (const sy of [-1, 1]) fill(g, mx + sx * k, myy + sy * (2 - k), 1, 1, C.bone, 0.45);
+          }
+        }
+      } else {
+        ring(g, mx, myy, Math.max(2, rnd(2 * u)), C.bone, 0.34, 10);
+      }
+      // 碑脚碎石 + 枯草：碑与地之间不再是一条直缝
+      rubble(g, { x: x - 3, y: baseY - 2, w: s.w + 7, h: 4, seed: 41 + i, color: C.stoneDark, color2: C.stone, count: 6, alpha: 0.85 });
+      for (let k = -1; k <= 1; k++) {
+        const ghh = Math.max(2, rnd((4 + Math.abs(k)) * u));
+        fill(g, x + rnd(s.w * 0.55) + k * 3, baseY - ghh, 1, ghh, C.sage, 0.4);
+      }
+    }
   });
+
+  // 碑间薄雾三条：横向 1–2px 亮带，只贴地面（雾贴地，不铺进碑体上方）
+  for (const [my, mw, ma] of [[ground - rnd(11 * u), 0.34, 0.05], [ground - rnd(7 * u), 0.46, 0.07], [ground - rnd(3 * u), 0.28, 0.09]]) {
+    fill(g, rnd(w * 0.21), my, rnd(w * mw), 2, C.fog, ma);
+    fill(g, rnd(w * 0.27), my + 2, rnd(w * mw * 0.6), 1, C.fog, ma * 0.8);
+  }
 
   // 大十字碑脚边的两支祭烛（暖色是整屏唯一的暖光源，也是辨识锚点）
   candle(g, { x: hx - rnd(17 * u), baseY: hy, h: rnd(9 * u), wax: C.bone, flame: C.arcaneLight, holder: C.brassDark });
@@ -417,4 +594,34 @@ export function fore(g, L) {
   const bx = w - rnd(30 * u);
   fill(g, bx, ground - rnd(8 * u), rnd(28 * u), rnd(8 * u), C.void, 0.95);
   fill(g, bx, ground - rnd(8 * u), rnd(28 * u), 1, C.stoneLight, 0.35);
+
+  // —— 近景一层：碑座前沿到画面下缘之间是一片空地（竖屏 138px，横屏露在碑座之上），
+  // 只放站在地上的东西（草、倒掉的碑、碎石、贴地雾），地面本身归中景，这里一笔都不铺 ——
+  const nearY = L.h - (L.tall ? 104 : 84);
+  const NY = (n) => nearY - rnd(n * u);
+  // 枯草三簇：近景的草比中景粗一档，叶子 2px 宽，读得出"就在镜头前"
+  [0.09, 0.63, 0.87].forEach((tx, i) => {
+    const x = rnd(w * tx), base = nearY - rnd(3 * u);
+    for (let k = -3; k <= 3; k++) {
+      const hh = rnd((7 + Math.abs(k) * 2) * u);
+      fill(g, x + k * 2, base - hh, (Math.abs(k) % 2 === 0 ? 2 : 1), hh, C.sage, 0.4 - Math.abs(k) * 0.04);
+    }
+  });
+  // 倒伏的石十字：碑身横躺 + 断掉的上臂斜插，是这一幕"这里真的荒了"的直接证据
+  const fx = rnd(w * 0.3), fy = nearY - rnd(9 * u);
+  fill(g, fx + rnd(2 * u), fy + rnd(3 * u), rnd(34 * u), rnd(3 * u), C.void, 0.55);
+  fill(g, fx, fy, rnd(30 * u), rnd(4 * u), C.stone, 0.95);
+  fill(g, fx, fy, rnd(30 * u), 1, C.stoneLight, 0.4);
+  fill(g, fx + rnd(11 * u), fy - rnd(8 * u), rnd(4 * u), rnd(8 * u), C.stone, 0.95);
+  fill(g, fx + rnd(11 * u), fy - rnd(8 * u), rnd(2 * u), rnd(5 * u), C.stoneLight, 0.24);
+  fill(g, fx + rnd(26 * u), fy - rnd(2 * u), rnd(5 * u), rnd(2 * u), C.stoneDark, 1);
+  // 斜插的残碑：四段错位叠出倾角（不能旋转，只能错位）
+  const lx = rnd(w * 0.52), ly = nearY - rnd(2 * u);
+  for (let k = 0; k < 4; k++) fill(g, lx + k, ly - rnd((24 - k * 6) * u), rnd(8 * u), rnd(7 * u), C.void, 0.92);
+  fill(g, lx, ly - rnd(24 * u), rnd(3 * u), rnd(22 * u), C.stoneLight, 0.18);
+  fill(g, lx + 1, ly - rnd(24 * u), rnd(8 * u), 1, C.stoneLight, 0.3);
+  // 碎石与两条贴地雾：把近景与中景的地面接上，不留一条硬边
+  rubble(g, { x: rnd(w * 0.42), y: NY(4), w: rnd(26 * u), h: rnd(4 * u), seed: 71, color: C.stoneDark, color2: C.stone, count: 5, alpha: 0.85 });
+  fill(g, 0, NY(30), rnd(w * 0.54), 2, C.fog, 0.06);
+  fill(g, rnd(w * 0.3), NY(16), rnd(w * 0.46), 1, C.fog, 0.05);
 }

@@ -89,8 +89,9 @@ export function journeyLayout(stage, w, h) {
     L.chandY = R(h * (tall ? 0.24 : 0.20));
     L.walkY = R(h * (tall ? 0.81 : 0.85));
   } else if (stage === 'court') {
-    L.balX = R(w * 0.56);
-    L.balY = R(h * (tall ? 0.40 : 0.44));
+    L.balX = R(w * 0.57);
+    // 天平整体抬到判词碑之上：横梁与双盘都不能压在中间那块碑的碑面上
+    L.balY = R(h * (tall ? 0.28 : 0.25));
     L.balH = R(28 * u);
     L.railY = R(h * (tall ? 0.68 : 0.70));
     L.railH = R(18 * u);
@@ -121,6 +122,99 @@ export function journeyLayout(stage, w, h) {
     L.walkY = R(h * (tall ? 0.83 : 0.87));
   }
   return L;
+}
+
+// ---------- 构图几何：静态层、动态层与测试共用同一套锚点 ----------
+// 钟架：出挑短 + 斜撑 + 石础 + 绞盘/滑轮，才读得出「挂钟的承重结构」而不是秋千。
+export function swampFrame(L) {
+  const u = L.u;
+  const beamY = L.bellY - R(6 * u);
+  const half = R(50 * u);
+  const colXs = [L.bellX - half, L.bellX + half];
+  const over = R(7 * u);
+  const colW = Math.max(3, R(5 * u));
+  const braceBotY = beamY + R(28 * u);
+  const inset = R(24 * u);
+  const braces = [
+    { from: [colXs[0], braceBotY], to: [colXs[0] + inset, beamY + R(3 * u)] },
+    { from: [colXs[1], braceBotY], to: [colXs[1] - inset, beamY + R(3 * u)] },
+  ];
+  return {
+    beamX0: colXs[0] - over, beamX1: colXs[1] + over, beamY, colXs, colW, half,
+    braces, footY: L.horizon, footW: R(17 * u), footH: R(6 * u),
+    winch: { x: colXs[0] + R(15 * u), y: beamY - R(6 * u), w: R(14 * u), h: R(6 * u) },
+    pulley: { x: L.bellX, y: beamY + R(1 * u), r: Math.max(2, R(3 * u)) },
+  };
+}
+
+// 三排半沉长椅：椅腿必须伸进水面以下，其中一张翻倒。
+export function swampBenches(L) {
+  const u = L.u;
+  const out = [];
+  for (let i = 0; i < 3; i++) {
+    const bw = R(58 * u);
+    const x = R(L.w * (0.16 + i * 0.24));
+    const y = L.horizon + R(10 * u) + i * R(11 * u);
+    const legH = R(10 * u);
+    out.push({
+      x, y, w: bw, overturned: i === 1,
+      legs: [
+        { x: x + R(5 * u), y: y + R(4 * u), h: legH, foot: R(4 * u), dir: -1 },
+        { x: x + bw - R(8 * u), y: y + R(4 * u), h: R(9 * u), foot: R(4 * u), dir: 1 },
+      ],
+    });
+  }
+  return out;
+}
+
+// 沼水与远墙的静物：岸线芦苇、彩窗/月光反光条、钟影涟漪、祭坛残骸、吊香炉。
+export function swampProps(L) {
+  const { w, h, u } = L;
+  const n = 10;
+  const reeds = [];
+  for (let i = 0; i < n; i++) {
+    const x = R(w * (0.035 + (i / (n - 1)) * 0.93) + ((i * 37) % 9) - 4);
+    reeds.push({ x, h: R((7 + ((i * 13) % 7)) * u), head: R(2 + (i % 2)) });
+  }
+  const streaks = [
+    { x: R(w * 0.86), w: R(2 * u), len: R(26 * u) },
+    { x: L.roseX, w: R(2 * u), len: R(22 * u) },
+    { x: L.roseX - R(9 * u), w: 1, len: R(14 * u) },
+    { x: L.lancet1X, w: R(2 * u), len: R(18 * u) },
+    { x: L.lancet2X, w: 1, len: R(12 * u) },
+  ];
+  const bellRipples = [
+    { x: L.bellX, y: L.horizon + R(5 * u), rx: R(14 * u), ry: R(2 * u) },
+    { x: L.bellX, y: L.horizon + R(11 * u), rx: R(24 * u), ry: R(3 * u) },
+    { x: L.bellX, y: L.horizon + R(18 * u), rx: R(34 * u), ry: R(4 * u) },
+  ];
+  return {
+    shoreY: L.horizon,
+    reeds, streaks, bellRipples,
+    altar: { cx: R(w * 0.52), baseY: L.horizon - R(2 * u), w: R(46 * u) },
+    censer: { x: R(w * 0.84), y0: R(h * 0.30) + R(2 * u), y1: R(h * 0.30) + R(28 * u) },
+  };
+}
+
+// 衡律法庭的天平：整体抬到三块判词碑之上，双盘补出 V 形吊链。
+export function courtBalance(L) {
+  const { w, h, u } = L;
+  const x = R(w * 0.57);
+  const beamY = R(h * (L.tall ? 0.28 : 0.25)) - L.balH + R(2 * u);
+  const half = R(30 * u);
+  const dy = R(Math.sin(0.22) * half);
+  const pl = R(15 * u);
+  const panW = R(16 * u);
+  const panTop = beamY + dy + pl;
+  const panBottom = panTop + R(8 * u);
+  const apexY = R(h * 0.33) - R(7 * u);
+  const chains = [];
+  for (const s of [-1, 1]) {
+    const ex = x + s * half, ey = beamY + s * dy;
+    chains.push([[ex, ey], [ex - R(7 * u), panTop]]);
+    chains.push([[ex, ey], [ex + R(7 * u), panTop]]);
+  }
+  return { x, beamY, half, dy, pl, panW, panTop, panBottom, apexY, chains, tilt: 0.22 };
 }
 
 // ---------- 通用小件 ----------
@@ -203,17 +297,25 @@ function fog(g, L, p, color, alpha, baseY) {
 
 // ---------- 静态布景 ----------
 function swampBack(g, L) {
-  const { w, h, B, horizon } = L;
+  const { w, h, B, horizon, u } = L;
   fill(g, -B, 0, w + B * 2, horizon, C.void);
   fill(g, -B, 0, w + B * 2, R(h * 0.30), C.nightDeep);
   fill(g, -B, R(h * 0.30), w + B * 2, R(h * 0.14), C.night);
   pxRect(g, -B, R(h * 0.42), w + B * 2, 2, C.stoneDark, 0.35);
-  starfield(g, { x: -B, y: 0, w: w + B * 2, h: R(h * 0.42), seed: 21, count: L.tall ? 56 : 38, color: C.parchment, bright: C.white, accent: C.teal, alpha: 0.55 });
+  starfield(g, { x: -B, y: 0, w: w + B * 2, h: R(h * 0.42), seed: 21, count: L.tall ? 36 : 32, color: C.parchment, bright: C.white, accent: C.teal, alpha: 0.55 });
   disc(g, R(w * 0.86), R(h * 0.10), R(9 * L.u), C.parchment, 0.75);
   ring(g, R(w * 0.86), R(h * 0.10), R(13 * L.u), C.parchment, 0.20, 24);
   // 教堂墙：石砌 + 尖窗 + 圆彩窗 + 光柱
   ashlar(g, { x: -B, y: R(h * 0.30), w: w + B * 2, h: R(h * 0.30), rowH: L.tall ? 16 : 11, color: C.stoneDark, alpha: 1, face: C.stone, dark: C.void, seed: 4, density: 0.35 });
   for (let i = 0; i < 5; i++) pxRect(g, -B + i * R((w + B * 2) / 5), R(h * 0.30) - 4, R((w + B * 2) / 5), 4, C.stoneDark, 1);
+  // 湿痕：沿砌缝往下垂的暗条，让整面平墙有第二层次
+  const SP = swampProps(L);
+  for (let i = 0; i < 5; i++) {
+    const sx = R(w * (0.06 + i * 0.185) + ((i * 29) % 11) - 5);
+    const sl = R((6 + ((i * 17) % 10)) * L.u);
+    pxRect(g, sx, horizon - sl, 1, sl, C.void, 0.30);
+    pxRect(g, sx + 1, horizon - R(sl * 0.55), 1, R(sl * 0.55), C.void, 0.16);
+  }
   // 两个尖窗 + 圆窗
   for (const [wx, gc1, gc2] of [[L.lancet1X, C.glassBlue, C.teal], [L.lancet2X, C.glassRed, C.glassBlue]]) {
     const ww = R(20 * L.u), wh = R(h * 0.17);
@@ -231,8 +333,8 @@ function swampBack(g, L) {
   }
   disc(g, L.roseX, L.roseY, R(rc * 0.22), C.teal, 0.9);
   ring(g, L.roseX, L.roseY, rc + 2, C.stoneLight, 0.8, 28);
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
     pxRect(g, R(L.roseX + Math.cos(a) * (rc + 2)), R(L.roseY + Math.sin(a) * (rc + 2)), 1, 1, C.stoneLight, 0.5);
   }
   // 光柱
@@ -240,8 +342,43 @@ function swampBack(g, L) {
     silhouette(g, [{ x: sx - 8, y: L.winBaseY - R(h * 0.18) }, { x: sx + 8, y: L.winBaseY - R(h * 0.18) }, { x: ex + 26, y: horizon }, { x: ex - 10, y: horizon }], C.swampGlint, 0.07);
   }
   // 墙根苔与水面
-  moss(g, { x: -B, y: horizon - R(h * 0.06), w: w + B * 2, h: R(h * 0.06), seed: 8, color: C.mossTileLit, color2: C.rot, count: L.tall ? 70 : 46, alpha: 0.5 });
-  water(g, { x: -B, y: horizon, w: w + B * 2, h: h - horizon + B, base: C.swampWater, glint: C.swampGlint, seed: 9, alpha: 1, rows: L.tall ? 7 : 4, ripples: 8 });
+  moss(g, { x: -B, y: horizon - R(h * 0.06), w: w + B * 2, h: R(h * 0.06), seed: 8, color: C.mossTileLit, color2: C.rot, count: L.tall ? 44 : 38, alpha: 0.5 });
+  // 主祭坛残骸：两级踏步 + 断裂台面 + 两根残烛（火苗留给「灯亮」那一拍）
+  const AL = SP.altar, aw2 = AL.w;
+  pxRect(g, AL.cx - R(aw2 / 2) - R(4 * u), AL.baseY, aw2 + R(8 * u), R(3 * u), C.stoneDark, 1);
+  pxRect(g, AL.cx - R(aw2 / 2) - R(4 * u), AL.baseY, aw2 + R(8 * u), 1, C.stoneLight, 0.22);
+  pxRect(g, AL.cx - R(aw2 / 2), AL.baseY - R(4 * u), aw2, R(4 * u), C.stoneDark, 1);
+  pxRect(g, AL.cx - R(aw2 / 2), AL.baseY - R(4 * u), aw2, 1, C.stoneLight, 0.4);
+  silhouette(g, [
+    { x: AL.cx - R(aw2 * 0.36), y: AL.baseY - R(4 * u) },
+    { x: AL.cx - R(aw2 * 0.36), y: AL.baseY - R(10 * u) },
+    { x: AL.cx - R(aw2 * 0.06), y: AL.baseY - R(12 * u) },
+    { x: AL.cx + R(aw2 * 0.10), y: AL.baseY - R(7 * u) },
+    { x: AL.cx + R(aw2 * 0.34), y: AL.baseY - R(9 * u) },
+    { x: AL.cx + R(aw2 * 0.34), y: AL.baseY - R(4 * u) },
+  ], mix(C.stone, C.bone, 0.18), 1);
+  pxRect(g, AL.cx - R(aw2 * 0.06), AL.baseY - R(12 * u), R(aw2 * 0.16), 1, C.bone, 0.32);
+  for (const [cxw, ch] of [[-0.24, 9], [0.22, 6]]) {
+    const cxx = AL.cx + R(aw2 * cxw), cyy = AL.baseY - R((ch + 4) * u);
+    pxRect(g, cxx, cyy, R(2 * u), R(ch * u), C.parchment, 0.7);
+    pxRect(g, cxx, cyy, 1, R(ch * u), C.bone, 0.45);
+    pxRect(g, cxx - R(2 * u), cyy + R(ch * u), R(6 * u), Math.max(1, R(u)), C.stoneDark, 1);
+  }
+  // 吊香炉：两条吊链成 V 收到炉耳，炉盖尖顶 + 炉身 + 炉底积灰 —— 读作「吊着的炉」
+  const CE = SP.censer;
+  thinLine(g, CE.x - R(9 * u), CE.y0, CE.x, CE.y1 - R(2 * u), 0x6a5a48, 0.75);
+  thinLine(g, CE.x + R(9 * u), CE.y0, CE.x, CE.y1 - R(2 * u), 0x6a5a48, 0.75);
+  pxRect(g, CE.x - 1, CE.y1 - R(4 * u), 2, R(3 * u), 0x6a5a48, 0.8);
+  pxRect(g, CE.x - R(2 * u), CE.y1 - R(5 * u), R(5 * u), 1, C.brass, 0.75);
+  silhouette(g, [
+    { x: CE.x - R(5 * u), y: CE.y1 }, { x: CE.x, y: CE.y1 - R(4 * u) },
+    { x: CE.x + R(5 * u), y: CE.y1 }, { x: CE.x + R(4 * u), y: CE.y1 + R(1 * u) },
+    { x: CE.x - R(4 * u), y: CE.y1 + R(1 * u) },
+  ], C.brassDark, 0.95);
+  pxRect(g, CE.x - R(4 * u), CE.y1 + R(1 * u), R(9 * u), R(3 * u), C.brassDark, 0.95);
+  pxRect(g, CE.x - R(4 * u), CE.y1 + R(1 * u), R(9 * u), 1, C.brass, 0.55);
+  pxRect(g, CE.x - R(3 * u), CE.y1 + R(4 * u), R(7 * u), 1, 0x6a5a48, 0.9);
+  water(g, { x: -B, y: horizon, w: w + B * 2, h: h - horizon + B, base: C.swampWater, glint: C.swampGlint, seed: 9, alpha: 1, rows: L.tall ? 5 : 4, ripples: 5 });
   pxRect(g, -B, horizon, w + B * 2, 1, C.swampGlint, 0.35);
   // 沼水三层色带：近岸深、中段亮、远岸返绿（硬边分带，不用渐变）
   const wTop = horizon, wH = h - horizon + B;
@@ -253,6 +390,36 @@ function swampBack(g, L) {
   fill(g, -B, wTop + R(wH * 0.54), w + B * 2, R(wH * 0.46), C.ink, 0.34);
   pxRect(g, -B, wTop + R(wH * 0.26), w + B * 2, 1, C.swampGlint, 0.16);
   pxRect(g, -B, wTop + R(wH * 0.54), w + B * 2, 1, C.swampGlint, 0.10);
+  // 水汽雾带：两条横贯水面的浅雾，把远岸压下去、把近景抬出来（硬边，不用渐变）
+  pxRect(g, -B, wTop + R(wH * 0.34), w + B * 2, 1, C.bone, 0.07);
+  pxRect(g, -B, wTop + R(wH * 0.63), w + B * 2, 1, C.bone, 0.05);
+  // 远端岸线：不规则土坎 + 芦苇丛，把「墙根—水」接上，水面才有岸
+  const bankPts = [{ x: -B, y: wTop - R(3 * u) }];
+  for (let i = 0; i <= 8; i++) bankPts.push({ x: R(-B + ((w + B * 2) * i) / 8), y: wTop - R((2 + ((i * 7) % 4)) * u) });
+  bankPts.push({ x: w + B, y: wTop + R(4 * u) }, { x: -B, y: wTop + R(4 * u) });
+  silhouette(g, bankPts, mix(C.rot, C.ink, 0.38), 0.9);
+  for (let i = 0; i <= 8; i += 2) {
+    pxRect(g, R(-B + ((w + B * 2) * i) / 8), wTop - R((2 + ((i * 7) % 4)) * u), R(7 * u), 1, C.mossTileLit, 0.35);
+  }
+  // 芦苇：岸线上一丛丛竖茎，给水面立尺度
+  for (const rd of SP.reeds) {
+    pxRect(g, rd.x, wTop - rd.h, 1, rd.h, 0x4a5a34, 0.9);
+    pxRect(g, rd.x - 1, wTop - rd.h, rd.head, 2, 0x6b5b30, 0.9);
+  }
+  // 竖直反光条：彩窗与月光在水面拉出的亮线（alpha 逐段衰减）
+  for (const st of SP.streaks) {
+    const seg = Math.max(1, R(st.len / 3));
+    for (let s = 0; s < 3; s++) pxRect(g, st.x - R(st.w / 2), wTop + 2 + s * seg, st.w, seg, C.swampGlint, 0.30 - s * 0.08);
+  }
+  // 钟影处的涟漪：钟架脚下的水被钟声压低
+  for (const rp of SP.bellRipples) ellipseRing(g, rp.x, rp.y, rp.rx, rp.ry, C.swampGlint, 0.14, 8);
+  // 近岸两团浮萍/碎木
+  for (const [fx2, fy2, fw2] of [[0.24, 0.78, 9], [0.66, 0.88, 12]]) {
+    const px2 = R(w * fx2), py2 = wTop + R(wH * fy2);
+    pxRect(g, px2, py2, R(fw2 * u), R(2 * u), C.mossTileLit, 0.5);
+    pxRect(g, px2 + 1, py2, R(fw2 * 0.6 * u), 1, C.rot, 0.6);
+    pxRect(g, px2 + R(fw2 * 0.3 * u), py2 + R(2 * u), R(fw2 * 0.7 * u), 1, C.swampGlint, 0.14);
+  }
   // 五道窗影倒影：跟着实体（尖窗/彩窗）往下拉长，alpha 逐段衰减
   const refl = [
     [L.lancet1X, R(11 * L.u), C.glassBlue], [L.lancet2X, R(11 * L.u), C.glassRed],
@@ -263,16 +430,16 @@ function swampBack(g, L) {
     for (let i = 0; i < 5; i++) pxRect(g, rx2 - R(rw2 / 2), wTop + 2 + i * R(wH * 0.055), R(rw2 - i * 1.4), 2, col, 0.20 - i * 0.028);
   }
   // 三圈静涟漪 + 浮萍，给水面建立尺度
-  ellipseRing(g, R(w * 0.30), wTop + R(wH * 0.30), R(26 * L.u), R(4 * L.u), C.swampGlint, 0.16, 20);
-  ellipseRing(g, R(w * 0.66), wTop + R(wH * 0.48), R(34 * L.u), R(5 * L.u), C.swampGlint, 0.13, 22);
-  ellipseRing(g, R(w * 0.50), wTop + R(wH * 0.72), R(46 * L.u), R(6 * L.u), C.swampGlint, 0.09, 24);
-  for (let i = 0; i < 9; i++) {
+  ellipseRing(g, R(w * 0.30), wTop + R(wH * 0.30), R(26 * L.u), R(4 * L.u), C.swampGlint, 0.16, 12);
+  ellipseRing(g, R(w * 0.66), wTop + R(wH * 0.48), R(34 * L.u), R(5 * L.u), C.swampGlint, 0.13, 14);
+  ellipseRing(g, R(w * 0.50), wTop + R(wH * 0.72), R(46 * L.u), R(6 * L.u), C.swampGlint, 0.09, 16);
+  for (let i = 0; i < 5; i++) {
     const lx = R(w * (0.06 + (i * 0.107) % 0.90)), ly = wTop + R(wH * (0.14 + (i % 5) * 0.15));
     pxRect(g, lx, ly, R(5 + (i % 3) * 2), 2, C.mossTileLit, 0.55);
     pxRect(g, lx + 1, ly, R(2 + (i % 2) * 2), 1, C.rot, 0.6);
   }
   // 横向涟漪：长短交错，近处更宽，读出水面而不是草地
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < 12; i++) {
     const ry = wTop + R(wH * (0.05 + (i % 9) * 0.10));
     const rx = R(w * (((i * 0.37) % 0.86) + 0.05));
     const rw = R((10 + (i % 4) * 12) * L.u);
@@ -282,46 +449,114 @@ function swampBack(g, L) {
 }
 
 function swampMid(g, L) {
-  const { w, h } = L;
-  const beamY = L.bellY - R(6 * L.u);
-  // 钟架横梁与两根残柱
-  beam(g, { x: R(L.bellX - 76), y: beamY, w: 152, h: R(5 * L.u), color: 0x4a3826, light: 0x6a5236 });
-  for (const bx of [L.bellX - 70, L.bellX + 66]) {
-    pxRect(g, bx - 3, beamY, 7, L.horizon - beamY, 0x3b2e20, 0.95);
-    pxRect(g, bx - 3, beamY, 1, L.horizon - beamY, 0x6a5236, 0.4);
-    pxRect(g, bx - 6, L.horizon - 4, 13, 4, 0x2a2117, 1);
+  const { w, h, u } = L;
+  const F = swampFrame(L);
+  const IRON = 0x2a2117, WOOD = 0x3a3120, WOOD_LIT = 0x6a5236, WOOD_DARK = 0x3b2e20;
+  // 钟架：横梁出挑短、两根斜撑、柱脚石础 —— 承重结构要读得出来，不是公园秋千
+  beam(g, { x: F.beamX0, y: F.beamY, w: F.beamX1 - F.beamX0, h: R(5 * u), color: 0x4a3826, light: WOOD_LIT });
+  pxRect(g, F.beamX0, F.beamY, F.beamX1 - F.beamX0, 1, WOOD_LIT, 0.55);
+  for (const bx of F.colXs) {
+    pxRect(g, bx - R(F.colW / 2), F.beamY, F.colW, F.footY - F.beamY, WOOD_DARK, 0.95);
+    pxRect(g, bx - R(F.colW / 2), F.beamY, 1, F.footY - F.beamY, WOOD_LIT, 0.4);
+    pxRect(g, bx + R(F.colW / 2) - 1, F.beamY, 1, F.footY - F.beamY, C.void, 0.45);
+    // 石础：两级，宽过柱身，坐在水线上
+    pxRect(g, bx - R(F.footW / 2), F.footY - F.footH, F.footW, F.footH, C.stoneDark, 1);
+    pxRect(g, bx - R(F.footW / 2), F.footY - F.footH, F.footW, 1, C.stoneLight, 0.45);
+    pxRect(g, bx - R(F.footW / 2) - R(2 * u), F.footY, F.footW + R(4 * u), R(2 * u), C.stoneDark, 1);
+    pxRect(g, bx - R(F.footW / 2) - R(2 * u), F.footY, F.footW + R(4 * u), 1, C.stoneLight, 0.2);
   }
-  beam(g, { x: R(w * 0.06), y: R(h * 0.36), w: R(w * 0.20), h: 4, color: 0x3b2e20, light: 0x6a5236, alpha: 0.9 });
-  // 半沉长椅三排
+  // 斜撑：两根，从柱身斜向上收进横梁
+  for (const br of F.braces) {
+    thinLine(g, br.from[0], br.from[1], br.to[0], br.to[1], 0x4a3826, 0.95);
+    thinLine(g, br.from[0], br.from[1] - 1, br.to[0], br.to[1] - 1, WOOD_LIT, 0.45);
+  }
+  // 绞盘：梁上绕钟绳的木鼓 + 摇柄；滑轮正对钟顶
+  const WN = F.winch;
+  pxRect(g, WN.x, WN.y, WN.w, WN.h, WOOD_DARK, 1);
+  pxRect(g, WN.x, WN.y, WN.w, 1, WOOD_LIT, 0.6);
+  for (let i = 1; i < 3; i++) pxRect(g, WN.x + R((WN.w * i) / 3), WN.y + 1, 1, WN.h - 1, C.void, 0.45);
+  pxRect(g, WN.x + WN.w, WN.y - R(4 * u), 1, R(4 * u), WOOD_LIT, 0.9);
+  pxRect(g, WN.x + WN.w, WN.y - R(4 * u), R(3 * u), 1, WOOD_LIT, 0.9);
+  disc(g, F.pulley.x, F.pulley.y, F.pulley.r, WOOD_LIT, 0.95);
+  pxRect(g, F.pulley.x - 1, F.pulley.y, 2, 1, C.void, 0.7);
+  // 半沉长椅三排：靠背竖棂 + 铸铁弯腿 + 入水涟漪；中间那张翻倒半沉
   for (let i = 0; i < 3; i++) {
-    const px2 = R(w * (0.16 + i * 0.24)) - R(L.tall ? 0 : 0);
-    const py2 = L.horizon + R(10 * L.u) + i * R(11 * L.u);
-    const bw = R(58 * L.u);
-    planks(g, { x: px2, y: py2, w: bw, h: 4, color: 0x3a3120, dark: 0x1c1710, light: 0x6a5236, alpha: 0.95, rowH: 4, seed: 5 + i });
-    pxRect(g, px2 + 4, py2 + 4, 3, R(9 * L.u), 0x2a2117, 0.95);
-    pxRect(g, px2 + bw - 8, py2 + 4, 3, R(7 * L.u), 0x2a2117, 0.95);
-    if (i !== 1) pxRect(g, px2 + bw * 0.55, py2 + 4, 3, R(8 * L.u), 0x2a2117, 0.85);
-    pxRect(g, px2 + R(bw * 0.28), py2, R(bw * 0.3), 1, C.stoneDark, 0.8);
-    pxRect(g, px2 - 2, py2 + R(4 * L.u), bw + 4, R(4 * L.u), C.swampWater, 0.55);
-    pxRect(g, px2 - 2, py2 + R(4 * L.u), bw + 4, 1, C.swampGlint, 0.16);
+    const b = swampBenches(L)[i];
+    if (b.overturned) {
+      // 翻倒：座板斜插进水里，椅腿朝左上翘起
+      for (let k = 0; k < 3; k++) {
+        const px0 = b.x + k * R(3 * u), py0 = b.y + k * R(3 * u);
+        pxRect(g, px0, py0, b.w - R(6 * u), R(3 * u), WOOD, 0.95);
+        pxRect(g, px0, py0, b.w - R(6 * u), 1, WOOD_LIT, 0.45);
+      }
+      thinLine(g, b.x + R(6 * u), b.y + R(4 * u), b.x - R(8 * u), b.y - R(11 * u), IRON, 0.95);
+      thinLine(g, b.x + b.w - R(10 * u), b.y + R(8 * u), b.x + b.w - R(24 * u), b.y - R(7 * u), IRON, 0.95);
+      pxRect(g, b.x - R(9 * u), b.y - R(12 * u), R(3 * u), R(2 * u), IRON, 0.9);
+      // 半沉：水线压住下半
+      pxRect(g, b.x - R(4 * u), b.y + R(9 * u), b.w + R(6 * u), R(7 * u), C.swampWater, 0.7);
+      pxRect(g, b.x - R(4 * u), b.y + R(9 * u), b.w + R(6 * u), 1, C.swampGlint, 0.24);
+      ellipseRing(g, b.x + R(b.w * 0.5), b.y + R(11 * u), R(30 * u), R(3 * u), C.swampGlint, 0.16, 14);
+      continue;
+    }
+    // 靠背：两根立柱 + 顶横档 + 四根竖棂
+    pxRect(g, b.x + R(4 * u), b.y - R(10 * u), R(2 * u), R(10 * u), IRON, 0.95);
+    pxRect(g, b.x + b.w - R(6 * u), b.y - R(10 * u), R(2 * u), R(10 * u), IRON, 0.95);
+    pxRect(g, b.x + R(3 * u), b.y - R(10 * u), b.w - R(6 * u), R(2 * u), WOOD, 1);
+    pxRect(g, b.x + R(3 * u), b.y - R(10 * u), b.w - R(6 * u), 1, WOOD_LIT, 0.55);
+    for (let k = 0; k < 4; k++) pxRect(g, b.x + R(10 * u) + k * R(11 * u), b.y - R(8 * u), 1, R(8 * u), 0x4a3826, 0.85);
+    // 座板
+    planks(g, { x: b.x, y: b.y, w: b.w, h: R(4 * u), color: WOOD, dark: 0x1c1710, light: WOOD_LIT, alpha: 0.95, rowH: 4, seed: 5 + i });
+    pxRect(g, b.x + R(b.w * 0.28), b.y, R(b.w * 0.3), 1, C.stoneDark, 0.8);
+    // 铸铁椅腿：2px 柱身 + 弯脚，伸进水面
+    for (const lg of b.legs) {
+      pxRect(g, lg.x, lg.y, R(2 * u), lg.h, IRON, 0.95);
+      pxRect(g, lg.x, lg.y, 1, lg.h, WOOD_LIT, 0.3);
+      const fx = lg.dir < 0 ? lg.x - lg.foot + R(2 * u) : lg.x;
+      pxRect(g, fx, lg.y + lg.h - 1, lg.foot, 1, IRON, 0.95);
+      pxRect(g, fx, lg.y + lg.h - 2, 1, 1, IRON, 0.95);
+      // 入水涟漪：脚边一圈小水花
+      ellipseRing(g, lg.x + 1, lg.y + lg.h, R(6 * u), Math.max(1, R(1.5 * u)), C.swampGlint, 0.22, 10);
+    }
+    // 座下水影
+    pxRect(g, b.x - 2, b.y + R(4 * u), b.w + 4, R(4 * u), C.swampWater, 0.55);
+    pxRect(g, b.x - 2, b.y + R(4 * u), b.w + 4, 1, C.swampGlint, 0.16);
   }
   // 左石阶两级
-  steps(g, { cx: R(w * 0.10), y: L.horizon - 6, w: R(52 * L.u), count: 2, rise: R(5 * L.u), color: C.stoneDark, light: C.stoneLight, alpha: 1 });
+  steps(g, { cx: R(w * 0.10), y: L.horizon - 6, w: R(52 * u), count: 2, rise: R(5 * u), color: C.stoneDark, light: C.stoneLight, alpha: 1 });
   // 右侧倒下的柱鼓与半淹墓碑
   for (let i = 0; i < 3; i++) {
-    pxRect(g, R(w * 0.84) + i * 3, L.horizon + R(14 + i * 6), R(30 - i * 6), R(8 * L.u), C.stoneDark, 1);
+    pxRect(g, R(w * 0.84) + i * 3, L.horizon + R(14 + i * 6), R(30 - i * 6), R(8 * u), C.stoneDark, 1);
     pxRect(g, R(w * 0.84) + i * 3, L.horizon + R(14 + i * 6), R(30 - i * 6), 1, C.stoneLight, 0.35);
   }
   grave(g, R(w * 0.90), L.horizon + 6, 0, 1.1, C.stoneDark, 0.95);
   grave(g, R(w * 0.95), L.horizon + 16, 2, 0.9, C.stoneDark, 0.9);
   // 钟架上的苔与藤
-  moss(g, { x: L.bellX - 70, y: beamY, w: 140, h: 8, seed: 12, color: C.mossTileLit, color2: C.rot, count: 26, alpha: 0.65 });
+  moss(g, { x: F.beamX0, y: F.beamY, w: F.beamX1 - F.beamX0, h: R(8 * u), seed: 12, color: C.mossTileLit, color2: C.rot, count: 24, alpha: 0.65 });
   for (let i = 0; i < 3; i++) {
-    const vx = R(L.bellX - 40 + i * 34);
-    pxRect(g, vx, beamY + 4, 1, R(14 + i * 6), C.rot, 0.55);
-    pxRect(g, vx, beamY + R(18 + i * 6), 3, 1, C.rot, 0.45);
+    const vx = R(L.bellX - R(34 * u) + i * R(30 * u));
+    pxRect(g, vx, F.beamY + R(5 * u), 1, R(13 * u + i * 5 * u), C.rot, 0.55);
+    pxRect(g, vx, F.beamY + R(18 * u + i * 5 * u), R(3 * u), 1, C.rot, 0.45);
+  }
+  // 水中半沉木桩：给中景水面立纵深（竖屏下半不再是一整片空水）
+  for (const [pxw, ph, pw] of [[0.30, 16, 5], [0.46, 11, 4], [0.72, 21, 6]]) {
+    const sx = R(w * pxw), sy = R(h * (L.tall ? 0.86 : 0.88));
+    const topY = sy - R(ph * u);
+    pxRect(g, sx - R(pw / 2), topY, R(pw), sy - topY, 0x2f2a1c, 1);
+    pxRect(g, sx - R(pw / 2), topY, R(pw), 1, 0x5a4a32, 0.7);
+    pxRect(g, sx - R(pw / 2), topY, 1, sy - topY, 0x4a3c28, 0.5);
+    pxRect(g, sx - R(pw / 2), topY - 1, Math.max(1, R(pw * 0.5)), 1, 0x6a5236, 0.6);
+    ellipseRing(g, sx, sy, R(9 * u), Math.max(1, R(1.5 * u)), C.swampGlint, 0.20, 10);
+    pxRect(g, sx - R(9 * u), sy, R(18 * u), 1, C.swampGlint, 0.10);
+  }
+  // 近处水面再压两团浮萍，把「水—岸」的层次推到前景边缘
+  for (const [fxw, fyw, fw] of [[0.38, 0.93, 14], [0.63, 0.97, 9]]) {
+    const px3 = R(w * fxw), py3 = R(h * fyw);
+    pxRect(g, px3, py3, R(fw * u), R(2 * u), C.mossTileLit, 0.5);
+    pxRect(g, px3 + 1, py3, R(fw * 0.55 * u), 1, C.rot, 0.6);
+    pxRect(g, px3 + R(fw * 0.25 * u), py3 + R(2 * u), R(fw * 0.6 * u), 1, C.swampGlint, 0.12);
   }
 }
+
 
 function swampFore(g, L) {
   const { w, h } = L;
@@ -740,18 +975,14 @@ function courtBack(g, L) {
     }
     cracks(g, { x: sx + R(7 * L.u), y: sTop + R(6 * L.u), len: R(h * 0.09), seed: 20 + si * 5, color: C.void, alpha: 0.55, branches: 0, drift: 3 });
   }
-  // 天平浮雕：梁、吊索、双盘都画全，别只剩一根竖线
-  const sx2 = R(w * 0.5), sy2 = R(h * 0.24), bw2 = R(46 * L.u);
-  pxRect(g, sx2 - 2, sy2, 4, R(h * 0.16), C.ink, 0.26);
-  pxRect(g, sx2 - bw2, sy2, bw2 * 2, 3, C.ink, 0.26);
-  for (const dir of [-1, 1]) {
-    const px2 = sx2 + dir * bw2;
-    pxRect(g, px2 - 1, sy2 + 3, 1, R(12 * L.u), C.ink, 0.26);
-    pxRect(g, px2 - R(10 * L.u), sy2 + R(12 * L.u), R(20 * L.u), 2, C.ink, 0.26);
-    pxRect(g, px2 - R(10 * L.u), sy2 + R(12 * L.u), 1, R(4 * L.u), C.ink, 0.22);
-    pxRect(g, px2 + R(10 * L.u) - 1, sy2 + R(12 * L.u), 1, R(4 * L.u), C.ink, 0.22);
+  // 墙上原本有一处天平浮雕；实体天平抬到碑顶之上后两者会在同一高度撞车，
+  // 这里改成一道檐下暗带 + 三枚刻符，保留墙面层次但不与实体天平抢读。
+  const sx2 = R(w * 0.5), sy2 = R(h * 0.24);
+  pxRect(g, sx2 - R(52 * L.u), sy2, R(104 * L.u), 1, C.stoneLight, 0.18);
+  pxRect(g, sx2 - R(52 * L.u), sy2 + 1, R(104 * L.u), 1, C.void, 0.28);
+  for (let i = -1; i <= 1; i++) {
+    pxDiamond(g, sx2 + i * R(26 * L.u), sy2 + R(10 * L.u), R(4 * L.u), C.stoneLight, 0.28, true);
   }
-  pxDiamond(g, sx2, sy2 - R(3 * L.u), R(4 * L.u), C.brassDark, 0.4, true);
   // 两侧垂幡：给柱廊加软性垂直线
   for (const [bx2, bh2] of [[R(w * 0.15), 0.2], [R(w * 0.85), 0.16]]) {
     const bwid = R(12 * L.u), bh = R(h * bh2);
@@ -783,13 +1014,40 @@ function courtMid(g, L) {
     const xt = R(w * 0.5 + (xb - w * 0.5) * 0.42);
     thinLine(g, xt, fy, xb, h + L.B, C.void, 0.3);
   }
+  // 柱影与幡影：从柱脚斜拉到画面右下，把地面与背后的柱廊连起来
+  for (const cxp of [R(w * 0.08), R(w * 0.37), R(w * 0.63), R(w * 0.92)]) {
+    thinLine(g, cxp, R(h * 0.76), cxp + R(46 * L.u), h, C.void, 0.26);
+    thinLine(g, cxp + R(4 * L.u), R(h * 0.76), cxp + R(52 * L.u), h, C.void, 0.16);
+  }
+  // 通向天平的红毯：收束到三级台座，给中央一条明确的仪式轴线
+  {
+    const CB = courtBalance(L);
+    const cxw = CB.x, yTop = R(h * 0.70), yBot = h + L.B;
+    const wTop = R(22 * L.u), wBot = R(64 * L.u);
+    silhouette(g, [
+      { x: cxw - wTop, y: yTop }, { x: cxw + wTop, y: yTop },
+      { x: cxw + wBot, y: yBot }, { x: cxw - wBot, y: yBot },
+    ], mix(C.bloodDark, C.ink, 0.35), 0.72);
+    thinLine(g, cxw - wTop, yTop, cxw - wBot, yBot, C.brassDark, 0.3);
+    thinLine(g, cxw + wTop, yTop, cxw + wBot, yBot, C.brassDark, 0.3);
+    thinLine(g, cxw - wTop + R(3 * L.u), yTop, cxw - wBot + R(7 * L.u), yBot, C.blood, 0.18);
+    thinLine(g, cxw + wTop - R(3 * L.u), yTop, cxw + wBot - R(7 * L.u), yBot, C.blood, 0.18);
+    for (let i = 1; i <= 4; i++) {
+      const yy = R(yTop + (yBot - yTop) * (i / 5));
+      const hw = R(wTop + (wBot - wTop) * (i / 5));
+      pxRect(g, cxw - hw, yy, hw * 2, 1, C.void, 0.22);
+    }
+    for (let i = -6; i <= 6; i++) pxRect(g, cxw + R(i * 9 * L.u), R(h - 6 * L.u), 1, R(5 * L.u), C.brassDark, 0.35);
+  }
   // 中央天平：三级台座 + 立杆 + 顶饰（横梁与双盘交给动态层，随判决倾斜）
-  const bx3 = L.balX, by3 = L.balY;
-  const poleTop = by3 - L.balH + R(2 * L.u);
+  // 立杆抬到碑顶之上：横梁与双盘都不能压在中间那块判词碑的碑面上
+  const B = courtBalance(L);
+  const bx3 = B.x, poleTop = B.beamY;
   L.balTop = poleTop;
   steps(g, { cx: bx3, y: R(h * 0.66), w: R(58 * L.u), count: 3, rise: R(4 * L.u), color: C.stoneDark, light: C.stoneLight, alpha: 1 });
   pxRect(g, bx3 - 2, poleTop, 5, R(h * 0.66) - poleTop, C.brassDark, 1);
   pxRect(g, bx3 - 2, poleTop, 1, R(h * 0.66) - poleTop, C.brass, 0.9);
+  for (const hy of [0.34, 0.62]) pxRect(g, bx3 - 3, poleTop + R((R(h * 0.66) - poleTop) * hy), 7, 2, C.brassDark, 0.9);
   pxRect(g, bx3 - R(4 * L.u), poleTop - R(2 * L.u), R(8 * L.u), R(3 * L.u), C.brassDark, 0.95);
   pxDiamond(g, bx3, poleTop - R(5 * L.u), R(5 * L.u), C.brassLight, 0.9, true);
   // 两侧判席：两排矮石凳，给空荡的地面加家具
@@ -1349,6 +1607,17 @@ function dynSwamp(g, ctx) {
       fill(g, sx - 10, L.winBaseY, 20, L.horizon - L.winBaseY, C.swampGlint, 0.05 * lit);
     }
   }
+  // 三·五、祭坛两根残烛在「灯亮」那一拍点起（结果留在画面上）
+  if (lit > 0) {
+    const AL2 = swampProps(L).altar;
+    for (const [cxw, ch] of [[-0.24, 9], [0.22, 6]]) {
+      const fx3 = AL2.cx + R(AL2.w * cxw) - P.mid;
+      const fy3 = AL2.baseY - R((ch + 4) * L.u);
+      const fl = 2 + (Math.sin(t * 0.02 + cxw * 9) > 0 ? 1 : 0);
+      pxRect(g, fx3, fy3 - fl, 1, fl + 1, C.brassLight, 0.85 * lit);
+      pxRect(g, fx3 - 1, fy3 - fl + 1, 3, 1, C.brass, 0.4 * lit);
+    }
+  }
   // 四、倒影抖动后稳住
   const shake = (1 - clamp01((p - 0.58) / 0.30)) * (1 + Math.abs(Math.sin(t * 0.02)));
   for (let i = 0; i < 5; i++) {
@@ -1468,23 +1737,28 @@ function dynCourt(g, ctx) {
   const { w, h, t, p } = ctx;
   const L = journeyLayout('court', w, h);
   const P = journeyPan(p);
-  const bx = L.balX - P.mid, by = L.balY, half = R(30 * L.u);
-  // 一、天平倾斜到一侧
-  const tilt = 0.22 * clamp01((p - 0.12) / 0.30);
+  const B = courtBalance(L);
+  const bx = B.x - P.mid, half = B.half;
+  // 一、天平倾斜到一侧（梁、双盘与第二节吊链一起动）
+  const tilt = B.tilt * clamp01((p - 0.12) / 0.30);
   const dy = R(Math.sin(tilt) * half);
-  const ly = by - L.balH + R(2 * L.u);
+  const ly = B.beamY;
   pxRect(g, bx - 2, ly, 4, 3, C.brass, 0.95);
   pxLine(g, bx - half, ly - dy, bx + half, ly + dy, C.brass, 0.95, 2);
   pxLine(g, bx - half, ly - dy - 1, bx + half, ly + dy - 1, C.brassLight, 0.55, 1);
   for (const s of [-1, 1]) {
     const ex = bx + s * half, ey = ly + s * dy;
-    const pl = R(15 * L.u);
-    chain(g, { x: ex, y: ey, h: pl, color: C.brassDark, alpha: 0.85, linkH: 3 });
-    pxRect(g, ex - R(8 * L.u), ey + pl, R(16 * L.u), R(3 * L.u), C.brass, 0.9);
-    pxRect(g, ex - R(8 * L.u), ey + pl, R(16 * L.u), 1, C.white, 0.35);
-    pxRect(g, ex - R(8 * L.u), ey + pl + R(3 * L.u), 1, R(4 * L.u), C.brassDark, 0.8);
-    pxRect(g, ex + R(8 * L.u) - 1, ey + pl + R(3 * L.u), 1, R(4 * L.u), C.brassDark, 0.8);
-    pxRect(g, ex - R(8 * L.u), ey + pl + R(7 * L.u), R(16 * L.u), 1, C.brassDark, 0.7);
+    const pl = B.pl, panW = B.panW;
+    pxDiamond(g, ex, ey, 2, C.brassLight, 0.9, true);
+    // 第二节吊链：从梁端斜拉到盘沿两侧，盘不再像浮在空中
+    thinLine(g, ex, ey, ex - R(7 * L.u), ey + pl, C.brassDark, 0.85);
+    thinLine(g, ex, ey, ex + R(7 * L.u), ey + pl, C.brassDark, 0.85);
+    pxRect(g, ex - 1, ey, 2, Math.max(2, R(pl * 0.4)), C.brassDark, 0.8);
+    pxRect(g, ex - R(panW / 2), ey + pl, panW, R(3 * L.u), C.brass, 0.9);
+    pxRect(g, ex - R(panW / 2), ey + pl, panW, 1, C.white, 0.35);
+    pxRect(g, ex - R(panW / 2), ey + pl + R(3 * L.u), 1, R(4 * L.u), C.brassDark, 0.8);
+    pxRect(g, ex + R(panW / 2) - 1, ey + pl + R(3 * L.u), 1, R(4 * L.u), C.brassDark, 0.8);
+    pxRect(g, ex - R(panW / 2), ey + pl + R(7 * L.u), panW, 1, C.brassDark, 0.7);
   }
   // 二、判词卷从右盘滚落到栏杆
   const fp = clamp01((p - 0.55) / 0.30);
