@@ -15,7 +15,8 @@ import {
 } from '../ui/cinematic-art.js';
 import { sfx } from '../audio/Sfx.js';
 import { JOURNEYS } from '../data/story.js';
-import { JOURNEY_STAGES, buildStars } from '../ui/story-art.js';
+import { buildStars } from '../ui/story-art.js';
+import { JOURNEY_STATIC, JOURNEY_STAGES, journeyLayout, journeyPan } from '../ui/journey-static.js';
 import { startMusic, stopMusic } from '../audio/CineMusic.js';
 import { createChoreo } from '../ui/cutscene-choreo.js';
 import { dioramaLayout, drawBand, DIORAMA_BANDS, getDiorama } from '../ui/dioramas/registry.js';
@@ -71,10 +72,15 @@ export default class CutsceneScene extends Phaser.Scene {
 
     // 静态布景三层：create 时各画一次，之后每帧只调 setAlpha / setY（见 update 里的 parallax）。
     // 这是扩容的关键——旧版每帧重画全部剪影，第 1 幕 act 已顶到 646/700 指令，没有余量再加细节。
+    const isJourney = this.options.kind === 'journey';
     this.diorama = dioramaLayout(this.options.act, W, H);
+    if (isJourney) this.journey = JOURNEYS[this.options.act] ?? JOURNEYS[2];
+    this.journeyL = isJourney ? journeyLayout(this.journey.stage, W, H) : null;
+    if (isJourney) this.stageG.setDepth(1.2); // 动态件必须盖在静态三层之上
     this.dioramaBands = DIORAMA_BANDS.map((band, i) => {
       const g = this.add.graphics().setDepth(0.6 + i * 0.15);
-      drawBand(this.options.act, band, g, this.diorama);
+      if (isJourney) JOURNEY_STATIC[this.journey.stage][band](g, this.journeyL);
+      else drawBand(this.options.act, band, g, this.diorama);
       g.setAlpha(0);
       return g;
     });
@@ -131,63 +137,76 @@ export default class CutsceneScene extends Phaser.Scene {
     const g = this.add.graphics();
     container.add(g);
 
+    // 版面坐标是画布绝对值（见 cutscene-plinth.js），容器却挂在 (cx, cy)：
+    // 一律先减偏移再交给 addText / pxRect，否则整块碑座会被推到画布外。
+    // 2026-11-12 修：旧版只有 titleBaseY 做了换算，碑座石面与统计整块跑到 y>270，截图里直接看不见。
+    const px = (v) => Math.round(v - this.cx);
+    const py = (v) => Math.round(v - this.cy);
+    const at = (p) => ({ x: px(p.x), y: py(p.y) });
+
     const accent = hexOf(card.accent);
     const L = plinthLayout({ w: this.W, h: this.H, card });
-    const local = (p) => toLocal(p, this.cx, this.cy);
     const tall = L.tall;
 
     if (L.compact) {
-      const { x, y, w, h } = L.panel;
-      pxRect(g, x, y, w, h, C.void, 0.82);
-      pxFrame(g, x, y, w, h, C.brassDark, 1, 0.75);
-      for (const [rx, ry] of [[x + 1, y + 1], [x + w - 4, y + 1], [x + 1, y + h - 4], [x + w - 4, y + h - 4]]) {
+      const bx = px(L.panel.x);
+      const by = py(L.panel.y);
+      const { w, h } = L.panel;
+      pxRect(g, bx, by, w, h, C.void, 0.82);
+      pxFrame(g, bx, by, w, h, C.brassDark, 1, 0.75);
+      for (const [rx, ry] of [[bx + 1, by + 1], [bx + w - 4, by + 1], [bx + 1, by + h - 4], [bx + w - 4, by + h - 4]]) {
         pxRect(g, rx, ry, 3, 3, C.brass, 0.8);
       }
-      const title = addText(this, L.title.x, L.title.y, card.title, L.title.size, HEX.parchment, {
+      const tp = at(L.title);
+      const title = addText(this, tp.x, tp.y, card.title, L.title.size, HEX.parchment, {
         fontFamily: FONT_DISPLAY, letterSpacing: 2, stroke: HEX.inkDark, strokeThickness: 2,
       }).setOrigin(0.5, 0);
       container.add(title);
       container.titleText = title;
-      container.titleBaseY = local({ x: 0, y: L.title.y }).y;
+      container.titleBaseY = tp.y;
       return container;
     }
 
     // 石带本体：上沿铜线 + 底边暗线 + 四角铆钉 + 固定种子凿痕/苔点
-    pxRect(g, L.panel.x, L.shadowY, L.panel.w, 1, C.nightDeep, 0.6);
-    pxRect(g, 0, L.panel.y, L.panel.w, L.panel.h, C.void, 0.88);
-    pxRect(g, 0, L.panel.y, L.panel.w, 1, C.brass, 0.55);
-    pxRect(g, 0, L.panel.y + L.panel.h - 1, L.panel.w, 1, C.ink, 0.9);
-    for (const [rx, ry] of [[2, L.panel.y + 2], [L.panel.w - 5, L.panel.y + 2], [2, L.panel.y + L.panel.h - 5], [L.panel.w - 5, L.panel.y + L.panel.h - 5]]) {
+    const bandY = py(L.panel.y);
+    const bandX = px(L.panel.x);
+    pxRect(g, bandX, py(L.shadowY), L.panel.w, 1, C.nightDeep, 0.6);
+    pxRect(g, bandX, bandY, L.panel.w, L.panel.h, C.void, 0.88);
+    pxRect(g, bandX, bandY, L.panel.w, 1, C.brass, 0.55);
+    pxRect(g, bandX, bandY + L.panel.h - 1, L.panel.w, 1, C.ink, 0.9);
+    for (const [rx, ry] of [[bandX + 2, bandY + 2], [bandX + L.panel.w - 5, bandY + 2], [bandX + 2, bandY + L.panel.h - 5], [bandX + L.panel.w - 5, bandY + L.panel.h - 5]]) {
       pxRect(g, rx, ry, 3, 3, C.brass, 0.8);
     }
     const marks = plinthMarks(0x51c7 + (this.options.act || 1) * 131);
-    for (const m of marks.marks) pxRect(g, m.x, L.panel.y + m.y, m.len, 1, C.stoneDark, 0.5);
-    for (const m of marks.moss) pxRect(g, m.x, L.panel.y + m.y, m.w, 1, C.mossTileLit, 0.55);
+    for (const m of marks.marks) pxRect(g, px(m.x), bandY + m.y, m.len, 1, C.stoneDark, 0.5);
+    for (const m of marks.moss) pxRect(g, px(m.x), bandY + m.y, m.w, 1, C.mossTileLit, 0.55);
 
     // 幕数字水印：大字压在石带右侧，不参与阅读
     const wm = L.watermark;
     if (wm) {
       const numeral = getDiorama(this.options.act)?.numeral ?? '';
-      const mark = addText(this, wm.x, wm.y, numeral, wm.size, accent, {
+      const wp = at(wm);
+      const mark = addText(this, wp.x, wp.y, numeral, wm.size, accent, {
         fontFamily: FONT_DISPLAY, stroke: HEX.inkDark, strokeThickness: 2,
       }).setOrigin(0.5, 0).setAlpha(wm.alpha);
       container.add(mark);
     }
 
     if (L.eyebrow) {
-      const eyebrow = addText(this, L.eyebrow.x, L.eyebrow.y, card.eyebrow, L.eyebrow.size, accent, {
+      const ep = at(L.eyebrow);
+      const eyebrow = addText(this, ep.x, ep.y, card.eyebrow, L.eyebrow.size, accent, {
         letterSpacing: 2,
       }).setOrigin(0, 0);
       container.add(eyebrow);
     }
 
     // 标题：act 拆单字供逐字砸落；其余整块。坐标一律是字顶（addText 默认 origin 0,0）
-    const titlePos = local(L.title);
-    container.titleBaseY = titlePos.y;
+    const tp = at(L.title);
+    container.titleBaseY = tp.y;
     if (card.kind === 'act') {
       const chars = [...String(card.title)];
       container.titleChars = chars.map((ch, k) => {
-        const t = addText(this, L.title.x + k * L.title.step, L.title.y, ch, L.title.size, HEX.parchment, {
+        const t = addText(this, tp.x + k * L.title.step, tp.y, ch, L.title.size, HEX.parchment, {
           fontFamily: FONT_DISPLAY, stroke: HEX.inkDark, strokeThickness: 3,
           shadow: { offsetX: 2, offsetY: 2, color: '#0d0a17', blur: 0, fill: true },
         }).setOrigin(0, 0).setAlpha(0);
@@ -195,7 +214,7 @@ export default class CutsceneScene extends Phaser.Scene {
         return t;
       });
     } else {
-      const title = addText(this, L.title.x, L.title.y, card.title, L.title.size, HEX.parchment, {
+      const title = addText(this, tp.x, tp.y, card.title, L.title.size, HEX.parchment, {
         fontFamily: FONT_DISPLAY, letterSpacing: 3, stroke: HEX.inkDark, strokeThickness: 3,
         shadow: { offsetX: 2, offsetY: 2, color: '#0d0a17', blur: 0, fill: true },
       }).setOrigin(0, 0);
@@ -204,21 +223,24 @@ export default class CutsceneScene extends Phaser.Scene {
     }
 
     // 分隔线 + 中央菱形
-    pxRect(g, L.rule.x1, L.rule.y, L.rule.x2 - L.rule.x1, 1, C.brassDark, 0.9);
-    pxDiamond(g, Math.round((L.rule.x1 + L.rule.x2) / 2), L.rule.y, 2, card.accent, 0.85, true);
+    const ruleY = py(L.rule.y);
+    pxRect(g, px(L.rule.x1), ruleY, L.rule.x2 - L.rule.x1, 1, C.brassDark, 0.9);
+    pxDiamond(g, px(Math.round((L.rule.x1 + L.rule.x2) / 2)), ruleY, 2, card.accent, 0.85, true);
 
-    const subtitle = addText(this, L.subtitle.x, L.subtitle.y, card.subtitle, L.subtitle.size, HEX.parchment, {
+    const sp = at(L.subtitle);
+    const subtitle = addText(this, sp.x, sp.y, card.subtitle, L.subtitle.size, HEX.parchment, {
       wordWrap: { width: L.subtitle.width }, lineSpacing: tall ? 5 : 4,
     }).setOrigin(0, 0);
     container.add(subtitle);
 
     if (L.stats.length) {
-      container.statBaseY = local({ x: 0, y: L.stats[0].valueY }).y;
+      container.statBaseY = py(L.stats[0].valueY);
       container.statValues = [];
       L.stats.forEach((s, k) => {
-        if (s.divider != null) pxRect(g, s.divider, s.labelY - 3, 1, 40, C.brassDark, 0.35);
-        const label = addText(this, s.x, s.labelY, card.stats[k].label, s.labelSize, HEX.mute, { align: 'center' }).setOrigin(0.5, 0);
-        const value = addText(this, s.x, s.valueY, card.stats[k].value, s.valueSize, HEX.brassLight, { align: 'center' }).setOrigin(0.5, 0);
+        const sx = px(s.x);
+        if (s.divider != null) pxRect(g, px(s.divider), py(s.labelY) - 3, 1, 40, C.brassDark, 0.35);
+        const label = addText(this, sx, py(s.labelY), card.stats[k].label, s.labelSize, HEX.mute, { align: 'center' }).setOrigin(0.5, 0);
+        const value = addText(this, sx, py(s.valueY), card.stats[k].value, s.valueSize, HEX.brassLight, { align: 'center' }).setOrigin(0.5, 0);
         container.add(label);
         container.add(value);
         container.statValues.push(value);
@@ -226,7 +248,8 @@ export default class CutsceneScene extends Phaser.Scene {
     }
 
     if (card.hint) {
-      const hint = addText(this, L.hint.x, L.hint.y, card.hint, L.hint.size, HEX.mute, { align: 'right' })
+      const hp = at(L.hint);
+      const hint = addText(this, hp.x, hp.y, card.hint, L.hint.size, HEX.mute, { align: 'right' })
         .setOrigin(1, 0);
       container.add(hint);
     }
@@ -364,16 +387,22 @@ export default class CutsceneScene extends Phaser.Scene {
     // 静态三层：只在盖场后段显影（与旧 drawStage 的 stageA 同一条曲线），逐帧只改 alpha；
     // 近景再做一个 2px 的下沉对视差，位移恒为整数，避免半像素导致砖缝发虚。
     const stageA = clamp01((veil - 0.42) / 0.58);
+    const isJourney = kind === 'journey' && this.journey;
+    const jt = isJourney ? Math.max(0, this.elapsed - tl.coverMs) : 0;
+    const jp = isJourney ? clamp01(jt / tl.holdMs) : 0;
+    const pan = isJourney ? journeyPan(jp) : null;
     for (let i = 0; i < this.dioramaBands.length; i++) {
       const band = this.dioramaBands[i];
       band.setAlpha(stageA);
-      if (i === 2) band.setY(Math.round(2 * (1 - stageA)));
+      // journey 的静态三层按层做整数横移视差；act 路径保持原样（只有近景 2px 下沉）
+      if (pan) {
+        band.setPosition(-pan[DIORAMA_BANDS[i]], i === 2 ? Math.round(2 * (1 - stageA)) : 0);
+      } else if (i === 2) band.setY(Math.round(2 * (1 - stageA)));
     }
 
     // journey：hold 阶段是单镜头演出，不画中央符环与标题卡
     if (kind === 'journey' && this.journey) {
-      const jt = Math.max(0, this.elapsed - tl.coverMs);
-      const jp = clamp01(jt / tl.holdMs);
+      this.stageG.setAlpha(stageA);
       this.stageG.clear();
       JOURNEY_STAGES[this.journey.stage](this.stageG, {
         w: this.W, h: this.H, t: jt, p: jp, accent, stars: this.stars,

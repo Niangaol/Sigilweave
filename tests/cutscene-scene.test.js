@@ -15,14 +15,15 @@ vi.mock('phaser', () => {
 
 vi.mock('../src/ui/Palette.js', async (importOriginal) => {
   const actual = await importOriginal();
-  const fakeText = () => {
+  const fakeText = (x = 0, y = 0) => {
     const t = {
-      setOrigin: () => t, setAlpha: () => t, setY: () => t, setDepth: () => t,
-      setVisible: () => t, setText: () => t, destroy: () => {},
+      x, y, text: '',
+      setOrigin: () => t, setAlpha: () => t, setY(v) { t.y = v; return t; }, setDepth: () => t,
+      setVisible: () => t, setText: (v) => { t.text = v; return t; }, destroy: () => {},
     };
     return t;
   };
-  return { ...actual, addText: () => fakeText() };
+  return { ...actual, addText: (scene, x, y) => fakeText(Math.round(x), Math.round(y)) };
 });
 
 vi.mock('../src/audio/Sfx.js', () => ({
@@ -42,9 +43,10 @@ function makeGraphics() {
     y: 0,
     clears: 0,
     ops: 0,
+    calls: [],
     clear() { g.clears++; g.ops++; return g; },
     fillStyle() { g.ops++; return g; },
-    fillRect() { g.ops++; return g; },
+    fillRect(x, y, w, h) { g.ops++; g.calls.push(['fillRect', x, y, w, h]); return g; },
     lineStyle() { g.ops++; return g; },
     lineBetween() { g.ops++; return g; },
     strokePoints() { g.ops++; return g; },
@@ -292,6 +294,38 @@ describe('CutsceneScene 换场状态机', () => {
       expect(state.active.has('IntermissionScene'), kind).toBe(true);
       if (kind === 'boot') expect(overlay.cardData, kind).toBeNull();
       else expect(overlay.cardData?.title ?? '', kind).toBeTruthy();
+    }
+  });
+
+  it('碑座/紧凑卡的每个绘制与文字都落在画布内（容器偏移不能再把它顶出屏幕）', () => {
+    const kinds = ['sigil', 'act', 'clear', 'death', 'victory', 'retry', 'return'];
+    for (const kind of kinds) {
+      for (const act of [1, 4]) {
+        const { overlay } = makeHarness({
+          kind, act,
+          report: { elapsedMs: 123000, kills: 9, triggers: 20, combos: 2 },
+        });
+        if (!overlay.card) continue;
+        const g = overlay.card.children[0];
+        const rects = g.calls.filter((c) => c[0] === 'fillRect');
+        expect(rects.length, kind + act).toBeGreaterThan(0);
+        for (const [, x, y, w, h] of rects) {
+          // 容器挂在 (cx, cy)：子对象坐标是局部的，换算回画布坐标后必须整块可见
+          const ax = x + overlay.cx;
+          const ay = y + overlay.cy;
+          expect(ax, kind + ' act' + act).toBeGreaterThanOrEqual(0);
+          expect(ay, kind + ' act' + act).toBeGreaterThanOrEqual(0);
+          expect(ax + w, kind + ' act' + act).toBeLessThanOrEqual(overlay.W);
+          expect(ay + h, kind + ' act' + act).toBeLessThanOrEqual(overlay.H);
+        }
+        for (const child of overlay.card.children.slice(1)) {
+          const ay = child.y + overlay.cy;
+          expect(ay, kind + ' act' + act + ' 文字顶边').toBeGreaterThanOrEqual(0);
+          expect(ay, kind + ' act' + act + ' 文字顶边').toBeLessThanOrEqual(overlay.H);
+          expect(child.x + overlay.cx, kind + ' act' + act + ' 文字左边').toBeGreaterThanOrEqual(0);
+          expect(child.x + overlay.cx, kind + ' act' + act + ' 文字左边').toBeLessThanOrEqual(overlay.W);
+        }
+      }
     }
   });
 

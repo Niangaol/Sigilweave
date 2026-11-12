@@ -36,6 +36,14 @@ try {
       && !window.__SIGILWEAVE__?.scene.isActive('CutsceneScene'), key, { timeout: 20000 });
     await page.waitForTimeout(300);
   };
+  // 等到 hold 中段再截图：每类过场的卡片/碑座都在 hold 前 1/3 淡入，
+  // 在 phase 刚变 hold 的那一帧截，会拍到"空碑座"（看起来像卡片丢了）。
+  const midHold = async () => {
+    await page.waitForFunction(() => {
+      const c = window.__SIGILWEAVE_CUTSCENE__;
+      return c && c.phase === 'hold' && c.elapsed >= c.duration * 0.45;
+    }, null, { timeout: 10000 });
+  };
   const cut = async (kind, phase = 'hold') => {
     await page.waitForFunction(([k, p]) => window.__SIGILWEAVE_CUTSCENE__?.kind === k
       && window.__SIGILWEAVE_CUTSCENE__?.phase === p, [kind, phase], { timeout: 20000 });
@@ -51,6 +59,7 @@ try {
     && window.__SIGILWEAVE_STORY__?.phase === 'playing', null, { timeout: 20000 });
   await page.keyboard.press('Enter');
   await cut('boot', 'hold');
+  await midHold();
   await shot('01-boot');
   await settle('TitleScene');
   await page.waitForTimeout(300);
@@ -59,6 +68,7 @@ try {
   // 2) 标题 → 选套
   await page.keyboard.press('Enter');
   await cut('sigil', 'hold');
+  await midHold();
   await shot('03-title-to-loadout');
   await settle('LoadoutScene');
   await shot('04-loadout');
@@ -66,6 +76,7 @@ try {
   // 3) 选套 → 第一幕标题卡
   await page.keyboard.press('Enter');
   const act1 = await cut('act', 'hold');
+  await midHold();
   check('第一幕卡片属于第 1 幕', act1.act === 1, String(act1.act));
   // 目标场景 create 完成需要一两帧；等 targetReady 再验证「底下已经就绪」
   await page.waitForFunction(() => window.__SIGILWEAVE_CUTSCENE__?.targetReady === true, null, { timeout: 5000 });
@@ -94,6 +105,7 @@ try {
     s.completeAct();
   });
   const clear = await cut('clear', 'hold');
+  await midHold();
   check('解除卡属于刚完成的一幕', clear.act === 1, String(clear.act));
   await shot('07-clear-card');
   await settle('IntermissionScene');
@@ -124,6 +136,7 @@ try {
   // 6) 死亡 → 熄灭卡 → 结算
   await page.evaluate(() => window.__SIGILWEAVE_BATTLE__.die());
   await cut('death', 'hold');
+  await midHold();
   await shot('10-death-card');
   await settle('GameOverScene');
   await shot('11-gameover');
@@ -131,6 +144,7 @@ try {
   // 7) 再战（短转场）→ 强制终局胜利演出
   await page.keyboard.press('Enter');
   await cut('retry', 'hold');
+  await midHold();
   await settle('BattleScene');
   await page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
@@ -154,6 +168,7 @@ try {
     s.completeAct();
   });
   await cut('victory', 'hold');
+  await midHold();
   await shot('12-victory-card');
   // 胜利卡后现在是 32s 结局演出（逐镜验收在 ending-shot.mjs）：宽限期后跳过，再落结算
   await page.waitForFunction(() => (window.__SIGILWEAVE_ENDING__?.elapsed ?? 0) > 250
@@ -165,6 +180,7 @@ try {
   // 8) 返回标题 + 跳过行为：转场 150ms 后按空格，应直接进目标场景
   await page.keyboard.press('Escape');
   await cut('return', 'hold');
+  await midHold();
   await settle('TitleScene');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() => window.__SIGILWEAVE_CUTSCENE__?.kind === 'sigil', null, { timeout: 10000 });
