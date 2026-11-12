@@ -610,6 +610,16 @@ async function shootAct(n) {
 
 验收：全量 **67 文件 / 1259 项全绿**；`npx vite build` 通过；截图脚本因沙箱禁止 Edge 创建 mojo 管道无法重跑（详见 `docs/过场动画.md` 11.6 第三条），本轮用软渲染预览逐幕放大目检。
 
+### 第六轮：读法修正 + 前后对比图（2026-11-12 晚）
+
+| 项 | 处理 |
+| --- | --- |
+| 第 V 幕深廊贴框 | 画框两端两段 `C.void` 0.9/0.95 整段纯黑顶到边框被读成"黑洞"，降到 0.55/0.62，中段不动 |
+| 结局 quiet 幡布 | 2px 挂杆在暗墙上不可见，布像"浮空红三角"；补 1px 吊索垂到画框上沿 + 3×2 铁钩（`cordTop = round(h * 0.115)`） |
+| 验收工具 | 新增 `scripts/preview-compare.mjs`（左旧/右新的并排对比，支持 act / journey / story 三种模式）与 `docs/cutscene/compare/` 十张对比图；`--base` 指向 `git worktree add .tmp/base <旧提交>` |
+
+复核口径：`tests/` 为 **66 文件 / 1258 项全绿**（此前记的 67/1259 含临时文件；`.tmp/base` 存在时 vitest 会把同一 `tests/` 跑两遍变成 132 文件，属计数污染，用完要 `git worktree remove --force .tmp/base`）。
+
 指纹（`docs/cutscene/signatures.json`）：detail 0.329/0.529/0.430/0.525/0.441/0.346/0.454（阈值 0.12）；buckets 28/42/35/87/62/51/39（阈值 18）；21 组两两距离 0.212–0.305（阈值 0.18）。
 
 任务 20 步骤完成情况：

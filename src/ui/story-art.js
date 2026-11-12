@@ -1488,6 +1488,13 @@ function dynQuiet(g, { w, h, t, p, accent }) {
     { x: bax + Math.round(bwid * 0.55) + sway2, y: bay + Math.round(blen * 0.86) },
     { x: bax + sway2 - 1, y: bay + blen - 4 },
   ], C.bloodDark, 0.62);
+  // 吊索：从挂杆中点向上垂到画框上沿，1px 铁线 + 顶端小铁钩，布才不是浮在半空
+  const cordTop = Math.round(h * 0.115);
+  if (cordTop < bay - 6) {
+    thinLine(g, bax + Math.round(bwid / 2), bay - 2, bax + Math.round(bwid / 2), cordTop, C.brassDark, 0.55);
+    pxRect(g, bax + Math.round(bwid / 2) - 1, cordTop, 3, 2, C.brassDark, 0.7);
+    pxRect(g, bax + Math.round(bwid / 2) - 1, cordTop, 3, 1, C.brass, 0.35);
+  }
   // 挂杆 + 两道褶皱的暗面 + 受光边
   pxRect(g, bax - 3, bay - 2, bwid + 6, 2, C.brassDark, 0.8);
   pxRect(g, bax - 3, bay - 2, bwid + 6, 1, C.brass, 0.45);
