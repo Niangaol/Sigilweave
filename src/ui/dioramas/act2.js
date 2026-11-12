@@ -1,13 +1,17 @@
 // 第 II 幕「腐沼教堂」——三层静态布景。
 // 构图（横屏 480×270，地平线 127，碑座 186 起）：
-//   远景 0–127：肋骨拱顶（含一根断肋）+ 后墙砌体 + 圆彩窗(336,54) + 两扇尖窗
-//                + 中央尖拱壁龛 + 墙面水渍 + 破墙缺口的尖塔剪影
-//   中景 127–186：淹水的烂地板（木板 + 沼水 + 浮板）+ 三排长椅（近排翻倒在水中）
-//                + 两根断柱 + 倒下的柱鼓 + 圣坛残骸与蜡烛 + 铁链吊钟 + 苔堆 + 水面倒影
+//   远景 0–127：石肋拱顶（拱壳 + 主券 + 5 道穿堂肋 + 两道交叉斜肋 + 一根断肋 + 拱顶石）
+//                + 砌体后墙与水平线脚 + 半圆后殿壁龛 + 圆彩窗(336,54) + 两扇红蓝尖窗
+//                + 墙面水渍与窗下湿痕 + 右侧破墙缺口的尖塔剪影
+//   中景 127–186：淹水的烂木地板 → 沼水（岸线 + 距离反光 + 涟漪 + 水下暗影）
+//                + 后殿与彩窗的水中倒影 + 浮板浮苔 + 两根断柱与倒柱鼓
+//                + 圣坛残骸（两级台基 + 石十字 + 两盏烛）+ 水中的歪十字 + 远处冷烛小祭台
+//                + 铁链吊钟（挂在梁上、钟口压着水面）+ 吊香炉 + 三排长椅（近排翻倒泡在水里）
+//                + 芦苇 + 苔堆
 //   近景 127–186：左侧断柱压边 + 右侧倒梁 + 芦苇 + 低雾 + 水面波光与涟漪
 // 材质线全部依附实体：砖缝贴后墙、水渍贴窗下墙面、苔贴基座、锈贴铁件、水光贴水面。
 import {
-  fill, bricks, pointedArch, archWindow, column, beam, planks, chain, candle,
+  fill, bricks, archWindow, column, beam, planks, chain, candle,
   disc, ring, ellipseRing, moss, rubble, water, silhouette, cracks,
 } from '../diorama-kit.js';
 import { C } from '../Palette.js';
@@ -31,10 +35,79 @@ function seeded(seed) {
   return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
 }
 
-// 1px 折线（拱肋/梁线用）：坐标先取整再交给 strokePoints，保证硬边。
+// 折线（拱肋/梁线用）：坐标先取整再交给 strokePoints，保证硬边；t 是线宽。
 function polyline(g, pts, color, alpha = 1, t = 1) {
   g.lineStyle(t, color, alpha);
   g.strokePoints(pts.map(p => ({ x: rnd(p.x), y: rnd(p.y) })), false);
+}
+
+// 尖拱折线：两段圆弧（圆心都落在起拱线上），从左拱脚经顶点到右拱脚。
+// h 明显大于半宽才收成尖拱；h < 半宽 时两条弧近乎圆拱，这正是哥特肋与罗马券的区别。
+function lancet(cx, baseY, half, h, segs = 12) {
+  const a = Math.max(2, rnd(half));
+  const hh = Math.max(2, rnd(h));
+  const off = (hh * hh - a * a) / (2 * a);       // 圆心相对拱心的水平偏移
+  const rad = off + a;                            // 弧半径
+  let ap = Math.atan2(-hh, -off);                 // 顶点方向角（从圆心看）
+  if (ap < 0) ap += Math.PI * 2;                  // 统一到 π 之后，保证走的是短弧
+  const half2 = [];
+  for (let i = 0; i <= segs; i++) {
+    const th = Math.PI + (ap - Math.PI) * (i / segs);
+    half2.push({ x: cx + off + rad * Math.cos(th), y: baseY + rad * Math.sin(th) });
+  }
+  // 右半镜像（x 关于拱心对称），首尾相接
+  const pts = half2.slice();
+  for (let i = half2.length - 1; i >= 0; i--) pts.push({ x: 2 * cx - half2[i].x, y: half2[i].y });
+  return pts;
+}
+
+// 实心折线带：沿折线逐点求左法线，把折线偏移 k px 得到内缘，两边围成一个多边形。
+// 石肋用它画厚度——描线宽度在软渲染器（预览）里会被忽略，1px 线在实机叠幕 tint 后
+// 又会细成铁丝；实心带在两边表现一致，且边界是硬边，符合像素风。
+function bandPoly(pts, k) {
+  const outer = [];
+  const inner = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[Math.min(pts.length - 1, i + 1)];
+    let tx = p1.x - p0.x;
+    let ty = p1.y - p0.y;
+    const d = Math.hypot(tx, ty) || 1;
+    tx /= d; ty /= d;
+    const nx = -ty;
+    const ny = tx;                              // 左法线：拱肋朝拱腹（开口一侧）增厚
+    outer.push({ x: rnd(pts[i].x), y: rnd(pts[i].y) });
+    inner.push({ x: rnd(pts[i].x + nx * k), y: rnd(pts[i].y + ny * k) });
+  }
+  return outer.concat(inner.reverse());
+}
+
+// 有厚度的石肋：凹缝底（void，外扩 2px）→ 肋身（ruinStone，t）→ 外缘受光棱 1px。
+// 主肋 t 取 3–4（横屏 480 宽时约 12–16 屏幕像素），远看出「石券」而不是铁丝。
+function ribStroke(g, pts, t = 3) {
+  const th = Math.max(2, rnd(t));
+  g.fillStyle(C.void, 0.92);
+  g.fillPoints(bandPoly(pts, th + 2), true);
+  g.fillStyle(C.ruinStone, 1);
+  g.fillPoints(bandPoly(pts, th), true);
+  polyline(g, pts, C.stoneLight, 0.4, 1);
+}
+
+// 水中倒影：竖向碎纹（越往下越淡）+ 三条水平波纹切断，水面才有镜面感。
+function waterReflect(g, x, baseY, w, depth, color, alpha, seed) {
+  const rng = seeded(seed);
+  const n = Math.max(3, rnd(w / 5));
+  for (let i = 0; i < n; i++) {
+    const off = rnd((i + 0.5) * (w / n));
+    const len = 2 + rnd(rng() * Math.max(2, rnd(depth * 0.10)));
+    fill(g, x + off, baseY + 1, 1, len, color, alpha);
+    if (rng() > 0.45) fill(g, x + off, baseY + 2 + len, 1, 2, color, alpha * 0.55);
+  }
+  for (let k = 0; k < 3; k++) {
+    const ry = baseY + 2 + k * Math.max(2, rnd(depth * 0.14));
+    fill(g, Math.max(0, x - 1), ry, w + 2, 1, C.swampWater, 0.6);
+    fill(g, x + 1, ry, Math.max(4, rnd(w * 0.55)), 1, C.ink, 0.22);
+  }
 }
 
 // 圆彩窗：石框 + 铅条 + 8 瓣红蓝玻璃，花芯给幕色（本幕唯一光源）。
@@ -124,20 +197,29 @@ function pew(g, x, baseY, w, u, view) {
   }
   const seatY = baseY - legH - seatH;
   const backY = seatY - backH;
-  // 靠背板
-  fill(g, x, backY, w, backH, C.mauve, 1);
-  fill(g, x, backY, w, 1, C.khaki, 0.7);
-  fill(g, x, backY + 1, w, 1, C.khaki, 0.25);
-  for (let i = 0; i < 2; i++) fill(g, x + 1, backY + rnd(backH * (0.35 + i * 0.35)), w - 2, 1, C.void, 0.35);
+  // 靠背：两条横档 + 两端立柱（中间透出后墙，不是一块实心板）
+  fill(g, x, backY, w, 2, C.mauve, 1);
+  fill(g, x, backY, w, 1, C.khaki, 0.75);
+  fill(g, x, backY + Math.max(3, rnd(4 * u)), w, 1, C.mauve, 0.95);
+  for (const bx of [x, x + w - 2]) fill(g, bx, backY, 2, backH, C.mauve, 1);
+  fill(g, x + 1, backY + 2, w - 2, Math.max(1, backH - 4), C.void, 0.22);
   // 座面（比靠背宽 2px，前沿受光；座下压暗，长椅才坐得稳）
   fill(g, x - 1, seatY, w + 2, seatH, C.mauve, 1);
   fill(g, x - 1, seatY, w + 2, 1, C.khaki, 0.8);
-  fill(g, x - 1, seatY + seatH - 1, w + 2, 1, C.void, 0.5);
-  fill(g, x, seatY + seatH, w, 1, C.void, 0.6);
-  // 两条腿 + 泡水线
-  fill(g, x + 1, baseY - legH, Math.max(1, rnd(2 * u)), legH, C.void, 0.9);
-  fill(g, x + w - 3, baseY - legH, Math.max(1, rnd(2 * u)), legH, C.void, 0.9);
+  fill(g, x - 1, seatY + seatH - 1, w + 2, 1, C.void, 0.45);
+  // 四条腿：前腿受光、后腿压暗，腿间透出水面（长椅才不是漂着的木板）
+  const legTop = seatY + seatH;
+  const legLen = legH + Math.max(1, rnd(2 * u));
+  for (const [lx, al] of [[x + 1, 1], [x + 4, 0.55], [x + w - 5, 0.55], [x + w - 2, 1]]) {
+    fill(g, lx, legTop, 2, legLen, C.mauve, al);
+    fill(g, lx + 1, legTop, 1, legLen, C.void, 0.4);
+    if (al > 0.9) fill(g, lx, legTop, 1, 2, C.khaki, 0.6);
+  }
+  // 腿间横撑（贴腿，不悬空）
+  fill(g, x + 3, baseY - Math.max(1, rnd(2 * u)), Math.max(2, w - 6), 1, C.mauve, 0.9);
+  // 泡水线 + 接地暗边
   fill(g, x - 2, baseY - Math.max(2, rnd(3 * u)), w + 4, 1, C.mossTileLit, 0.5);
+  fill(g, x + 1, baseY - Math.max(1, rnd(2 * u)), w - 2, 1, C.void, 0.5);
 }
 
 // 水面倒影：物件正下方一列竖向碎纹（断成 2–3 截，越远越淡）
@@ -202,30 +284,64 @@ export function back(g, L) {
     fill(g, px - 4, vaultY + Math.max(2, rnd(H * 0.10)), 9, 1, C.stoneLight, 0.16);
   }
 
-  // 3. 肋骨拱顶：先铺一层「拱腹」面（比穹顶亮 1 档，肋才不是浮在空中的线），
-  //    再叠三道尖拱肋 + 两根斜肋 + 一根塌掉的断肋。
-  pointedArch(g, { cx: rnd(w / 2), baseY: vaultY, w: rnd(w * 0.98), h: rnd(vaultY * 0.94), t: 2, color: C.ruinStone, alpha: 0.5, fillColor: C.nightDeep, fillAlpha: 0.55, segs: 16 });
-  pointedArch(g, { cx: rnd(w / 2), baseY: vaultY, w: rnd(w * 0.62), h: rnd(vaultY * 0.74), t: 1, color: C.stoneLight, alpha: 0.22, segs: 14 });
-  pointedArch(g, { cx: rnd(w / 2), baseY: vaultY, w: rnd(w * 0.30), h: rnd(vaultY * 0.52), t: 1, color: C.ruinStone, alpha: 0.55, segs: 12 });
-  // 拱肋列：先画一列窄尖拱肋（高宽比不够的宽拱只会变成圆穹）
-  const ribW = Math.max(26, rnd(w * 0.115));
-  const ribH = Math.max(18, rnd(vaultY * 0.84));
-  for (const cxr of [0.10, 0.285, 0.47, 0.655, 0.84]) {
-    const cr = rnd(w * cxr);
-    pointedArch(g, { cx: cr, baseY: vaultY, w: ribW, h: ribH, t: 1, color: C.ruinStone, alpha: 0.85, segs: 12 });
-    // 拱脚托座 + 墙顶线脚：肋明确「坐在墙上」
-    fill(g, cr - rnd(ribW / 2) - 2, vaultY - Math.max(3, rnd(4 * u)), 4, Math.max(3, rnd(4 * u)), C.stoneDark, 0.9);
-    fill(g, cr + rnd(ribW / 2) - 1, vaultY - Math.max(3, rnd(4 * u)), 4, Math.max(3, rnd(4 * u)), C.stoneDark, 0.9);
-    fill(g, cr - rnd(ribW / 2) - 2, vaultY - Math.max(3, rnd(4 * u)), 4, 1, C.stoneLight, 0.3);
+  // 3. 肋骨拱顶（哥特拱壳）：拱壳填实 → 主券 + 5 道穿堂石肋 + 2 道交叉斜肋
+  //    → 拱顶石（boss）/ 拱脚托座。肋一律三叠描线（凹缝底 + 肋身 + 受光棱），
+  //    实机还叠一层幕 tint，1px 的肋会细成铁丝，所以主肋至少 3px。
+  // 3.1 拱壳（web）：肋与肋之间要有填进去的石头，肋才不会像悬在夜空里的弧
+  fill(g, 0, 0, w, vaultY, C.nightDeep, 1);
+  fill(g, 0, 0, w, vaultY, C.stoneDark, 0.55);
+  fill(g, 0, 0, w, Math.max(4, rnd(vaultY * 0.42)), C.void, 0.5);
+  // 拱壳放射砌缝：从檐口向拱心收，全部贴在拱壳上（不铺到空处）
+  for (const fx of [0.06, 0.19, 0.32, 0.44, 0.56, 0.68, 0.81, 0.94]) {
+    const bx = rnd(w * fx);
+    polyline(g, [
+      { x: bx, y: vaultY },
+      { x: rnd(w * 0.5 + (bx - w * 0.5) * 0.70), y: Math.max(2, rnd(vaultY * 0.30)) },
+    ], C.void, 0.34);
   }
-  // 两条宽斜肋（从拱脚收向拱顶）——拱顶的主结构线
-  const apex = { x: rnd(w / 2), y: Math.max(2, vaultY - rnd(vaultY * 0.9)) };
-  polyline(g, [{ x: rnd(w * 0.02), y: vaultY }, apex], C.ruinStone, 0.9);
-  polyline(g, [{ x: rnd(w * 0.98), y: vaultY }, apex], C.ruinStone, 0.9);
-  // 横向拱肋 + 塌掉的断肋（断口留 10px 空隙）
+  // 3.2 主券：横跨中殿的大拱，4px 厚，压在最外层
+  ribStroke(g, lancet(rnd(w / 2), vaultY, rnd(w * 0.49), Math.max(10, vaultY - rnd(vaultY * 0.10)), 16), 4);
+  // 3.3 五道穿堂石肋：每道肋顶压一块拱顶石，两端落在拱脚托座上
+  const ribHalf = Math.max(16, rnd(w * 0.042));
+  const ribH = Math.min(vaultY - 6, Math.max(18, rnd(w * 0.070)));
+  const ribTop = Math.max(6, vaultY - ribH);
+  for (const fx of [0.10, 0.28, 0.46, 0.64, 0.82]) {
+    const cxr = rnd(w * fx);
+    ribStroke(g, lancet(cxr, vaultY, ribHalf, vaultY - ribTop, 12), 3);
+    // 拱顶石（boss）：把「肋」与「壳」咬在一起
+    fill(g, cxr - 4, ribTop - 2, 9, 5, C.void, 0.85);
+    fill(g, cxr - 3, ribTop - 1, 7, 4, C.ruinStone, 1);
+    fill(g, cxr - 3, ribTop - 1, 7, 1, C.stoneLight, 0.5);
+    // 拱脚托座：肋坐在墙上，不是飘在墙顶的弧
+    for (const sx of [-1, 1]) {
+      const bx = cxr + sx * ribHalf;
+      fill(g, bx - 3, vaultY - Math.max(5, rnd(6 * u)), 6, Math.max(5, rnd(6 * u)), C.stoneDark, 0.95);
+      fill(g, bx - 3, vaultY - Math.max(5, rnd(6 * u)), 6, 1, C.stoneLight, 0.4);
+      fill(g, bx + 2, vaultY - Math.max(5, rnd(6 * u)), 1, Math.max(5, rnd(6 * u)), C.void, 0.55);
+    }
+  }
+  // 3.4 两道交叉斜肋（跨中殿的对角券）：从两侧檐口折上拱顶石
+  const apex = { x: rnd(w / 2), y: Math.max(2, rnd(vaultY * 0.10)) };
+  ribStroke(g, [
+    { x: rnd(w * 0.02), y: vaultY }, { x: rnd(w * 0.26), y: rnd(vaultY * 0.52) },
+    { x: rnd(w * 0.44), y: rnd(vaultY * 0.20) }, apex,
+  ], 3);
+  ribStroke(g, [
+    { x: rnd(w * 0.98), y: vaultY }, { x: rnd(w * 0.74), y: rnd(vaultY * 0.52) },
+    { x: rnd(w * 0.56), y: rnd(vaultY * 0.20) }, apex,
+  ], 3);
+  // 主拱顶石：两道大券的交点
+  fill(g, apex.x - 6, apex.y - 1, 13, 7, C.void, 0.85);
+  fill(g, apex.x - 5, apex.y, 11, 5, C.ruinStone, 1);
+  fill(g, apex.x - 5, apex.y, 11, 1, C.stoneLight, 0.55);
+  fill(g, apex.x - 2, apex.y + 2, 5, 1, C.void, 0.4);
+  // 一根塌掉的断肋（断口留 10px 缺口，说明拱顶已经坏了）
+  ribStroke(g, [
+    { x: rnd(w * 0.60), y: Math.max(2, rnd(vaultY * 0.30)) },
+    { x: rnd(w * 0.70), y: Math.max(2, rnd(vaultY * 0.16)) },
+  ], 2);
+  // 横向拱肋（比主券暗一档，退到后面去）
   fill(g, 0, Math.max(2, rnd(vaultY * 0.34)), w, 1, C.stoneDark, 0.5);
-  polyline(g, [{ x: rnd(w * 0.60), y: Math.max(2, rnd(vaultY * 0.30)) }, { x: rnd(w * 0.71), y: Math.max(2, rnd(vaultY * 0.14)) }], C.stoneLight, 0.45);
-  polyline(g, [{ x: rnd(w * 0.745), y: Math.max(2, rnd(vaultY * 0.24)) }, { x: rnd(w * 0.93), y: Math.max(2, rnd(vaultY * 0.38)) }], C.stoneLight, 0.3);
 
   // 檐口：一条横贯全幅的石线，把两侧的拱肋都「按」在墙顶，不再像漂浮的弧
   fill(g, 0, vaultY - Math.max(2, rnd(3 * u)), w, Math.max(2, rnd(3 * u)), C.ruinStone, 0.7);
@@ -262,6 +378,14 @@ export function back(g, L) {
     fill(g, cx - rnd(winW / 2) - 3, winBase, winW + 6, 1, C.stoneLight, 0.5);
     // 窗在墙上的投影：让窗「陷」进墙体，而不是浮在砖上
     fill(g, cx - rnd(winW / 2) - 4, winBase + Math.max(2, rnd(3 * u)), winW + 8, Math.max(2, rnd(3 * u)), C.void, 0.3);
+  }
+
+  // 6b. 窗下湿痕：从窗台往下洇的竖向暗条（贴墙面，不铺到空处）
+  for (const [dx, dk] of [[0.098, 0.42], [0.152, 0.28], [0.238, 0.36], [0.268, 0.22]]) {
+    const hx = rnd(w * dx);
+    const hh = Math.max(12, rnd((H - winBase) * dk + Math.max(10, H * 0.12)));
+    fill(g, hx, winBase, 2, hh, C.inkDark, 0.22);
+    fill(g, hx + 1, winBase, 1, Math.max(6, rnd(hh * 0.7)), C.mossTileLit, 0.3);
   }
 
   // 7. 圆彩窗（本幕唯一光源）+ 两道下泄光柱
@@ -370,27 +494,58 @@ export function mid(g, L) {
   });
   fill(g, 0, waterline, w, 1, C.swampGlint, 0.3);
   fill(g, 0, waterline + 1, w, 1, C.sage, 0.22);
-  fill(g, 0, waterline + 2, w, 1, C.swampWater, 0.9);
   fill(g, 0, waterBottom - 1, w, 1, C.void, 0.5);
-  // 水面亮线：4 条 1px 长反光 + 几个亮点——让人一眼看出这是水面而不是泥地
-  for (const [gx, gy, gw, ga] of [[0.03, 0.14, 0.34, 0.42], [0.46, 0.30, 0.30, 0.36], [0.18, 0.62, 0.22, 0.3], [0.66, 0.80, 0.26, 0.26]]) {
-    fill(g, rnd(w * gx), horizon + rnd(span * gy), rnd(w * gw), 1, C.swampGlint, ga);
-    fill(g, rnd(w * gx) + 2, horizon + rnd(span * gy) + 1, Math.max(3, rnd(w * gw * 0.4)), 1, C.mossTileLit, 0.45);
+  // 烂泥岸线：不是一条直线——用高低两档硬边切出塌陷的岸边，岸上带苔痕与露头的碎砖
+  {
+    const rngS = seeded(77);
+    let sxp = 0;
+    while (sxp < w) {
+      const seg = Math.max(9, rnd(9 + rngS() * 15));
+      const sw2 = Math.min(seg, w - sxp);
+      if (sw2 < 5) break;
+      const sy2 = waterline + (rngS() > 0.5 ? 1 : 0);
+      fill(g, sxp, sy2, sw2, Math.max(1, rnd(2 * u)), C.ink, 0.55);
+      if (rngS() > 0.5) fill(g, sxp + rnd(sw2 * 0.3), sy2 - 1, Math.max(2, rnd(4 * u)), 1, C.mossTileLit, 0.6);
+      if (rngS() > 0.7) fill(g, sxp + rnd(sw2 * 0.5), sy2 - Math.max(1, rnd(2 * u)), Math.max(2, rnd(3 * u)), Math.max(1, rnd(2 * u)), C.ruinStone, 0.9);
+      sxp += seg;
+    }
+  }
+  // 水面亮线：6 条按距离分布的 1px 反光（越远越短越淡，越近越宽）
+  for (const [gx, gy, gw, ga] of [[0.04, 0.10, 0.20, 0.22], [0.52, 0.20, 0.24, 0.26], [0.16, 0.34, 0.30, 0.32], [0.60, 0.48, 0.26, 0.36], [0.06, 0.62, 0.34, 0.40], [0.48, 0.80, 0.38, 0.42]]) {
+    const gyy = horizon + rnd(span * gy);
+    fill(g, rnd(w * gx), gyy, rnd(w * gw), 1, C.swampGlint, ga);
+    fill(g, rnd(w * gx) + 2, gyy + 1, Math.max(3, rnd(w * gw * 0.4)), 1, C.mossTileLit, 0.4);
   }
   for (const [dx, dy] of [[0.12, 0.30], [0.38, 0.52], [0.55, 0.24], [0.72, 0.68], [0.88, 0.44], [0.26, 0.86]]) {
     fill(g, rnd(w * dx), horizon + rnd(span * dy), 2, 1, C.swampGlint, 0.5);
   }
-  // 水面纵深：近处压暗（三段硬边，不做渐变），物件才沉得住
+  // 水面涟漪：两圈缓慢散开的椭圆环（固定位置，静帧）
+  ellipseRing(g, rnd(w * 0.34), horizon + rnd(span * 0.44), Math.max(6, rnd(w * 0.030)), Math.max(2, rnd(3 * u)), C.swampGlint, 0.16, 16);
+  ellipseRing(g, rnd(w * 0.72), horizon + rnd(span * 0.66), Math.max(8, rnd(w * 0.040)), Math.max(2, rnd(4 * u)), accent, 0.12, 18);
+  // 远处水面贴着岸线压一档暗：水才有「远处的岸→近处的水」两段
+  fill(g, 0, waterline + 2, w, Math.max(4, rnd(span * 0.10)), C.ink, 0.16);
+  // 水面纵深：远处压暗（三段硬边，不做渐变），物件才沉得住
   fill(g, 0, horizon + rnd(span * 0.30), w, rnd(span * 0.28), C.ink, 0.12);
   fill(g, 0, horizon + rnd(span * 0.58), w, rnd(span * 0.42), C.ink, 0.18);
   fill(g, 0, waterBottom - Math.max(6, rnd(10 * u)), w, Math.max(6, rnd(10 * u)), C.ink, 0.22);
+  // 水下暗影：后殿在水面投下的一大片暗影（物件沉得住才有水底）
+  fill(g, rnd(w / 2) - Math.max(50, rnd(w * 0.15)), waterline + 2, Math.max(100, rnd(w * 0.30)), Math.max(6, rnd(span * 0.24)), C.ink, 0.16);
   // 水面倒影：后殿圆券与扶壁的竖影、两扇彩窗的色影、圆彩窗的幕色光
   const aW = Math.max(48, rnd(w * 0.21)), aHalf = rnd(aW / 2);
   for (let i = 0; i < 7; i++) {
     fill(g, rnd(w / 2) - aHalf + 6 + rnd((aW - 12) * (i / 6)), waterline + 2, 1, Math.max(3, rnd(span * 0.40)), C.ruinStone, 0.14);
   }
-  fill(g, rnd(w * 0.115) - 3, waterline + 3, 7, Math.max(3, rnd(span * 0.28)), C.glassRed, 0.1);
-  fill(g, rnd(w * 0.245) - 3, waterline + 3, 7, Math.max(3, rnd(span * 0.32)), C.glassBlue, 0.1);
+  // 两扇尖窗的色影：竖条 + 亮芯 + 三道水纹切断（倒影是碎的不是画上去的条）
+  for (const [fx, col, dep] of [[0.115, C.glassRed, 0.34], [0.245, C.glassBlue, 0.42]]) {
+    const rx = rnd(w * fx) - 4;
+    const rh = Math.max(5, rnd(span * dep));
+    fill(g, rx, waterline + 3, 9, rh, col, 0.10);
+    const rw = seeded(87);
+    for (let i = 0; i < 6; i++) {
+      const yy = waterline + 4 + rnd(rh * (i / 6) * 0.9);
+      fill(g, rx + rnd(rw() * 6), yy, 3 + rnd(rw() * 4), 1, col, 0.36 - i * 0.03);
+    }
+  }
   fill(g, light.x - 14, waterline + 2, 26, 3, accent, 0.1);
   fill(g, light.x - 20, waterline + 8, 34, 2, accent, 0.08);
   fill(g, light.x - 26, waterline + 14, 40, 1, accent, 0.06);
@@ -401,6 +556,19 @@ export function mid(g, L) {
     silhouette(g, [{ x: bx, y: by }, { x: bx + fw, y: by - 2 }, { x: bx + fw + 2, y: by + 2 }, { x: bx + 1, y: by + 3 }], C.mauve, 0.95);
     fill(g, bx + 1, by, fw, 1, C.khaki, 0.3);
     reflect(g, bx + 1, by + 3, fw, span * 0.4, C.inkDark, 0.3, 90 + fw);
+  }
+  // 漂浮物之二/之三：烂苔团 + 浮萍点（贴着水面，不飘在空中）
+  for (const [mx, my, mw] of [[0.095, 0.42, 10], [0.52, 0.20, 7], [0.68, 0.74, 12], [0.90, 0.58, 8]]) {
+    const bx = rnd(w * mx), by = horizon + rnd(span * my);
+    fill(g, bx, by, mw, Math.max(2, rnd(3 * u)), C.mossTileLit, 0.85);
+    fill(g, bx, by, mw, 1, C.sage, 0.35);
+    fill(g, bx - 1, by + Math.max(2, rnd(3 * u)), mw + 2, 1, C.ink, 0.3);
+  }
+  {
+    const rngF = seeded(131);
+    for (let i = 0; i < 14; i++) {
+      fill(g, rnd(w * (0.04 + rngF() * 0.92)), horizon + rnd(span * (0.12 + rngF() * 0.82)), 2, 1, C.mossTileLit, 0.7);
+    }
   }
 
   // 4. 两根断柱 + 倒下的柱鼓（三排纵深里的「中排/近排」）
@@ -494,12 +662,9 @@ export function mid(g, L) {
       pew(g, x, row.base, ww, u, row.view);
       // 每排长椅在水里拖一列倒影（第三排：近排）
       if (row.view === 'side') {
-        reflect(g, x, row.base, ww, span * 0.6, C.inkDark, 0.5, 120 + rnd(fx * 1000));
-        reflect(g, x + 1, row.base, ww, span * 0.3, C.mauve, 0.22, 160 + rnd(fx * 1000));
-        // 垂直翻转的倒影：越往下越淡的暗色横条，水面才有「镜面」感
-        fill(g, x, row.base + 2, ww, 1, C.inkDark, 0.16);
-        fill(g, x + 1, row.base + 5, ww - 2, 1, C.inkDark, 0.11);
-        fill(g, x + 3, row.base + 9, ww - 6, 1, C.inkDark, 0.07);
+        // 倒影：竖向碎纹 + 水平波纹切断（水面才有镜面感）
+        waterReflect(g, x, row.base, ww, span * 0.6, C.inkDark, 0.5, 120 + rnd(fx * 1000));
+        waterReflect(g, x + 1, row.base, ww, span * 0.34, C.mauve, 0.24, 160 + rnd(fx * 1000));
       }
     }
   }
@@ -519,19 +684,21 @@ export function mid(g, L) {
     fill(g, bx, beamY, 2, 2, C.brassDark, 0.7);
   }
   for (let i = 0; i < 3; i++) fill(g, rnd(w * 0.385) + i * rnd(w * 0.09), beamY + 1, 2, 1, C.brassDark, 0.8);
-  const bellH = Math.max(24, rnd(30 * u));
-  const mouthY = nail.y - Math.max(3, rnd(5 * u));
+  // 钟体缩到 3/4：钟口悬在地平线之上、链条因此拉长，「吊」的语义才成立（旧版钟口泡在水里，读成黄箱子）
+  const bellH = Math.max(18, rnd(22 * u));
+  const mouthY = horizon - Math.max(2, rnd(3 * u));
   const topY = mouthY - bellH;
-  const topW = Math.max(12, rnd(16 * u));
-  const botW = Math.max(22, rnd(32 * u));
-  const chainTop = beamY + Math.max(3, rnd(4 * u));
-  // 双铁链（锈点贴链节）
-  for (const dx of [-Math.max(4, rnd(6 * u)), Math.max(4, rnd(6 * u))]) {
-    chain(g, { x: nail.x + dx, y: chainTop, h: Math.max(6, topY - Math.max(4, rnd(4 * u)) - chainTop), color: C.ruinStone, alpha: 1, linkH: Math.max(3, rnd(4 * u)) });
+  const topW = Math.max(9, rnd(11 * u));
+  const botW = Math.max(18, rnd(24 * u));
+  const chainTop = beamY + Math.max(2, rnd(3 * u));
+  // 双铁链：从横梁一直垂到钟顶（长链才吊得住钟）
+  for (const dx of [-Math.max(3, rnd(4 * u)), Math.max(3, rnd(4 * u))]) {
+    chain(g, { x: nail.x + dx, y: chainTop, h: Math.max(8, topY - Math.max(4, rnd(4 * u)) - chainTop), color: C.ruinStone, alpha: 1, linkH: Math.max(3, rnd(4 * u)) });
   }
-  // 钟架（钟头横担）：钟挂在这根短梁上，才不会像飘着的铜块
-  fill(g, nail.x - rnd(topW * 0.72), topY - Math.max(4, rnd(5 * u)), rnd(topW * 1.44), Math.max(3, rnd(4 * u)), C.ink, 1);
-  fill(g, nail.x - rnd(topW * 0.72), topY - Math.max(4, rnd(5 * u)), rnd(topW * 1.44), 1, C.stoneLight, 0.35);
+  // 钟轭（钟头横担）：钟挂在这根短木上，才不会像飘着的铜块
+  const yokeW = Math.max(16, rnd(topW * 1.6));
+  fill(g, nail.x - rnd(yokeW / 2), topY - Math.max(4, rnd(5 * u)), yokeW, Math.max(3, rnd(4 * u)), C.ink, 1);
+  fill(g, nail.x - rnd(yokeW / 2), topY - Math.max(4, rnd(5 * u)), yokeW, 1, C.stoneLight, 0.35);
   fill(g, nail.x - 1, topY - Math.max(6, rnd(9 * u)), 2, Math.max(4, rnd(6 * u)), C.inkDark, 1);
   // 钟体：上窄下阔、钟腰收一下、钟口外翻（轮廓要像钟，不能像方块）
   silhouette(g, [
@@ -557,14 +724,69 @@ export function mid(g, L) {
   // 幕色在铜面上的反射（只落在受光侧）+ 锈斑
   fill(g, nail.x - rnd(botW * 0.30), topY + rnd(bellH * 0.44), Math.max(1, rnd(2 * u)), Math.max(2, rnd(bellH * 0.20)), accent, 0.4);
   for (let i = 0; i < 2; i++) fill(g, nail.x + rnd(botW * 0.18) + i * 3, topY + rnd(bellH * (0.5 + i * 0.18)), 2, 1, C.brassDark, 0.9);
-  // 钟舌 3×10：从钟口里伸出来，泡进水里
-  fill(g, nail.x - Math.max(1, rnd(2 * u)), mouthY - Math.max(3, rnd(4 * u)), Math.max(2, rnd(3 * u)), Math.max(8, rnd(10 * u)), C.inkDark, 1);
-  disc(g, nail.x, mouthY + Math.max(4, rnd(6 * u)), Math.max(2, rnd(3 * u)) + 1, C.inkDark, 1);
-  // 钟口在水面压出的暗影
-  fill(g, nail.x - rnd(botW / 2) - 2, mouthY + Math.max(3, rnd(4 * u)), botW + 4, 2, C.ink, 0.3);
-  // 钟在水里的铜色倒影
-  reflect(g, nail.x - rnd(botW / 2), mouthY + Math.max(3, rnd(4 * u)), botW, span * 0.7, C.brassDark, 0.35, 77);
-  reflect(g, nail.x - rnd(botW / 2), mouthY + Math.max(2, rnd(2 * u)), botW, span * 0.4, C.inkDark, 0.28, 79);
+  // 钟舌：从钟口里垂出来（口要「开」）
+  fill(g, nail.x - Math.max(1, rnd(2 * u)), mouthY - Math.max(4, rnd(5 * u)), Math.max(2, rnd(3 * u)), Math.max(6, rnd(8 * u)), C.inkDark, 1);
+  disc(g, nail.x, mouthY + Math.max(2, rnd(4 * u)), Math.max(2, rnd(3 * u)), C.inkDark, 1);
+  // 钟舌索：从钟口一直垂进水里，末端挂铁坠，正好压在钉锚点（nail）上 —— 锚点因此有实体
+  const ropeTop = mouthY + Math.max(3, rnd(5 * u));
+  const ropeH = Math.max(6, nail.y - ropeTop);
+  fill(g, nail.x, ropeTop, 1, ropeH, C.inkDark, 0.95);
+  for (let i = 1; i < 5; i++) fill(g, nail.x, ropeTop + rnd(ropeH * (i / 5)), 2, 1, C.stoneDark, 0.55);
+  fill(g, nail.x - 2, nail.y - Math.max(3, rnd(4 * u)), 5, Math.max(3, rnd(4 * u)), C.inkDark, 1);
+  fill(g, nail.x - 2, nail.y - Math.max(3, rnd(4 * u)), 5, 1, C.stoneLight, 0.3);
+  // 锚点的水面阴影 + 两圈涟漪（钟舌索落水处）
+  fill(g, nail.x - 8, nail.y + 1, 17, 2, C.ink, 0.4);
+  ellipseRing(g, nail.x, nail.y + 2, Math.max(6, rnd(9 * u)), Math.max(2, rnd(3 * u)), C.swampGlint, 0.18, 14);
+  ellipseRing(g, nail.x, nail.y + 3, Math.max(11, rnd(15 * u)), Math.max(2, rnd(3 * u)), accent, 0.1, 16);
+  // 钟在水面压出的暗影与铜色倒影（钟口没进水，倒影才立得住）
+  fill(g, nail.x - rnd(botW / 2) - 2, waterline + 1, botW + 4, 2, C.ink, 0.32);
+  reflect(g, nail.x - rnd(botW / 2), waterline + 2, botW, span * 0.55, C.brassDark, 0.32, 77);
+  reflect(g, nail.x - rnd(botW / 2), waterline + 2, botW, span * 0.34, C.inkDark, 0.26, 79);
+
+  // 7b. 吊香炉：横梁另一头垂下的铁链与小铜炉（香火没断的证据，剪影独一份）
+  const cenX = rnd(w * 0.435);
+  const cenTop = beamY + beamH + Math.max(1, rnd(2 * u));
+  const cenLen = Math.max(8, rnd(12 * u));
+  chain(g, { x: cenX, y: cenTop, h: cenLen, color: C.ruinStone, alpha: 0.95, linkH: 3 });
+  const cenY = cenTop + cenLen;
+  fill(g, cenX - 3, cenY, 6, 1, C.brassDark, 1);
+  fill(g, cenX - 2, cenY + 1, 5, Math.max(3, rnd(4 * u)), C.brassDark, 1);
+  fill(g, cenX - 3, cenY + 2, 7, 1, C.brass, 0.8);
+  fill(g, cenX - 1, cenY + 1, 1, 1, accent, 0.9);
+  for (let i = 0; i < 2; i++) fill(g, cenX - 1 + i, cenY - Math.max(4, rnd(5 * u)) - i * 2, 1, 1, accent, 0.2);
+
+  // 7c. 水里歪斜的十字架：教堂塌下来的木十字，半沉在沼水里（本幕第三件专属剪影）
+  const sxX = rnd(w * 0.665);
+  const sxY = waterline + Math.max(4, rnd(7 * u));
+  const sxLen = Math.max(16, rnd(20 * u));
+  silhouette(g, [
+    { x: sxX - 1, y: sxY }, { x: sxX + 2, y: sxY },
+    { x: sxX + 5, y: sxY + sxLen }, { x: sxX + 2, y: sxY + sxLen + 1 },
+  ], C.ruinStone, 1);
+  const sxArmY = sxY + Math.max(5, rnd(7 * u));
+  const sxArmL = Math.max(7, rnd(9 * u));
+  silhouette(g, [
+    { x: sxX - sxArmL, y: sxArmY }, { x: sxX + Math.max(1, rnd(3 * u)), y: sxArmY - 1 },
+    { x: sxX + Math.max(1, rnd(3 * u)), y: sxArmY + 1 }, { x: sxX - sxArmL, y: sxArmY + Math.max(2, rnd(3 * u)) },
+  ], C.ruinStone, 1);
+  fill(g, sxX + 1, sxY + 1, 1, Math.max(10, rnd(14 * u)), C.stoneLight, 0.22);
+  fill(g, sxX - sxArmL, waterline + 1, sxArmL + 8, 2, C.ink, 0.3);
+  reflect(g, sxX - 2, sxY + sxLen, 8, span * 0.3, C.ruinStone, 0.16, 61);
+
+  // 7d. 后殿里的远祭台：只剩一截残台与一支冷光蜡烛（冷光只给这一点，作为远景第二光源）
+  const rcX = rnd(w * 0.585);
+  const rcY = horizon - Math.max(5, rnd(7 * u));
+  const rcW = Math.max(24, rnd(30 * u));
+  fill(g, rcX - rnd(rcW / 2), rcY, rcW, Math.max(2, rnd(3 * u)), C.ruinStone, 0.95);
+  fill(g, rcX - rnd(rcW / 2), rcY, rcW, 1, C.stoneLight, 0.4);
+  fill(g, rcX - rnd(rcW * 0.36), rcY + Math.max(2, rnd(3 * u)), rnd(rcW * 0.72), Math.max(2, rnd(3 * u)), C.stoneDark, 0.95);
+  fill(g, rcX - rnd(rcW / 2), rcY + Math.max(4, rnd(5 * u)), rcW, 1, C.void, 0.6);
+  const rcH = Math.max(6, rnd(8 * u));
+  fill(g, rcX, rcY - rcH, 2, rcH, C.bone, 0.9);
+  fill(g, rcX - 2, rcY - 1, 5, 1, C.brassDark, 0.9);
+  fill(g, rcX, rcY - rcH - Math.max(2, rnd(3 * u)), 1, Math.max(2, rnd(3 * u)), C.coldFlame, 0.95);
+  fill(g, rcX, rcY - rcH - 1, 2, 1, C.coldFlameCore, 0.8);
+  disc(g, rcX, rcY - rcH - 1, Math.max(2, rnd(3 * u)), C.coldFlame, 0.16);
 
   // 8. 芦苇：贴水线长在断柱与长椅之间（中景的第二排植被）
   reeds(g, rnd(w * 0.115), horizon + rnd(span * 0.72), u, 4);
@@ -674,7 +896,21 @@ export function fore(g, L) {
     fill(g, lx + 2, colBase, lw - 4, 1, C.swampGlint, 0.3);
   }
   fill(g, lx + 2, colBase - 1, lw - 2, 1, C.swampGlint, 0.25);
+  // 柱身砌缝 + 凿口：一整块纯黑会读成一堵墙，石缝才能把它拉回「断柱」
+  for (let i = 1; i <= 4; i++) {
+    const yy = ltop + rnd((colBase - ltop) * (i / 5));
+    fill(g, lx + 2, yy, lw - 3, 1, C.void, 0.6);
+    fill(g, lx + 3 + (i % 2) * Math.max(5, rnd(lw * 0.2)), yy + 1, Math.max(6, rnd(lw * 0.4)), 1, C.stoneDark, 0.4);
+  }
+  // 断面崩角（右上缺一口）+ 柱腰一块剥落的石面
+  silhouette(g, [
+    { x: lx + rnd(lw * 0.74), y: ltop + Math.max(2, rnd(5 * u)) },
+    { x: lx + lw, y: ltop + Math.max(2, rnd(4 * u)) },
+    { x: lx + lw, y: ltop + Math.max(7, rnd(13 * u)) },
+  ], C.ink, 0.9);
+  fill(g, lx + Math.max(4, rnd(lw * 0.26)), ltop + rnd((colBase - ltop) * 0.42), Math.max(6, rnd(lw * 0.34)), Math.max(3, rnd(5 * u)), C.stoneDark, 0.35);
   moss(g, { x: lx + 2, y: ltop + Math.max(5, rnd(8 * u)), w: lw - 4, h: Math.max(4, rnd(7 * u)), seed: 111, color: C.mossTileLit, count: 8, alpha: 0.55 });
+  moss(g, { x: lx + 2, y: ltop + rnd((colBase - ltop) * 0.58), w: Math.max(6, rnd(lw * 0.5)), h: Math.max(3, rnd(6 * u)), seed: 113, color: C.mossTileLit, count: 5, alpha: 0.45 });
 
   // 2. 右侧倒梁压边：斜插进水里的木梁 + 两颗锈螺栓
   silhouette(g, [
@@ -730,7 +966,7 @@ function apse(g, cx, baseY, ww, hh, u) {
   // 龛内横向石缝（贴龛壁，给暗块一点砌体感）
   for (let yy = springY + 6; yy < baseY - 1; yy += 7) fill(g, cx - half + 1, yy, half * 2 - 2, 1, C.void, 0.5);
   // 石券框：拱券 2px + 两侧直段，左缘受光 1 档
-  polyline(g, arc, C.ruinStone, 0.95, 2);
+  ribStroke(g, arc, 4);
   fill(g, cx - half, springY, 2, baseY - springY, C.ruinStone, 0.95);
   fill(g, cx + half - 2, springY, 2, baseY - springY, C.ruinStone, 0.95);
   fill(g, cx - half, springY, 1, baseY - springY, C.stoneLight, 0.45);

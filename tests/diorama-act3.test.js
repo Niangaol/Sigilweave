@@ -99,7 +99,7 @@ describe('第 III 幕 星陨王庭', () => {
     }
   });
 
-  it('远景：星野破洞、三根巨柱、中央断开的檐口', () => {
+  it('远景：星野破洞、三根巨柱、沿墙沿起伏的断裂栏板与三级台基', () => {
     const { ops, L } = run('back', 480, 270);
 
     // ① 星野：破洞里三档星点（白/骨白/幕色），且集中在画面上半
@@ -113,12 +113,26 @@ describe('第 III 幕 星陨王庭', () => {
     const shafts = ops.filter(o => o.t === 'r' && o.w >= 14 && o.w <= 30 && o.h >= 50);
     expect(new Set(shafts.map(o => o.x)).size).toBeGreaterThanOrEqual(3);
 
-    // ③ 断裂檐口：两段横梁，中间 x=240 处是断口（破洞正下方）
-    const beams = ops.filter(o => o.t === 'r' && o.h >= 3 && o.h <= 16 && o.w >= 100 && o.y >= 38 && o.y <= 72);
-    expect(beams.length).toBeGreaterThanOrEqual(3);
-    expect(beams.every(o => o.x + o.w <= 220 || o.x >= 260)).toBe(true);
-    expect(beams.some(o => o.x === 0)).toBe(true);
-    expect(beams.some(o => o.x + o.w >= 478)).toBe(true);
+    // ③ 上层台基是断裂栏板，不是通栏横梁：栏板贴着坍顶的 V 形墙沿起伏、成段塌断，
+    //    所以它是「高度随时间变化的多边形」，而不是一条横贯全屏的矩形平板。
+    const coping = ops.filter(o => {
+      if (o.t !== 'f' || o.pts.length < 6) return false;
+      const b = bbox(o.pts);
+      return b.w >= 80 && b.h >= 12 && b.y0 < 100;
+    });
+    expect(coping.length).toBeGreaterThanOrEqual(3);
+    // 栏板顶上断续的垛口（缺的那几块就是塌掉的）
+    const merlons = ops.filter(o => o.t === 'r' && o.w >= 5 && o.w <= 14 && o.h >= 4 && o.h <= 10 && o.y > 26 && o.y < 96);
+    expect(merlons.length).toBeGreaterThanOrEqual(12);
+    // 回归守卫：上一版读成「高架桥」的原因就是 y≈52 与 y≈87 两条通栏大平板。
+    //    远景中段（破洞下方、台阶以上）不许再出现又宽又厚的横向矩形。
+    const slabs = ops.filter(o => o.t === 'r' && o.w >= 300 && o.h >= 6 && o.y >= 26 && o.y <= 94);
+    expect(slabs).toEqual([]);
+    // ④ 下层台基：三级台阶向观众展开，宽度三档不同
+    const terrace = ops.filter(o => o.t === 'r' && o.w >= 200 && o.h >= 4 && o.y >= 94 && o.y <= 130);
+    expect(terrace.length).toBeGreaterThanOrEqual(3);
+    const tw = [...new Set(terrace.map(o => o.w))].sort((a, b) => a - b);
+    expect(tw.length).toBeGreaterThanOrEqual(3);
   });
 
   it('中景：地面石缝 + 王座三级台阶 + 陨坑三层环 + 三排悬浮碎星 + 倾倒立柱', () => {

@@ -224,9 +224,10 @@ export function mid(g, L) {
     fill(g, 0, y, w, 1, C.groove, 0.42);
     fill(g, 0, y + 1, w, 1, C.ink, 0.5);
     const off = r % 2 === 0 ? 0 : rnd(w / 14);
-    for (let c = -1; c < 7; c++) fill(g, off + c * rnd(w / 6), y, 1, rowH, C.groove, 0.3);
+    // 竖屏石缝少画两道：地面更高，多画只会让地面发糊
+    for (let c = -1; c < (L.tall ? 5 : 7); c++) fill(g, off + c * rnd(w / 6), y, 1, rowH, C.groove, 0.3);
   }
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < (L.tall ? 6 : 9); i++) {
     const gx2 = rnd(w * (0.04 + i * 0.11));
     fill(g, gx2, horizon + rowH + rnd(2), 1, rnd(3), C.sage, 0.22);
   }

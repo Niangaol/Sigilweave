@@ -9,7 +9,7 @@
 // 明度阶梯：星野 void < 后墙 starTileLit < 石构件 shardStone；幕色只出现在星野、光柱、受光棱与地面光池。
 // 材质线全部依附实体：砖缝贴墙、凿痕贴王座石面、冷霜贴柱础与鼓石、晶体切面贴碎星、陨痕贴坑沿。
 import {
-  fill, bricks, column, ellipseRing, starfield, silhouette, cracks, moss, rubble,
+  fill, bricks, ellipseRing, starfield, silhouette, cracks, moss, rubble,
 } from '../diorama-kit.js';
 import { C } from '../Palette.js';
 
@@ -93,24 +93,37 @@ function tick(g, cx, cy, r, index, count, color, alpha, len) {
     cx + Math.cos(a) * (r + len), cy + Math.sin(a) * (r + len), color, alpha);
 }
 
-// 悬浮碎星：六边晶体 + 左上受光切面 + 内核冷光。r 是半高，整块 2r 高。
-function crystal(g, cx, cy, r, accent) {
-  const x = R(cx), y = R(cy), s = Math.max(2, R(r));
+// 悬浮碎星：六边晶体 + 暗面/受光面两色 + 内核冷光。r 是半高，整块 2r 高；
+// tilt 让上下顶点错开，近组的两块才是「倾斜的巨石」，而不是立着的菱形宝石。
+function crystal(g, cx, cy, r, accent, tilt = 0) {
+  const x = R(cx), y = R(cy), s = Math.max(2, R(r)), t = R(tilt);
   silhouette(g, [
-    { x, y: y - s },
-    { x: x + R(s * 0.6), y: y - R(s * 0.35) },
-    { x: x + R(s * 0.85), y: y + R(s * 0.4) },
-    { x, y: y + s },
-    { x: x - R(s * 0.85), y: y + R(s * 0.4) },
-    { x: x - R(s * 0.6), y: y - R(s * 0.35) },
+    { x: x + t, y: y - s },
+    { x: x + R(s * 0.62) + R(t * 0.6), y: y - R(s * 0.34) },
+    { x: x + R(s * 0.88), y: y + R(s * 0.42) },
+    { x: x - R(t * 0.5), y: y + s },
+    { x: x - R(s * 0.88), y: y + R(s * 0.42) },
+    { x: x - R(s * 0.62) + R(t * 0.6), y: y - R(s * 0.34) },
   ], C.shardStone, 0.95);
-  // 切面：左上棱受幕色，右上棱只给一档冷亮，右下保持石色（光源只有破洞一处）
-  seg(g, x, y - s + 1, x - R(s * 0.55), y - R(s * 0.25), accent, 0.6);
-  seg(g, x, y - s + 1, x + R(s * 0.5), y - R(s * 0.25), C.coldFlame, 0.34);
-  seg(g, x - R(s * 0.5), y - R(s * 0.1), x + R(s * 0.45), y + R(s * 0.2), C.void, 0.55);
+  // 暗面（右下）：同色系压一档，晶体才有体积感
+  silhouette(g, [
+    { x: x + t, y: y - s },
+    { x: x + R(s * 0.62) + R(t * 0.6), y: y - R(s * 0.34) },
+    { x: x + R(s * 0.88), y: y + R(s * 0.42) },
+    { x: x - R(t * 0.5), y: y + s },
+  ], C.starTile, 0.9);
+  // 受光棱：左上吃破洞的冷光（唯一光源），右上只给一档冷亮
+  seg(g, x + t, y - s + 1, x - R(s * 0.55) + R(t * 0.6), y - R(s * 0.25), accent, 0.85);
+  seg(g, x + t, y - s + 1, x + R(s * 0.5) + R(t * 0.6), y - R(s * 0.25), C.coldFlame, 0.45);
+  seg(g, x - R(s * 0.86), y + R(s * 0.42), x - R(s * 0.62) + R(t * 0.6), y - R(s * 0.34), C.coldFlame, 0.3);
+  seg(g, x - R(s * 0.5), y - R(s * 0.1), x + R(s * 0.45), y + R(s * 0.2), C.void, 0.45);
   // 内核与底部反光
   fill(g, x - 1, y - 1, 2, 2, C.coldFlameCore, 0.92);
   fill(g, x - 2, y, 5, 1, accent, 0.3);
+  if (s >= 7) {
+    fill(g, x + t - 1, y - s + 2, 1, 2, C.coldFlame, 0.55);
+    fill(g, x - R(s * 0.42), y + R(s * 0.24), 1, 1, C.coldFlame, 0.35);
+  }
 }
 
 // 近景压边晶簇：一枚主晶体 + 一枚伴生小晶体，左侧贴一道亮棱。下半截会被碑座切掉。
@@ -139,6 +152,47 @@ function shardOne(g, cx, baseY, h, w, accent) {
 function facetShard(g, cx, baseY, h, w, accent) {
   shardOne(g, cx, baseY, h, w, accent);
   shardOne(g, cx + R(w * 1.05), baseY + 2, R(h * 0.52), R(w * 0.6), accent);
+}
+
+// 巨柱：三段明暗的圆柱 + 出檐柱头/柱础。不用 kit.column 的等距凹槽——
+// 4× 截图里那几条亮槽会把柱身读成窗棂（「桥墩」的观感就是这么来的）；
+// 这里靠「左受光 / 中石色 / 右背光」做体积，broken 时柱头是砸断的断面。
+function pillar(g, cx, topY, botY, colW, broken, u) {
+  const h = botY - topY;
+  const x0 = R(cx - colW / 2);
+  const capW = R(colW * 1.34);
+  const capH = Math.max(3, R(colW * 0.22));
+  // 柱身
+  fill(g, x0, topY, colW, h, C.stoneDark, 1);
+  fill(g, x0, topY, Math.max(2, R(colW * 0.34)), h, C.shardStone, 1);
+  fill(g, x0, topY, 1, h, C.stoneLight, 0.8);
+  fill(g, x0 + R(colW * 0.34), topY, 1, h, C.stoneDark, 0.9);
+  fill(g, x0 + R(colW * 0.6), topY, R(colW * 0.4), h, C.void, 0.3);
+  fill(g, x0 + colW - 1, topY, 1, h, C.void, 0.55);
+  // 两道浅槽：材质线，比凹槽弱得多
+  fill(g, x0 + R(colW * 0.16), topY + R(h * 0.12), 1, R(h * 0.76), C.void, 0.2);
+  fill(g, x0 + R(colW * 0.26), topY + R(h * 0.12), 1, R(h * 0.76), C.void, 0.16);
+  if (broken) {
+    // 砸断的柱头：断面压暗一档，边上还挂着两小块残石
+    fill(g, x0, topY, colW, Math.max(2, R(3 * u)), C.void, 0.5);
+    fill(g, x0 + R(colW * 0.18), topY - Math.max(2, R(2 * u)), R(colW * 0.5), Math.max(2, R(2 * u)), C.shardStone, 1);
+    fill(g, x0 + R(colW * 0.18), topY - Math.max(2, R(2 * u)), R(colW * 0.5), 1, C.stoneLight, 0.5);
+    fill(g, x0 - R(colW * 0.2), topY + R(h * 0.05), Math.max(2, R(colW * 0.18)), Math.max(3, R(4 * u)), C.stoneDark, 1);
+  } else {
+    // 柱头：出檐两层（下窄上宽）
+    fill(g, R(cx - R(capW / 2)), topY - capH, capW, capH, C.shardStone, 1);
+    fill(g, R(cx - R(capW / 2)), topY - capH, capW, 1, C.stoneLight, 0.65);
+    fill(g, R(cx - R(capW / 2)), topY - 1, capW, 1, C.void, 0.55);
+    const abH = Math.max(2, R(capH * 0.55));
+    fill(g, R(cx - R(capW * 0.56)), topY - capH - abH, R(capW * 1.12), abH, C.stoneDark, 1);
+    fill(g, R(cx - R(capW * 0.56)), topY - capH - abH, R(capW * 1.12), 1, C.stoneLight, 0.4);
+  }
+  // 柱础：出檐一块 + 接触影
+  const baseH = Math.max(3, R(colW * 0.26));
+  fill(g, R(cx - R(colW * 0.72)), botY - baseH, R(colW * 1.44), baseH, C.starTileLit, 1);
+  fill(g, R(cx - R(colW * 0.72)), botY - baseH, R(colW * 1.44), 1, C.stoneDark, 0.85);
+  fill(g, R(cx - R(colW * 0.72)), botY - 1, R(colW * 1.44), 1, C.void, 0.5);
+  flatEllipse(g, cx, botY + 1, R(colW * 1.15), Math.max(2, R(3 * u)), C.void, 0.42);
 }
 
 export function back(g, L) {
@@ -215,27 +269,6 @@ export function back(g, L) {
     const fx = i / 13;
     const y0 = R(hz * topAt(fx)) + 3;
     if (y0 < hz - 3) fill(g, R(w * fx), y0, 1, hz - y0, C.void, 0.13);
-  }
-  // 墙身束带：一条压在墙面上的石带，把大块墙面横着断开（材质贴墙，不悬空）
-  {
-    const fyBand = 0.70;
-    const yBand = R(hz * fyBand);
-    const bandH = Math.max(2, R(3 * u));
-    const sp = wallSpan(fyBand);
-    const spans = sp.left === null
-      ? [[0, w]]
-      : [[0, R(w * sp.left)], [R(w * sp.right), w - R(w * sp.right)]];
-    for (const [x0, len] of spans) {
-      if (len < 6) continue;
-      fill(g, x0, yBand, len, bandH, C.shardStone, 1);
-      fill(g, x0, yBand, len, 1, C.stoneLight, 0.5);
-      fill(g, x0, yBand + bandH - 1, len, 1, C.void, 0.6);
-      // 带上的分块缝，同样贴住石带
-      for (let k = 1; k < 5; k++) {
-        const jx = x0 + R((len * k) / 5);
-        if (jx - x0 > 3 && x0 + len - jx > 3) fill(g, jx, yBand, 1, bandH, C.stoneDark, 0.7);
-      }
-    }
   }
   // 墙脚压暗 + 两处陨痕（顺着墙面往下走，依附石面）
   fill(g, 0, hz - 3, w, 3, C.void, 0.5);
@@ -337,71 +370,169 @@ export function back(g, L) {
     fill(g, light.x - R(20 * u) + i * R(14 * u), light.y + R(38 * u), R(8 * u), 1, accent, 0.25);
   }
 
-  // 7) 断裂檐口：左右两段，中央 206–286 是塌掉的断口，端头做阶梯断齿
-  const cornY = R(hz * 0.42);
-  const cornH = Math.max(10, R(14 * u));
-  const leftEnd = R(w * 0.43);
-  const rightStart = R(w * 0.595);
-  const rows = 3;
-  const rowH = Math.max(3, R(cornH / rows));
-  for (let i = 0; i < rows; i++) {
-    const y = cornY + i * rowH;
-    const hh = i === rows - 1 ? Math.max(2, cornH - i * rowH) : rowH;
-    fill(g, 0, y, leftEnd - (rows - 1 - i) * R(5 * u), hh, C.shardStone, 1);
-    fill(g, rightStart + (rows - 1 - i) * R(5 * u), y, w - rightStart - (rows - 1 - i) * R(5 * u), hh, C.shardStone, 1);
+  // 6b) 墙面星图浮雕：坍顶两侧的墙上各嵌一块破裂的星图石板——栏板与台基之间的
+  //     大片墙身本来是空白的，靠这两块有内容的浮雕补住，也点明「这是星象王庭」。
+  for (const [fx, hi] of [[0.145, 1], [0.855, 2]]) {
+    const pw = R(w * 0.15);
+    const ph = R(hz * 0.17);
+    const px0 = R(w * fx) - R(pw / 2);
+    const py0 = R(hz * 0.5);
+    // 底板比墙亮一档、内芯是石面而不是黑洞——否则会被读成「墙上开了两扇窗」
+    fill(g, px0, py0, pw, ph, C.stoneLight, 0.28);
+    fill(g, px0 + 2, py0 + 2, pw - 4, ph - 4, C.stoneDark, 0.55);
+    fill(g, px0, py0, pw, 1, C.stoneLight, 0.5);
+    fill(g, px0, py0 + ph - 1, pw, 1, C.void, 0.5);
+    for (let i = 0; i < 4; i++) {
+      const sx = px0 + 4 + R(((pw - 8) * i) / 3);
+      const sy = py0 + 4 + (i % 2 === 0 ? R(ph * 0.22) : R(ph * 0.58));
+      if (i > 0) {
+        const qx = px0 + 4 + R(((pw - 8) * (i - 1)) / 3);
+        const qy = py0 + 4 + ((i - 1) % 2 === 0 ? R(ph * 0.22) : R(ph * 0.58));
+        seg(g, qx, qy, sx, sy, C.runeDim, 0.35);
+      }
+      fill(g, sx, sy, 1, 1, C.coldFlame, i === hi ? 0.75 : 0.28);
+    }
+    fill(g, px0 + pw - 5, py0 + 2, 5, 3, C.void, 0.55);
+    seg(g, px0 + R(pw * 0.62), py0 + 3, px0 + R(pw * 0.48), py0 + ph - 3, C.void, 0.45);
   }
-  // 檐口上沿受光、下沿压暗（构件要有上下两面）
-  fill(g, 0, cornY, leftEnd - R(10 * u), 1, C.stoneLight, 0.6);
-  fill(g, rightStart + R(10 * u), cornY, w - rightStart - R(10 * u), 1, C.stoneLight, 0.6);
-  fill(g, 0, cornY + cornH - 1, leftEnd, 1, C.void, 0.65);
-  fill(g, rightStart, cornY + cornH - 1, w - rightStart, 1, C.void, 0.65);
-  // 檐下齿饰（dents），只贴左右两段
-  for (let i = 0; i < 7; i++) {
-    fill(g, R(leftEnd * (0.10 + i * 0.115)), cornY + cornH - 4, 3, 3, C.starTileDark, 0.85);
-    fill(g, rightStart + R((w - rightStart) * (0.10 + i * 0.115)), cornY + cornH - 4, 3, 3, C.starTileDark, 0.85);
-  }
-  // 石缝：竖向 4 条 + 断口两侧的断面亮口
-  for (let i = 0; i < 4; i++) {
-    fill(g, R(leftEnd * (0.16 + i * 0.22)), cornY + 1, 1, cornH - 2, C.stoneDark, 0.6);
-    fill(g, rightStart + R((w - rightStart) * (0.16 + i * 0.22)), cornY + 1, 1, cornH - 2, C.stoneDark, 0.6);
-  }
-  fill(g, leftEnd - R(3 * u), cornY, R(3 * u), cornH, C.stoneLight, 0.35);
-  fill(g, rightStart, cornY, R(3 * u), cornH, C.stoneLight, 0.3);
-  // 断口下悬着的一块残石
-  fill(g, leftEnd - R(13 * u), cornY + cornH, R(13 * u), R(7 * u), C.shardStone, 1);
-  fill(g, leftEnd - R(13 * u), cornY + cornH, R(13 * u), 1, C.stoneLight, 0.4);
-  fill(g, leftEnd - R(13 * u), cornY + cornH + R(7 * u) - 1, R(13 * u), 1, C.void, 0.55);
 
-  // 8) 三根巨柱：柱身压在墙上、柱头托檐口，柱础结冷霜
-  const colTop = cornY + cornH;
-  const colW = Math.max(16, R(22 * u));
-  for (const [fx, seed] of [[0.13, 3], [0.367, 5], [0.858, 7]]) {
+  // 7) 上层台基：断裂栏板。顶杆沿坍顶的 V 形墙沿走——上一版是一条悬在破洞上的
+  //    通栏横梁，4× 截图里被读成「高架桥」；现在栏板贴着墙顶随破口起伏，
+  //    两处整段塌断，断口露出的就是墙本身的断面。
+  const copH = Math.max(5, R(6 * u));
+  const merH = Math.max(5, R(6 * u));
+  const copRuns = [[0, 0.30], [0.36, 0.62], [0.68, 1]];
+  const wallPts = (fx0, fx1, n) => {
+    const arr = [];
+    for (let i = 0; i <= n; i++) {
+      const fx = fx0 + ((fx1 - fx0) * i) / n;
+      arr.push({ x: R(w * fx), y: R(hz * topAt(fx)) });
+    }
+    return arr;
+  };
+  for (const [fx0, fx1] of copRuns) {
+    const base = wallPts(fx0, fx1, Math.max(5, R((fx1 - fx0) * 30)));
+    const top = base.map((p) => ({ x: p.x, y: p.y - copH }));
+    silhouette(g, [...top, ...base.slice().reverse()], C.stone, 1);
+    g.lineStyle(1, C.stoneLight, 0.72);
+    g.strokePoints(top, false);
+    g.lineStyle(1, C.void, 0.6);
+    g.strokePoints(base, false);
+    // 栏板投在墙身上的影：贴着栏板往下、比栏板窄，不与下层台阶平行
+    const shTop = base.map((p) => ({ x: p.x + 3, y: p.y + 1 }));
+    const shBot = base.map((p) => ({ x: p.x + 3, y: p.y + R(7 * u) }));
+    silhouette(g, [...shTop, ...shBot.slice().reverse()], C.void, 0.3);
+    // 垛口：栏板顶上断续的短石垛，缺的就是塌掉的那几块
+    for (let i = 0; i < 12; i++) {
+      const fx = fx0 + ((fx1 - fx0) * (i + 0.5)) / 12;
+      if (i % 5 === 2) continue;
+      const x = R(w * fx);
+      if (Math.abs(x - light.x) < R(26 * u)) continue;
+      const y = R(hz * topAt(fx)) - copH - merH;
+      const mw = R(7 * u);
+      fill(g, x - R(mw / 2), y, mw, merH, C.stone, 1);
+      fill(g, x - R(mw / 2), y, mw, 1, C.stoneLight, 0.6);
+      fill(g, x - R(mw / 2), y + merH - 1, mw, 1, C.void, 0.45);
+    }
+  }
+  // 断口端头：阶梯断齿 + 断面亮口 + 下面还连着的一块残石
+  for (const [fx, dir] of [[0.30, 1], [0.36, -1], [0.62, 1], [0.68, -1]]) {
+    const x = R(w * fx), y = R(hz * topAt(fx));
+    fill(g, dir > 0 ? x - R(5 * u) : x, y - copH, R(5 * u), copH + R(3 * u), C.stoneLight, 0.3);
+    fill(g, dir > 0 ? x - R(2 * u) : x, y - copH + R(2 * u), R(3 * u), copH, C.void, 0.5);
+  }
+  for (const [fx, dw] of [[0.318, 6], [0.345, 4], [0.664, 7]]) {
+    const x = R(w * fx), y = R(hz * topAt(fx)) + 1;
+    fill(g, x, y, R(dw * u), R(5 * u), C.stone, 1);
+    fill(g, x, y + R(5 * u) - 1, R(dw * u), 1, C.void, 0.5);
+  }
+
+  // 8) 下层台基：三级台阶向观众展开。宽度 0.50/0.72/0.94（不到画面两边）、踏面与踢面分色，
+  //    每级还砸掉一角——不是又一条横贯全屏的平板。
+  const stepTop = hz - R(21 * u);
+  const stepH = Math.max(4, R((hz - stepTop) / 3));
+  for (let i = 0; i < 3; i++) {
+    // 三级都不到画面两边（0.50/0.72/0.94），台基就不是三条通栏横板
+    const sw = R(w * [0.50, 0.72, 0.94][i]);
+    const sx = R((w - sw) / 2);
+    const sy = stepTop + i * stepH;
+    const hh = i === 2 ? hz - sy : stepH;
+    fill(g, sx, sy, sw, hh, C.starTileDark, 0.98);
+    fill(g, sx, sy, sw, Math.max(2, R(2 * u)), C.stone, 0.92);
+    // 踏面前沿分段受光：每级都被砸掉几块，台基才不会读成三条通栏横杆
+    for (const [u0, u1] of [[0.03, 0.31], [0.38, 0.60], [0.68, 0.93]]) {
+      fill(g, sx + R(sw * u0), sy, R(sw * (u1 - u0)), 1, C.stoneLight, 0.38);
+    }
+    fill(g, sx, sy + hh - 1, sw, 1, C.void, 0.55);
+    fill(g, sx, sy, R(2 * u), hh, C.void, 0.45);
+    fill(g, sx + sw - R(2 * u), sy, R(2 * u), hh, C.void, 0.5);
+    for (let k = 1; k < 5; k++) fill(g, sx + R((sw * k) / 5), sy + 1, 1, hh - 1, C.void, 0.28);
+    // 每级砸掉的一块缺口（位置错开，避免三级台阶变成同心矩形）
+    fill(g, sx + R(sw * (0.20 + i * 0.13)), sy + 1, R(6 * u), Math.max(2, R(2 * u)), C.void, 0.6);
+    fill(g, sx + R(sw * (0.20 + i * 0.13)), sy + 1, R(3 * u), 1, C.stone, 0.7);
+    // 台基正面的扶壁：竖下来的一小段，把横线打断（否则三级台阶仍像层叠的板）
+    for (const fb of [0.14, 0.5, 0.86]) {
+      const pxx = sx + R(sw * fb);
+      fill(g, pxx, sy + 1, Math.max(3, R(4 * u)), hh - 1, C.stoneDark, 1);
+      fill(g, pxx, sy + 1, 1, hh - 1, C.stoneLight, 0.35);
+    }
+  }
+  // 台阶前落着的两块碎石（贴踏面，不悬空）
+  fill(g, R(w * 0.415), stepTop + 2 * stepH + 1, R(8 * u), 3, C.shardStone, 1);
+  fill(g, R(w * 0.415), stepTop + 2 * stepH + 1, R(8 * u), 1, C.stoneLight, 0.4);
+  fill(g, R(w * 0.605), stepTop + stepH + 1, R(5 * u), 2, C.stone, 1);
+
+  // 9) 断裂拱券残段：左跨的石拱塌了顶，只剩两截起券——墙面上唯一的曲线，
+  //    也是「坍顶大厅」的说明（右跨没有足够高的墙面，故不画）。
+  const archCx = R(w * 0.248), archCy = R(hz * 0.78), archRx = R(w * 0.119), archRy = R(hz * 0.12);
+  for (const [t0, t1] of [[-1, -0.1], [0.18, 1]]) {
+    const outer = [], inner = [];
+    const N = 6;
+    for (let i = 0; i <= N; i++) {
+      const t = t0 + ((t1 - t0) * i) / N;
+      const x = R(archCx + archRx * t);
+      const y = R(archCy - archRy * Math.sqrt(Math.max(0, 1 - t * t)));
+      outer.push({ x, y: y - R(5 * u) });
+      inner.push({ x, y });
+    }
+    silhouette(g, [...outer, ...inner.slice().reverse()], C.shardStone, 1);
+    g.lineStyle(1, C.stoneLight, 0.5);
+    g.strokePoints(outer, false);
+    g.lineStyle(1, C.void, 0.6);
+    g.strokePoints(inner, false);
+    for (let i = 1; i < N; i++) {
+      const p = inner[i];
+      seg(g, p.x, p.y, p.x + R((archCx - p.x) * 0.07), p.y - R(5 * u), C.void, 0.45);
+    }
+  }
+  // 塌下来的两块券石：压在台阶踏面上
+  fill(g, R(w * 0.258), stepTop - R(6 * u), R(9 * u), R(6 * u), C.shardStone, 1);
+  fill(g, R(w * 0.258), stepTop - R(6 * u), R(9 * u), 1, C.stoneLight, 0.45);
+  fill(g, R(w * 0.258), stepTop - 1, R(9 * u), 1, C.void, 0.5);
+  fill(g, R(w * 0.288), stepTop - R(4 * u), R(6 * u), R(4 * u), C.starTile, 1);
+
+  // 10) 三根巨柱：立在台基最上一级，柱身穿破洞、在星野上投出剪影；
+  //     中间一根断在破洞里（没有压顶石），左右两根托着栏板的断头。
+  const colTop = R(hz * 0.42);
+  const colBase = stepTop + R(stepH / 2) + 1;
+  const colW = Math.max(16, R(18 * u));
+  for (const [fx, seed, broken] of [[0.13, 3, 0], [0.367, 5, 1], [0.858, 7, 0]]) {
     const cx = R(w * fx);
-    // 柱后一圈暗边，把柱身从墙上剥出来
-    fill(g, cx - R(colW * 0.9), colTop - 2, R(colW * 1.8), hz - colTop + 2, C.void, 0.35);
-    column(g, {
-      cx, topY: colTop, bottomY: hz, w: colW,
-      shaft: C.shardStone, light: C.stoneLight, dark: C.void,
-      capH: Math.max(4, R(5 * u)), baseH: Math.max(5, R(7 * u)), flutes: 4,
-    });
-    // 柱头压顶石
-    fill(g, cx - R(colW * 0.78), colTop, R(colW * 1.56), Math.max(4, R(5 * u)), C.starTileDark, 1);
-    fill(g, cx - R(colW * 0.78), colTop, R(colW * 1.56), 1, C.stoneLight, 0.5);
+    // 柱后一圈暗边：影落在墙上，把柱身从墙面上剥出来
+    fill(g, cx - R(colW * 0.85), colTop - R(3 * u), R(colW * 1.7), colBase - colTop + R(3 * u), C.void, 0.3);
+    pillar(g, cx, colTop, colBase, colW, broken, u);
     // 朝光一侧的 1px 幕色受光棱（光源在 240 附近）
     const inner = cx < light.x ? cx + R(colW / 2) - 1 : cx - R(colW / 2);
-    fill(g, inner, colTop + 2, 1, hz - colTop - 2, accent, 0.14);
-    // 柱础：加宽一层 + 接触阴影，避免柱子「浮」在地平线上
-    fill(g, cx - R(colW * 0.95), hz - 3, R(colW * 1.9), 3, C.starTileDark, 0.95);
-    fill(g, cx - R(colW * 0.95), hz - 3, R(colW * 1.9), 1, C.stoneDark, 0.7);
-    // 柱础冷霜（贴石基，不是全屏撒点）
+    fill(g, inner, colTop + R(3 * u), 1, colBase - colTop - R(5 * u), accent, 0.18);
+    // 柱础冷霜（贴石基）
     moss(g, {
-      x: cx - R(colW * 0.7), y: hz - Math.max(7, R(9 * u)),
+      x: cx - R(colW * 0.7), y: colBase - Math.max(7, R(9 * u)),
       w: R(colW * 1.4), h: Math.max(4, R(6 * u)),
       seed, color: C.runeDim, count: 7, alpha: 0.45,
     });
   }
 
-  // 9) 远处星尘：中轴光柱与墙脚之间，越远越淡
+  // 11) 远处星尘：中轴光柱与墙脚之间，越远越淡
   for (let i = 0; i < 18; i++) {
     const x = R(w * (0.08 + ((i * 53) % 84) / 100));
     const y = hz - R(6 + ((i * 37) % 34) * u);
@@ -427,16 +558,23 @@ export function mid(g, L) {
   const rowH0 = Math.max(7, R(11 * u));
   let bandY = hz, bandI = 0;
   while (bandY < ground - 2 && bandI < 14) {
-    const rh = Math.max(4, R(rowH0 * (1 + bandI * 0.2)));
+    const rh = Math.max(4, R(rowH0 * (1 + bandI * 0.3)));
     const rowH = Math.min(rh, ground - bandY);
     const y = bandY;
     // 远排更暗、近排更亮：没有渐变，用逐排 alpha 递减做纵深
-    fill(g, 0, y, w, rowH, C.starTile, Math.max(0.05, 0.26 - bandI * 0.02));
+    fill(g, 0, y, w, rowH, C.starTile, Math.max(0.11, 0.26 - bandI * 0.018));
     // 近排石缝更黑更粗：同样的 1px，靠 alpha 拉开与远排的差别
     fill(g, 0, y, w, 1, C.groove, Math.min(0.46, 0.3 + bandI * 0.03));
     fill(g, 0, y + 1, w, 1, C.ink, Math.min(0.72, 0.44 + bandI * 0.04));
-    const off = bandI % 2 === 0 ? 0 : R(w / 10);
-    for (let c = -1; c < 6; c++) fill(g, off + c * R(w / 5), y, 1, rowH, C.groove, Math.min(0.34, 0.2 + bandI * 0.03));
+    // 竖缝向灭点散开：越近的排，缝越往外偏——一行一点透视，不画斜线也读得出是地面
+    const spread = 1 + bandI * 0.55;
+    const jointA = Math.min(0.34, 0.16 + bandI * 0.035);
+    const stagger = bandI % 2 === 0 ? 0 : R(21 * spread);
+    for (let c = -3; c <= 3; c++) {
+      const jx = R(w / 2 + stagger + c * R(42 * spread));
+      if (jx <= 0 || jx >= w - 1) continue;
+      fill(g, jx, y, 1, rowH, C.groove, jointA);
+    }
     bandY += rh;
     bandI++;
   }
@@ -460,92 +598,188 @@ export function mid(g, L) {
   for (let i = 0; i < beamSegs; i++) {
     const y0 = hz + R(((beamBot - hz) * i) / beamSegs);
     const hSeg = R((beamBot - hz) / beamSegs) + 1;
-    const halfW = R((11 + i * 2.4) * uw);
+    const halfW = R((11 + i * 2.4 + ((i * 37) % 5)) * uw);
     fill(g, throneX - halfW, y0, halfW * 2, hSeg, accent, i < 2 ? 0.045 : 0.032);
     fill(g, throneX - R(halfW * 0.45), y0, R(halfW * 0.9), hSeg, accent, 0.028);
   }
   for (const ey of [0.3, 0.5, 0.7]) rug(throneX, at(ey), 22 * uw, 0.05);
+  // 光柱里的浮尘：竖屏下光柱很长，靠这些点把「一束光」和「一条亮带」分开
+  for (let i = 0; i < 14; i++) {
+    const fy = 0.06 + ((i * 137) % 92) / 100;
+    const px = throneX + R((((i * 53) % 40) - 20) * uw);
+    fill(g, px, hz + R((beamBot - hz) * fy), 1, i % 4 === 0 ? 2 : 1, C.coldFlameCore, i % 3 === 0 ? 0.4 : 0.22);
+  }
 
-  // 2) 星纹嵌地：三层同心椭圆 + 八向放射缝 + 四向菱形 + 中心星
+  // 2) 星纹嵌地：王座站在一圈「星盘」正中，八条放射缝从环里往外没进地砖。
+  //    上一版是三层同心大椭圆，4× 下被读成赛车跑道，现在只留一圈 + 八向散射。
   const ix = R(w * 0.5), iy = at(0.60);
-  const ringSizes = [0.40, 0.30, 0.20].map((f) => [R(w * f), Math.max(4, R(w * f * flat))]);
-  for (const [rx, ry] of ringSizes) {
-    ellipseRing(g, ix, iy, rx, ry, C.stoneDark, 0.9, 30);
-    ellipseRing(g, ix, iy, Math.max(6, rx - 2), Math.max(3, ry - 1), C.runeDim, 0.2, 30);
-  }
+  const ringRx = R(w * 0.185), ringRy = Math.max(4, R(ringRx * flat));
+  ellipseRing(g, ix, iy, ringRx, ringRy, C.stoneDark, 0.9, 30);
+  ellipseRing(g, ix, iy, Math.max(6, ringRx - 2), Math.max(3, ringRy - 1), C.runeDim, 0.22, 30);
   for (let i = 0; i < 8; i++) {
-    const a = (Math.PI * 2 * i) / 8;
-    seg(g, ix + Math.cos(a) * 18, iy + Math.sin(a) * 6,
-      ix + Math.cos(a) * ringSizes[0][0], iy + Math.sin(a) * ringSizes[0][1], C.runeDim, 0.22);
+    const a = (Math.PI * 2 * i) / 8 + Math.PI / 8;
+    const r0 = ringRx * 0.5, r1 = ringRx * (1.4 + (i % 2) * 0.4);
+    seg(g, ix + Math.cos(a) * r0, iy + Math.sin(a) * R(r0 * flat),
+      ix + Math.cos(a) * r1, iy + Math.sin(a) * R(r1 * flat), C.runeDim, 0.2);
   }
-  for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
-    diamond(g, ix + dx * ringSizes[1][0], iy + dy * ringSizes[1][1], 3, C.runeDim, 0.4);
+  for (let i = 0; i < 4; i++) {
+    const a = (Math.PI * 2 * i) / 4;
+    diamond(g, ix + Math.cos(a) * ringRx, iy + Math.sin(a) * ringRy, Math.max(2, R(3 * u)), C.runeDim, 0.45);
   }
   diamond(g, ix, iy, R(9 * u), C.runeDim, 0.45);
   diamond(g, ix, iy, R(5 * u), C.starTileLit, 0.9);
   fill(g, ix - 2, iy - 2, 4, 4, accent, 0.28);
 
-  // 3) 王座：三级台阶 → 座面 → 断角高背 → 星纹靠背
+  // 2b) 阶前石道：从台基前沿一直铺到碑座边，逐段变宽——地面因此有「通向王座」的方向
+  //     （竖屏地面有 300px 高，没有这条道，整片地砖会读成一堵砖墙）。
+  {
+    const ry0 = at(0.86);
+    const runL = ground - ry0;
+    if (runL >= 6) {
+      for (let i = 0; i < 3; i++) {
+        const rw = R((38 + i * 16) * uw);
+        const rx0 = throneX - R(rw / 2);
+        const yy = ry0 + R((runL * i) / 3);
+        const hh = i === 2 ? ground - yy : R(runL / 3) + 1;
+        fill(g, rx0, yy, rw, hh, C.stoneDark, 0.9);
+        fill(g, rx0, yy, rw, 1, C.stoneLight, 0.3);
+        fill(g, rx0, yy, 1, hh, C.stoneLight, 0.22);
+        fill(g, rx0 + rw - 1, yy, 1, hh, C.void, 0.4);
+        fill(g, rx0 + R(rw * 0.42), yy + 1, 1, hh - 1, C.void, 0.35);
+      }
+    }
+  }
+  // 2c) 地面星纹石板：两深两浅，越近越大——近排压到碑座前，远排贴着光柱散开
+  for (const [fx, fy, s, a] of [[0.17, 0.34, 7, 0.3], [0.83, 0.34, 7, 0.3], [0.22, 0.60, 10, 0.34], [0.66, 0.54, 10, 0.34]]) {
+    const sx = R(w * fx), sy = at(fy), ss = R(s * u);
+    fill(g, sx - ss, sy - Math.max(1, R(ss * 0.3)), ss * 2, Math.max(2, R(ss * 0.6)), C.starTile, 0.55);
+    fill(g, sx - ss, sy - Math.max(1, R(ss * 0.3)), ss * 2, 1, C.stoneLight, a);
+    diamond(g, sx, sy, Math.max(2, R(ss * 0.34)), C.runeDim, a + 0.15);
+    fill(g, sx, sy, 1, 1, C.coldFlame, 0.3);
+  }
+
+  // 2d) 地面同心星盘：一深一近两圈嵌地环，把地面读成「王座大厅的地坪」而不是一堵砖墙
+  for (const [fy, fr, ra] of [[0.34, 0.30, 0.16], [0.88, 0.36, 0.14]]) {
+    const dy = at(fy);
+    const drx = R(w * fr);
+    const dry = Math.max(3, R(drx * flat));
+    ellipseRing(g, throneX, dy, drx, dry, C.stoneDark, 0.55);
+    ellipseRing(g, throneX, dy, drx - R(2 * u), Math.max(2, R(dry * 0.86)), C.runeDim, ra);
+  }
+
+  // 3) 王座：三级台阶 → 座面 → 断角高背 → 破碎星纹背板；背后是暖金余晖（第二处光源）。
   const baseY = at(0.86);
   const sh = Math.max(5, R(6 * u));
-  const seatW = R(34 * uw);
-  const seatH = Math.max(9, R(13 * u));
+  const seatW = R(50 * uw);
+  const seatH = Math.max(9, R(12 * u));
   const seatY = baseY - 3 * sh - seatH;
   const seatX = throneX - R(seatW / 2);
-  const backW = R(40 * uw);
+  const backW = R(32 * uw);
   const bx0 = throneX - R(backW / 2);
-  const backH = R(44 * u);
+  const backH = R(46 * u);
   const backTop = seatY - backH;
-  // 背光：靠背后面一圈极淡的幕色晕，把剪影从墙上剥出来
-  fill(g, bx0 - 7, backTop - 6, backW + 14, backH + 10, accent, 0.05);
-  // 靠背：左上高、右上断掉一角（整块加两级台阶，像素风不做斜切）
-  fill(g, bx0, backTop, R(22 * uw), seatY - backTop, C.starTile, 1);
-  fill(g, bx0, backTop + R(9 * u), R(31 * uw), seatY - backTop - R(9 * u), C.starTile, 1);
-  fill(g, bx0, backTop + R(18 * u), backW, seatY - backTop - R(18 * u), C.starTile, 1);
-  // 内嵌靠背板 + 受光棱
-  fill(g, bx0 + R(6 * uw), backTop + R(16 * u), R(26 * uw), seatY - backTop - R(26 * u), C.starTileLit, 0.95);
-  fill(g, bx0, backTop, 1, seatY - backTop, C.coldFlame, 0.55);
-  fill(g, bx0, backTop, R(22 * uw), 1, C.stoneLight, 0.5);
-  fill(g, bx0 + R(31 * uw), backTop + R(9 * u), 1, R(9 * u), C.stoneLight, 0.3);
-  // 靠背凿痕 3 条（贴石面）
-  for (let k = 0; k < 3; k++) fill(g, bx0 + R(7 * uw), backTop + R(20 * u) + k * R(5 * u), R(20 * uw), 1, C.groove, 0.35);
-  // 断口缺口 + 一条斜凿裂
-  fill(g, bx0 + R(31 * uw), backTop + R(9 * u), 2, 5, C.void, 0.85);
-  seg(g, bx0 + R(31 * uw), backTop + R(13 * u), bx0 + R(36 * uw), backTop + R(22 * u), C.void, 0.6);
-  // 靠背星纹
-  const emY = backTop + R(26 * u);
-  diamond(g, throneX, emY, R(7 * uw), C.runeDim, 0.6);
-  diamond(g, throneX, emY, R(4 * uw), C.starTileLit, 0.9);
-  diamond(g, throneX, emY, 2, accent, 0.5);
-  fill(g, throneX - 1, emY - 1, 2, 2, C.coldFlameCore, 0.9);
-  for (const [dx, dy] of [[0, -10], [10, 0], [0, 10], [-10, 0]]) {
-    fill(g, throneX + dx, emY + dy, 1, 1, C.runeDim, 0.55);
+  const haloC = backTop + R(backH * 0.5);
+
+  // 3a) 暖金余晖：靠背后面套叠的硬边光斑（不做渐变），外圈把墙照亮一档、
+  //     内圈是余晖核心；暖色星尘只散在这一圈里，别处一律冷色。
+  diamond(g, throneX, haloC, R(46 * uw), C.brass, 0.032);
+  diamond(g, throneX, haloC, R(34 * uw), C.brass, 0.06);
+  diamond(g, throneX, haloC, R(23 * uw), C.brassLight, 0.07);
+  for (let i = 0; i < 8; i++) {
+    const a = (Math.PI * 2 * i) / 8 + Math.PI / 8;
+    const r0 = R(26 * uw), r1 = R((33 + (i % 3) * 4) * uw);
+    seg(g, throneX + Math.cos(a) * r0, haloC + Math.sin(a) * R(15 * uw),
+      throneX + Math.cos(a) * r1, haloC + Math.sin(a) * R(21 * uw), C.brassLight, 0.14);
   }
-  // 座面（正面压暗 + 上沿受光，座面才不是一块平板）
-  fill(g, seatX, seatY, seatW, seatH, C.starTileLit, 1);
+  for (let i = 0; i < 8; i++) {
+    fill(g, throneX - R(30 * uw) + ((i * 13) % R(58 * uw)), backTop + R(2 * u) + ((i * 9) % R(36 * u)), 1, 1, C.brassLight, 0.4);
+  }
+
+  // 3b) 高背：右上塌掉两级、顶沿留三颗断齿——剪影要一眼读成「王座」而不是一堵墙
+  // 靠背用 stoneDark：比身后的暗墙亮一档，剪影才立得出来（上一版和墙同色，读成黑盒子）
+  fill(g, bx0, backTop, R(22 * uw), seatY - backTop, C.stoneDark, 1);
+  fill(g, bx0, backTop + R(9 * u), R(31 * uw), seatY - backTop - R(9 * u), C.stoneDark, 1);
+  fill(g, bx0, backTop + R(18 * u), backW, seatY - backTop - R(18 * u), C.stoneDark, 1);
+  fill(g, bx0 + R(3 * uw), backTop - R(5 * u), R(6 * uw), R(5 * u), C.stoneDark, 1);
+  fill(g, bx0 + R(3 * uw), backTop - R(5 * u), R(6 * uw), 1, C.stoneLight, 0.5);
+  fill(g, bx0 + R(11 * uw), backTop - R(3 * u), R(5 * uw), R(3 * u), C.stoneDark, 1);
+  fill(g, bx0 + R(11 * uw), backTop - R(3 * u), R(5 * uw), 1, C.stoneLight, 0.4);
+  fill(g, bx0 + R(19 * uw), backTop - R(7 * u), R(3 * uw), R(7 * u), C.stoneDark, 1);
+  fill(g, bx0 + R(19 * uw), backTop - R(7 * u), R(3 * uw), 1, C.stoneLight, 0.35);
+  // 靠背两侧的方柱：把背板框住，剪影才读成「有框的座背」而不是一块石板
+  fill(g, bx0, backTop, Math.max(3, R(4 * uw)), seatY - backTop, C.shardStone, 1);
+  fill(g, bx0, backTop, Math.max(3, R(4 * uw)), 1, C.stoneLight, 0.55);
+  fill(g, bx0, backTop, 1, seatY - backTop, C.coldFlame, 0.35);
+  fill(g, bx0 + backW - Math.max(3, R(4 * uw)), backTop + R(9 * u), Math.max(3, R(4 * uw)), seatY - backTop - R(9 * u), C.starTile, 1);
+  fill(g, bx0 + backW - 1, backTop + R(9 * u), 1, seatY - backTop - R(9 * u), C.brass, 0.3);
+  // 断口的斜凿裂（从右肩往下）
+  seg(g, bx0 + R(31 * uw), backTop + R(10 * u), bx0 + R(36 * uw), backTop + R(21 * u), C.void, 0.6);
+  fill(g, bx0 + R(31 * uw), backTop + R(9 * u), 2, 5, C.void, 0.85);
+
+  // 3c) 破碎星纹背板：内嵌一块浅色石板，刻大星纹，右上角砸掉一块
+  const pnlX = bx0 + R(5 * uw), pnlY = backTop + R(11 * u);
+  const pnlW = backW - R(10 * uw), pnlH = seatY - pnlY - R(4 * u);
+  fill(g, pnlX, pnlY, pnlW, pnlH, C.stone, 1);
+  fill(g, pnlX, pnlY, pnlW, 1, C.stoneDark, 0.9);
+  fill(g, pnlX, pnlY, 1, pnlH, C.stoneDark, 0.8);
+  fill(g, pnlX + pnlW - 1, pnlY, 1, pnlH, C.void, 0.55);
+  fill(g, pnlX + pnlW - R(9 * uw), pnlY, R(9 * uw), R(7 * u), C.void, 0.85);
+  fill(g, pnlX + pnlW - R(9 * uw), pnlY + R(7 * u) - 1, R(9 * uw), 1, C.stoneLight, 0.25);
+  const emY = pnlY + R(pnlH * 0.5);
+  diamond(g, throneX, emY, R(8 * uw), C.runeDim, 0.55);
+  diamond(g, throneX, emY, R(5 * uw), C.starTileLit, 0.95);
+  diamond(g, throneX, emY, 2, C.brass, 0.7);
+  fill(g, throneX - 1, emY - 1, 2, 2, C.coldFlameCore, 0.9);
+  for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+    fill(g, throneX + dx * R(12 * uw), emY + dy * R(9 * u), 1, 1, C.runeDim, 0.6);
+  }
+  // 背板裂纹两条（贴石面）
+  seg(g, pnlX + pnlW - R(8 * uw), pnlY + R(6 * u), pnlX + pnlW - R(11 * uw), pnlY + R(17 * u), C.void, 0.5);
+  seg(g, pnlX + R(4 * uw), pnlY + R(3 * u), pnlX + R(7 * uw), pnlY + R(9 * u), C.void, 0.35);
+  // 受光棱：左上棱吃破洞的冷光，右棱吃背后的暖光——两个光源的交接就写在这两道棱上
+  fill(g, bx0, backTop, 1, seatY - backTop, C.coldFlame, 0.5);
+  fill(g, bx0, backTop, R(22 * uw), 1, C.stoneLight, 0.5);
+  fill(g, bx0 + backW - 1, backTop + R(18 * u), 1, seatY - backTop - R(18 * u), C.brass, 0.32);
+
+  // 3d) 座面：上沿受冷光、正面压暗、座面下留一道深影
+  fill(g, seatX, seatY, seatW, seatH, C.stone, 1);
   fill(g, seatX, seatY, seatW, 1, C.stoneLight, 0.75);
+  fill(g, seatX, seatY + 1, seatW, 1, C.brass, 0.18);
   fill(g, seatX, seatY + seatH - 3, seatW, 3, C.starTileDark, 0.95);
   fill(g, seatX, seatY + 3, 1, seatH - 5, C.stoneDark, 0.6);
   for (let k = 0; k < 2; k++) fill(g, seatX + R(4 * uw), seatY + R(5 * u) + k * R(3 * u), seatW - R(8 * uw), 1, C.groove, 0.42);
-  // 扶手：左侧完整、右侧塌半截；扶手段比座面宽出一截，剪影更像「座」
-  fill(g, seatX - R(9 * uw), seatY - R(4 * u), R(13 * uw), R(5 * u), C.starTile, 1);
-  fill(g, seatX - R(9 * uw), seatY - R(4 * u), R(13 * uw), 1, C.stoneLight, 0.5);
+  // 3e) 扶手：左侧完整、右侧塌半截；外沿一档暖光，剪影更像「座」
+  //     扶手用 stoneDark（和墙同色的 starTile 会被墙吞掉，5× 下看不见扶手＝不像座）
+  fill(g, seatX - R(9 * uw), seatY - R(4 * u), R(13 * uw), R(5 * u), C.stoneDark, 1);
+  fill(g, seatX - R(9 * uw), seatY - R(4 * u), R(13 * uw), 1, C.stoneLight, 0.6);
+  fill(g, seatX - R(9 * uw), seatY - R(4 * u), 1, R(5 * u), C.brass, 0.35);
+  fill(g, seatX - R(9 * uw), seatY + R(1 * u), R(13 * uw), 1, C.void, 0.5);
   fill(g, seatX - R(7 * uw), seatY + R(1 * u), 3, seatH, C.starTileDark, 1);
-  fill(g, seatX + seatW - R(4 * uw), seatY - R(4 * u), R(12 * uw), R(5 * u), C.starTile, 1);
-  fill(g, seatX + seatW - R(4 * uw), seatY - R(4 * u), R(12 * uw), 1, C.stoneLight, 0.45);
+  fill(g, seatX + seatW - R(4 * uw), seatY - R(4 * u), R(12 * uw), R(5 * u), C.stoneDark, 1);
+  fill(g, seatX + seatW - R(4 * uw), seatY - R(4 * u), R(12 * uw), 1, C.stoneLight, 0.5);
+  fill(g, seatX + seatW + R(7 * uw), seatY - R(4 * u), 1, R(5 * u), C.brass, 0.3);
+  fill(g, seatX + seatW - R(4 * uw), seatY + R(1 * u), R(12 * uw), 1, C.void, 0.45);
   fill(g, seatX + seatW - R(5 * uw), seatY + R(1 * u), 3, R(6 * u), C.starTileDark, 1);
-  // 三级台阶：后窄前宽、踏面受光、踢面压暗
+
+  // 3f) 三级台阶：逐级变宽、踏面朝上受光（冷光压一线暖）、踢面压暗、级间留影
   for (let i = 0; i < 3; i++) {
-    const sw = R((42 + i * 14) * uw);
+    const sw = R((46 + i * 12) * uw);
+    const sx = throneX - R(sw / 2);
     const y = seatY + seatH + i * sh;
-    fill(g, throneX - R(sw / 2), y, sw, sh, i % 2 === 0 ? C.shardStone : C.stoneDark, 1);
-    fill(g, throneX - R(sw / 2), y, sw, 1, C.stoneLight, 0.5);
-    fill(g, throneX - R(sw / 2), y + sh - 1, sw, 1, C.void, 0.55);
+    fill(g, sx, y, sw, sh, i % 2 === 0 ? C.shardStone : C.stoneDark, 1);
+    fill(g, sx, y, sw, Math.max(2, R(2 * u)), C.stone, 0.95);
+    fill(g, sx, y, sw, 1, C.stoneLight, 0.6);
+    fill(g, sx, y + 1, sw, 1, C.brass, 0.16);
+    fill(g, sx, y + sh - 1, sw, 1, C.void, 0.6);
+    fill(g, sx, y, R(2 * uw), sh, C.void, 0.45);
+    fill(g, sx + sw - R(2 * uw), y, R(2 * uw), sh, C.void, 0.5);
+    // 阶面中缝 + 砸缺的一角（位置逐级错开，三级台阶不会读成一叠矩形）
+    fill(g, sx + R(sw / 2), y + 2, 1, sh - 2, C.void, 0.3);
+    fill(g, sx + R(sw * (i === 1 ? 0.24 : 0.72)), y + 2, R(4 * uw), Math.max(2, R(2 * u)), C.void, 0.7);
+    if (i > 0) fill(g, sx, y + 1, sw, 1, C.void, 0.25);
   }
-  // 台阶缺口（一块被砸掉）
-  fill(g, throneX + R(12 * uw), baseY - R(10 * u), 3, 2, C.void, 0.8);
   // 王座压地阴影 + 阶前碎石
-  fill(g, throneX - R(38 * uw), baseY, R(76 * uw), 3, C.void, 0.42);
+  fill(g, throneX - R(38 * uw), baseY, R(76 * uw), 3, C.void, 0.45);
   fill(g, throneX - R(46 * uw), baseY + 1, R(9 * uw), 2, C.starTileDark, 0.75);
   fill(g, throneX + R(37 * uw), baseY + 1, R(8 * uw), 2, C.starTileDark, 0.75);
   // 阶座冷霜（贴基座）
@@ -553,6 +787,15 @@ export function mid(g, L) {
     x: throneX - R(34 * uw), y: baseY - 3, w: R(68 * uw), h: 4,
     seed: 91, color: C.runeDim, count: 8, alpha: 0.42,
   });
+  // 3g) 阶前散落的王冠碎片：三枚尖角 + 两段断掉的冠圈（暖金只在这几处落地）
+  for (const [dx, s, c] of [[-R(52 * uw), 5, C.brass], [-R(38 * uw), 4, C.brassDark], [R(44 * uw), 6, C.brass], [R(58 * uw), 4, C.brassDark]]) {
+    const x = throneX + dx, y = baseY + R(2 * u);
+    silhouette(g, [{ x: x - R(s / 2), y }, { x, y: y - s }, { x: x + R(s / 2), y }], c, 0.95);
+    fill(g, x - 1, y - s + 1, 1, 1, C.brassLight, 0.8);
+  }
+  fill(g, throneX + R(30 * uw), baseY + R(1 * u), R(10 * uw), 3, C.brassDark, 0.9);
+  fill(g, throneX + R(30 * uw), baseY + R(1 * u), R(10 * uw), 1, C.brassLight, 0.5);
+  fill(g, throneX - R(66 * uw), baseY + R(3 * u), R(8 * uw), 2, C.brassDark, 0.85);
 
   // 4) 陨坑：右侧地面。三层压扁椭圆 + 发光碎星 + 放射陨痕 + 坑沿碎石
   const cx = R(w * 0.775);
@@ -570,6 +813,20 @@ export function mid(g, L) {
   crystal(g, cx - R(14 * uw), cy + 1, 4, accent);
   crystal(g, cx + R(4 * uw), cy - 3, 3, accent);
   crystal(g, cx + R(17 * uw), cy + 3, 5, accent);
+  // 坑沿的残火：第三处光源（橙红），只贴在坑沿与坑底，不外溢成整片暖色
+  flatEllipse(g, cx, cy + R(2 * u), R(crx * 0.42), Math.max(2, R(cry * 0.38)), C.blood, 0.18);
+  ellipseRing(g, cx, cy - 1, R(crx * 0.92), R(cry * 0.92), C.blood, 0.16, 26);
+  for (const [dx, dy, es, ec] of [
+    [-34, -5, 2, C.blood], [-16, 6, 1, C.blood], [6, 8, 2, C.blood],
+    [27, 3, 1, C.blood], [37, -3, 2, C.bloodDark], [-40, 1, 1, C.bloodDark],
+  ]) {
+    const ex = cx + R(dx * uw), ey = cy + R(dy * u);
+    fill(g, ex, ey, es, es, ec, 0.85);
+    fill(g, ex, ey, 1, 1, C.brassLight, 0.55);
+  }
+  // 火里往上飘的两点火星（比坑沿高，说明余火还在烧）
+  fill(g, cx - R(8 * uw), cy - R(15 * u), 1, 1, C.brassLight, 0.6);
+  fill(g, cx + R(11 * uw), cy - R(21 * u), 1, 1, C.blood, 0.5);
   // 坑沿碎石 + 向外辐射的陨痕
   rubble(g, { x: cx - crx - 8, y: cy - 4, w: 26, h: 10, seed: 61, color: C.starTileLit, color2: C.shardStone, count: 12, alpha: 0.8 });
   rubble(g, { x: cx + crx - 16, y: cy - 2, w: 26, h: 12, seed: 67, color: C.starTile, color2: C.shardStone, count: 12, alpha: 0.8 });
@@ -609,6 +866,14 @@ export function mid(g, L) {
   flatEllipse(g, toX, endY, R(endRx * 0.45), Math.max(2, R(drumH / 2) - 5), C.void, 0.5);
   fill(g, toX - endRx, endY - 1, 2, 2, C.coldFlame, 0.45);
   fill(g, toX - 2, toY, R(120 * uw), 3, C.void, 0.4);
+  // 柱础与断根：柱子不是凭空躺下——左端还压着它原来的方形础石，断面上留着凿口
+  fill(g, 4, toY - R(7 * u), R(17 * uw), R(7 * u), C.starTileLit, 1);
+  fill(g, 4, toY - R(7 * u), R(17 * uw), 1, C.stoneLight, 0.5);
+  fill(g, 4, toY - R(7 * u), 1, R(7 * u), C.stoneDark, 0.7);
+  fill(g, 4 + R(12 * uw), toY - R(7 * u), R(5 * uw), R(3 * u), C.void, 0.7);
+  fill(g, 6, toY - R(12 * u), R(7 * uw), R(5 * u), C.shardStone, 1);
+  fill(g, 6, toY - R(12 * u), R(7 * uw), 1, C.stoneLight, 0.45);
+  fill(g, 6, toY - R(12 * u), 1, R(5 * u), C.stoneDark, 0.6);
   // 倒下的柱头（一块方石 + 凿痕 + 断边）
   fill(g, toX + R(112 * uw), toY - R(23 * u), R(22 * uw), R(12 * u), C.shardStone, 1);
   fill(g, toX + R(112 * uw), toY - R(23 * u), R(22 * uw), 1, C.stoneLight, 0.45);
@@ -645,15 +910,23 @@ export function mid(g, L) {
   fill(g, fdX + R(9 * uw), hz + 3, 1, Math.max(4, R(6 * u)), C.void, 0.6);
   fill(g, fdX - 3, hz + 5, 4, 2, C.starTile, 0.9);
 
-  // 8) 悬浮碎星：三排纵深（远排贴地平线、中排居中、近排大且压到台阶边）
+  // 8) 悬浮碎星：远/中/近三组，每块都是「暗面 + 受光棱」两色。
+  //    远组小、贴地平线；中组居中不抢主体；近组两块倾斜的大碎块压到台阶与陨坑边。
   const shards = [
-    { x: 0.34, y: hz - R(24 * u), r: 4 },
-    { x: 0.62, y: hz + R(8 * u), r: 5 },
-    { x: 0.44, y: hz + R(22 * u), r: 6 },
-    { x: 0.735, y: at(0.42), r: 8 },
-    { x: 0.90, y: at(0.74), r: 10 },
+    { x: 0.300, y: hz - R(26 * u), r: R(4 * u), t: 0 },
+    { x: 0.665, y: hz - R(17 * u), r: R(3 * u), t: 1 },
+    { x: 0.470, y: hz + R(7 * u), r: R(7 * u), t: 1 },
+    { x: 0.815, y: at(0.30), r: R(6 * u), t: -1 },
+    { x: 0.630, y: at(0.66), r: R(11 * u), t: 3 },
+    { x: 0.360, y: at(0.80), r: R(9 * u), t: -2 },
   ];
-  for (const s of shards) crystal(g, R(w * s.x), s.y, R(s.r * u), accent);
+  for (const s of shards) crystal(g, R(w * s.x), s.y, s.r, accent, s.t);
+  // 近组脚边的三棱碎屑：碎星是「碎」的，不是几颗宝石飘着
+  for (const [fx, fy, fs] of [[0.596, 0.70, 4], [0.658, 0.79, 3], [0.330, 0.85, 3]]) {
+    const x = R(w * fx), y = at(fy);
+    silhouette(g, [{ x: x - fs, y: y + fs }, { x, y: y - fs }, { x: x + fs, y: y + fs }], C.shardStone, 0.9);
+    fill(g, x, y - fs, 1, 1, accent, 0.5);
+  }
 
   // 9) 光柱落地：王座前的地面光池（幕色只在光里）
   flatEllipse(g, throneX, at(0.9), R(w * 0.11), Math.max(4, R(7 * u)), accent, 0.09);
@@ -692,6 +965,21 @@ export function mid(g, L) {
   }
   cracks(g, { x: R(w * 0.115), y: at(0.84), len: 16, seed: 89, color: C.void, alpha: 0.55, branches: 1, drift: 4 });
   cracks(g, { x: R(w * 0.60), y: at(0.86), len: 14, seed: 91, color: C.void, alpha: 0.5, branches: 1, drift: 3 });
+
+  // 12) 暖色光池：冷光落在台阶上，暖光落在阶前地面——两片光各有归属
+  flatEllipse(g, throneX, at(0.94), R(46 * uw), Math.max(3, R(5 * u)), C.brass, 0.07);
+  flatEllipse(g, throneX + R(64 * uw), at(0.90), R(18 * uw), Math.max(2, R(3 * u)), C.brass, 0.05);
+
+  // 13) 地上被砸碎的星纹地砖：三块翻着砖背，砖面上的星纹还看得见
+  for (const [fx, fy, tw, th] of [[0.300, 0.925, 15, 4], [0.690, 0.965, 12, 3], [0.430, 0.995, 10, 3]]) {
+    const tx = R(w * fx), ty = at(fy);
+    fill(g, tx, ty, tw, th, C.starTileLit, 1);
+    fill(g, tx, ty, tw, 1, C.stoneLight, 0.5);
+    fill(g, tx, ty + th - 1, tw, 1, C.void, 0.6);
+    fill(g, tx + tw - 1, ty, 1, th, C.void, 0.5);
+    diamond(g, tx + R(tw / 2), ty + R(th / 2), Math.max(1, Math.min(2, R(th / 2))), C.runeDim, 0.75);
+    fill(g, tx + R(tw / 2), ty + R(th / 2), 1, 1, C.coldFlame, 0.4);
+  }
 }
 
 export function fore(g, L) {

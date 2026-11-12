@@ -83,12 +83,13 @@ describe('第 V 幕 衡律法庭', () => {
     const mid = run('mid', 480, 270);
     const beam = mid.ops.filter(o => o.t === 'r' && o.c === C.brass && o.h <= 4 && o.w >= 24 && o.y < 140);
     expect(beam.reduce((s, o) => s + o.w, 0)).toBeGreaterThanOrEqual(80);
-    const pans = mid.ops.filter(o => o.t === 'r' && o.c === C.brass && o.w === 20 && o.h === 2);
+    // 秤盘：盘口是 24–32 宽的 2px 亮铜条，一左一右且高低不同
+    const pans = mid.ops.filter(o => o.t === 'r' && o.c === C.brass && o.w >= 24 && o.w <= 32 && o.h === 2);
     expect(pans.length).toBeGreaterThanOrEqual(2);
     expect(new Set(pans.map(o => o.y)).size).toBe(2);
 
     // 判词碑：碑身 >=24 宽 / >=30 高，三块、三个不同基座高度
-    const tablets = mid.ops.filter(o => o.t === 'r' && o.c === C.stone && o.w >= 24 && o.h >= 30);
+    const tablets = mid.ops.filter(o => o.t === 'r' && o.c === C.stone && o.w >= 24 && o.h >= 30 && o.x < 200);
     expect(tablets.length).toBeGreaterThanOrEqual(3);
     expect(new Set(tablets.map(o => o.y + o.h)).size).toBeGreaterThanOrEqual(3);
     // 蜡印：红点必在碑上

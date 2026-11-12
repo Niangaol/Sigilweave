@@ -162,4 +162,93 @@ describe('第 VII 幕 破晓之座', () => {
     expect(treads.some(o => o.x + o.w > 480)).toBe(true);
     expect(ops.filter(o => o.t === 'r' && o.c === C.fog && o.w >= 300).length).toBeGreaterThanOrEqual(2);
   });
+
+  it('返工①：晨光带由暖转冷、光柱三层同轴带白芯与浮尘', () => {
+    const { ops, L } = run('back');
+    const hz = L.horizon;
+
+    // 贴着地平线最暖，往上依次转成骨白 → 冷青（破晓那一刻的颜色次序）
+    const bands = (col) => ops.filter(o => o.t === 'r' && o.c === col && o.w === 480 && o.y < hz && o.y + o.h > 4);
+    expect(bands(C.glassBlue).length, '冷调天幕带').toBeGreaterThanOrEqual(2);
+    expect(bands(ACCENT).length, '暖调天幕带').toBeGreaterThanOrEqual(3);
+    const warmLow = bands(ACCENT).filter(o => o.y + o.h >= hz - 3);
+    expect(warmLow.length, '最暖的一条贴着地平线').toBeGreaterThanOrEqual(1);
+    // 冷带全部压在暖带上方（顺序不许反）
+    expect(Math.max(...bands(C.glassBlue).map(o => o.y + o.h))).toBeLessThanOrEqual(Math.min(...bands(ACCENT).map(o => o.y)));
+
+    // 光柱：三层同轴，由宽到窄 alpha 递增
+    const beam = ops.filter(o => o.t === 'f' && o.c === ACCENT && o.pts.length === 4 && spanY(o)[0] <= 2 && spanY(o)[1] >= hz - 4);
+    expect(beam.length, '光柱层数').toBeGreaterThanOrEqual(3);
+    const byAlpha = beam.slice().sort((a, b) => a.a - b.a);
+    const widths = byAlpha.map(o => spanX(o)[1] - spanX(o)[0]);
+    expect(widths[0], '外层最宽').toBeGreaterThan(widths[widths.length - 1]);
+    expect(byAlpha[byAlpha.length - 1].a, '内层最亮').toBeGreaterThan(byAlpha[0].a);
+    // 三层共轴
+    for (const o of beam) expect(Math.abs((spanX(o)[0] + spanX(o)[1]) / 2 - 240)).toBeLessThanOrEqual(2);
+
+    // 近白芯：竖着的窄条，从顶尖贯到地面
+    const core = ops.filter(o => o.t === 'r' && o.c === C.white && o.w <= 2 && o.h >= 40 && o.y < 4);
+    expect(core.length, '光柱白芯').toBeGreaterThanOrEqual(1);
+    // 柱内浮尘：光柱里 6 点以上亮尘（不许飘到柱外）
+    const motes = ops.filter(o => o.t === 'r' && (o.c === ACCENT || o.c === C.white) && o.w <= 2 && o.h === 1 && Math.abs(o.x - 240) <= 40 && o.y > 6 && o.y < 84);
+    expect(motes.length, '柱内浮尘').toBeGreaterThanOrEqual(6);
+  });
+
+  it('返工②：北斗 4 大 3 小 + 冷晕 + 断续连线', () => {
+    const { ops } = run('back');
+    // 每颗星外面一圈冷青晕（背光星盘的冷晕，只有这一处用 glassBlue 曲线）
+    expect(ops.filter(o => o.t === 'p' && o.c === C.glassBlue).length, '星晕').toBeGreaterThanOrEqual(7);
+    // 连线是断续的小段，不是一条长线：全是 2 点短段，段数够多
+    const dashes = ops.filter(o => o.t === 'p' && o.c === ACCENT && o.pts.length === 2);
+    expect(dashes.length, '断续连线').toBeGreaterThanOrEqual(12);
+    for (const d of dashes) {
+      expect(Math.abs(d.pts[0].x - d.pts[1].x) + Math.abs(d.pts[0].y - d.pts[1].y), '每段都短').toBeLessThanOrEqual(5);
+    }
+    // 连线和星点都在天幕上半（不许拖到地平线上压住王座）
+    expect(dashes.every(d => Math.max(d.pts[0].y, d.pts[1].y) < 90)).toBe(true);
+  });
+
+  it('返工③：王座读得出椅子——扶手成对、背板星纹、断顶呈阶梯、座面受光有影', () => {
+    const { ops, L } = run('mid');
+    const hz = L.horizon;
+    // 扶手：座面上方一对横臂，左右各一
+    const arms = ops.filter(o => o.t === 'r' && o.c === C.void && o.a >= 0.85 && o.w >= 20 && o.y >= 120 && o.y <= 136);
+    expect(arms.length, '扶手').toBeGreaterThanOrEqual(2);
+    expect(arms.some(o => o.x + o.w / 2 < 240), '左扶手').toBe(true);
+    expect(arms.some(o => o.x + o.w / 2 > 240), '右扶手').toBe(true);
+    // 背板星纹：三颗骨白星心
+    const glyphs = ops.filter(o => o.t === 'r' && o.c === C.bone && o.w <= 2 && o.h <= 2 && o.a >= 0.6 && o.y > 120 && o.y < 150);
+    expect(glyphs.length, '背板星纹').toBeGreaterThanOrEqual(3);
+    // 断顶：三档以上的断面棱，且不是平顶（有高差）
+    const rims = ops.filter(o => o.t === 'r' && o.c === ACCENT && o.h === 1 && o.w >= 18 && o.y < hz);
+    const rimY = [...new Set(rims.map(o => o.y))];
+    expect(rimY.length, '断顶档数').toBeGreaterThanOrEqual(3);
+    expect(Math.min(...rimY)).toBeLessThanOrEqual(78);
+    expect(Math.max(...rimY) - Math.min(...rimY), '断口高差').toBeGreaterThanOrEqual(10);
+    // 座面前棱受光 + 座下压出的影子
+    expect(ops.some(o => o.t === 'r' && o.c === ACCENT && o.h === 1 && o.w >= 80 && o.y >= 144 && o.y <= 152), '座面前棱').toBe(true);
+    expect(ops.some(o => o.t === 'r' && o.c === C.void && o.a >= 0.7 && o.w >= 90 && o.y >= 158 && o.y <= 180), '座下阴影').toBe(true);
+    // 三级台座垫高：至少三档不同 y 的台座横板
+    const tiers = ops.filter(o => o.t === 'r' && (o.c === C.void || o.c === C.stoneDark) && o.w >= 88 && o.h <= 8 && o.y > 158);
+    expect(new Set(tiers.map(o => o.y + o.h)).size, '台座档数').toBeGreaterThanOrEqual(3);
+  });
+
+  it('返工④：断裂地面 + 倒伏幡，竖屏多出的地面另补影子与塌石板', () => {
+    const { ops, L } = run('mid');
+    const hz = L.horizon;
+    // 四块错位的大石板，缝里透光
+    const slabs = ops.filter(o => o.t === 'r' && o.c === C.void && o.a >= 0.9 && o.w >= 40 && o.y > hz + 18 && o.h >= 6);
+    expect(slabs.length, '断裂石板').toBeGreaterThanOrEqual(3);
+    expect(new Set(slabs.map(o => o.y)).size, '石板错位').toBeGreaterThanOrEqual(3);
+    // 两面倒伏的幡：布是 m3 的 mauve 多边形
+    expect(ops.filter(o => o.t === 'f' && o.c === C.mauve).length, '倒伏幡').toBeGreaterThanOrEqual(2);
+
+    // 竖屏：台座脚下到碑座之间那段地面必须补东西（否则是一条空带）
+    const T = run('mid', 480, 760);
+    const shadow = T.ops.filter(o => o.t === 'f' && o.c === C.void && spanY(o)[1] - spanY(o)[0] >= 90);
+    expect(shadow.length, '竖屏王座投影').toBeGreaterThanOrEqual(1);
+    expect(ops.filter(o => o.t === 'f' && o.c === C.void && spanY(o)[1] - spanY(o)[0] >= 90).length, '横屏没有这条空带').toBe(0);
+    const floorLit = T.ops.filter(o => o.t === 'p' && o.c === ACCENT && o.pts.length === 2 && Math.min(...o.pts.map(p => p.y)) > 520);
+    expect(floorLit.length, '竖屏塌石板吃光').toBeGreaterThanOrEqual(2);
+  });
 });
