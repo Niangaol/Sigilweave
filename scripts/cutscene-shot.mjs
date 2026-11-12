@@ -6,6 +6,7 @@
 // 需要本机允许启动浏览器；若 Playwright 起不来，可用有启动权限的机器复跑。
 import { chromium } from 'playwright';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { captureSignature, pairwise, THRESHOLDS } from './lib/pixel-signature.mjs';
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:4174';
 const OUT = process.env.OUT_DIR ?? 'docs/cutscene';
@@ -195,30 +196,47 @@ try {
   check('竖屏画布为高窗', metrics.h > metrics.w, JSON.stringify(metrics));
   await portrait.close();
 
-  // 10) 第三幕标题卡画廊页：主流程为了截死亡/胜利没有真正走到三幕，这里单独渲染同一套 act3 卡片
+  // 10) 七幕画廊 + 指纹：逐幕渲染 act 卡，量空白率(ink)与两两辨识度。
+  // 截图必须等 elapsed>520（act 的 cover 是 320ms，太早截到的是纯黑遮罩）。
   const gallery = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   gallery.on('pageerror', e => report.errors.push('gallery: ' + e.message));
-  await gallery.goto(BASE + '/?seed=cutscene-act3', { waitUntil: 'load' });
+  await gallery.goto(BASE + '/?seed=cutscene-gallery', { waitUntil: 'load' });
   await gallery.waitForFunction(() => (window.__SIGILWEAVE_STORY__?.elapsed ?? 0) > 250
     && window.__SIGILWEAVE_STORY__?.phase === 'playing', null, { timeout: 20000 });
   await gallery.keyboard.press('Enter');
   await gallery.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('TitleScene')
     && !window.__SIGILWEAVE__?.scene.isActive('CutsceneScene'), null, { timeout: 20000 });
-  await gallery.evaluate(() => {
-    const title = window.__SIGILWEAVE__.scene.getScene('TitleScene');
-    title.scene.launch('CutsceneScene', {
-      from: 'TitleScene', to: 'LoadoutScene',
-      payload: { __cine: true }, kind: 'act', act: 3,
-    });
-  });
-  await gallery.waitForFunction(() => window.__SIGILWEAVE_CUTSCENE__?.kind === 'act'
-    && window.__SIGILWEAVE_CUTSCENE__?.phase === 'hold', null, { timeout: 20000 });
-  const act3 = await gallery.evaluate(() => ({ ...window.__SIGILWEAVE_CUTSCENE__ }));
-  check('第三幕卡片属于第 3 幕', act3.act === 3, String(act3.act));
-  await gallery.screenshot({ path: OUT + '/15-act3-card.png' });
-  report.shots.push('15-act3-card');
-  await gallery.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('LoadoutScene')
-    && !window.__SIGILWEAVE__?.scene.isActive('CutsceneScene'), null, { timeout: 20000 });
+
+  const sigs = {};
+  for (let n = 1; n <= 7; n++) {
+    await gallery.evaluate((act) => {
+      const title = window.__SIGILWEAVE__.scene.getScene('TitleScene');
+      title.scene.launch('CutsceneScene', {
+        from: 'TitleScene', to: 'TitleScene',
+        payload: { __cine: true }, kind: 'act', act,
+      });
+    }, n);
+    await gallery.waitForFunction(a => window.__SIGILWEAVE_CUTSCENE__?.kind === 'act'
+      && window.__SIGILWEAVE_CUTSCENE__?.act === a
+      && window.__SIGILWEAVE_CUTSCENE__?.phase === 'hold'
+      && (window.__SIGILWEAVE_CUTSCENE__?.elapsed ?? 0) > 520, n, { timeout: 20000 });
+    await gallery.screenshot({ path: OUT + '/16-act' + n + '-scene.png' });
+    report.shots.push('16-act' + n + '-scene');
+    sigs[n] = await captureSignature(gallery);
+    check('第 ' + n + ' 幕 hold 画面有内容（ink≥' + THRESHOLDS.ink + '）', sigs[n].ink >= THRESHOLDS.ink, sigs[n].ink.toFixed(2));
+    await gallery.keyboard.press('Space');
+    await gallery.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('TitleScene')
+      && !window.__SIGILWEAVE__?.scene.isActive('CutsceneScene'), null, { timeout: 20000 });
+    await gallery.waitForTimeout(250);
+  }
+  const pairs = pairwise(sigs);
+  const tooClose = pairs.filter(p => p.d < THRESHOLDS.actDistance);
+  check('七幕指纹两两距离 ≥' + THRESHOLDS.actDistance, tooClose.length === 0, JSON.stringify(tooClose));
+  report.signatures = {
+    ink: Object.fromEntries(Object.entries(sigs).map(([k, v]) => [k, +v.ink.toFixed(3)])),
+    pairs,
+  };
+  await writeFile(OUT + '/signatures.json', JSON.stringify(report.signatures, null, 2));
   await gallery.close();
 
   report.ok = report.errors.length === 0;

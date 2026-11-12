@@ -37,15 +37,23 @@ import CutsceneScene from '../src/scenes/CutsceneScene.js';
 function makeGraphics() {
   const g = {
     depth: 0,
-    clear() { return g; },
-    fillStyle() { return g; },
-    fillRect() { return g; },
-    lineStyle() { return g; },
-    lineBetween() { return g; },
-    strokePoints() { return g; },
-    fillPoints() { return g; },
+    alpha: 1,
+    x: 0,
+    y: 0,
+    clears: 0,
+    ops: 0,
+    clear() { g.clears++; g.ops++; return g; },
+    fillStyle() { g.ops++; return g; },
+    fillRect() { g.ops++; return g; },
+    lineStyle() { g.ops++; return g; },
+    lineBetween() { g.ops++; return g; },
+    strokePoints() { g.ops++; return g; },
+    fillPoints() { g.ops++; return g; },
     setDepth(d) { g.depth = d; return g; },
     setBlendMode() { return g; },
+    setAlpha(a) { g.alpha = a; return g; },
+    setY(y) { g.y = y; return g; },
+    setPosition(x, y) { g.x = x; g.y = y; return g; },
   };
   return g;
 }
@@ -285,6 +293,26 @@ describe('CutsceneScene 换场状态机', () => {
       if (kind === 'boot') expect(overlay.cardData, kind).toBeNull();
       else expect(overlay.cardData?.title ?? '', kind).toBeTruthy();
     }
+  });
+
+  it('静态布景三层只在 create 时各画一次，帧推进不再重画', () => {
+    const { overlay } = makeHarness();
+    expect(overlay.dioramaBands).toHaveLength(3);
+    const ops = overlay.dioramaBands.map(g => g.ops);
+    expect(ops.every(n => n > 0)).toBe(true);
+    advance(overlay, 400);
+    expect(overlay.dioramaBands.map(g => g.ops)).toEqual(ops);
+  });
+
+  it('静态层随盖场显影，近景视差恒为整数像素', () => {
+    const { overlay } = makeHarness();
+    expect(overlay.dioramaBands.every(g => g.alpha === 0)).toBe(true);
+    advance(overlay, 300);
+    for (const b of overlay.dioramaBands) expect(b.alpha).toBeGreaterThan(0);
+    const fore = overlay.dioramaBands[2];
+    expect(Number.isInteger(fore.y)).toBe(true);
+    expect(fore.y).toBeGreaterThanOrEqual(0);
+    expect(fore.y).toBeLessThanOrEqual(2);
   });
 
   it('竖屏与横屏都按画布实际高度计算标题卡中心', () => {

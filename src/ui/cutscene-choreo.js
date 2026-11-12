@@ -4,7 +4,7 @@
 // 符环 runes 在编舞里关闭（8×drawGlyph 约 250 指令），把预算让给巨号/闪洪/碎裂等冲击层。
 import { C, pxRect, pxDiamond } from './Palette.js';
 import {
-  clamp01, easeOutCubic, drawStage, drawSeal, drawSparkBurst, drawDust,
+  clamp01, easeOutCubic, drawSeal, drawSparkBurst, drawDust,
   drawShatter, drawFlood, drawWhipStreaks, drawIris, drawGlitchSlices, drawNumeral, strokeRing,
 } from './cinematic-art.js';
 import { sfx } from '../audio/Sfx.js';
@@ -25,8 +25,8 @@ export function createChoreo(kind, act) {
     const stageA = clamp01((veil - 0.42) / 0.58);
     const holdT = Math.max(0, elapsed - tl.coverMs);
 
-    // ---- 舞台基线 + 舞台层大胆元素 ----
-    drawStage(scene.stageG, { w: W, h: H, kind, act, veil, t: elapsed, accent });
+    // ---- 舞台层：布景已由 CutsceneScene 的静态三层预绘制，这里只画「当类过场」的动态事件 ----
+    scene.stageG.clear();
     if (kind === 'act') {
       drawNumeral(scene.stageG, { cx, cy, act, accent, alpha: 0.14 * stageA });
     } else if (kind === 'death') {
