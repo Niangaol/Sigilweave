@@ -17,6 +17,18 @@ function mix(a, b, t) {
   return (R(ar + (br - ar) * q) << 16) | (R(ag + (bg - ag) * q) << 8) | R(ab + (bb - ab) * q);
 }
 
+// 吊链的「暗示」画法：三节实画 + 两节留空。
+// 竖屏长链逐节画会烧掉几十条指令，且实机分辨率下看不出少了两节。
+function chainHint(g, x, y, h, color, alpha, linkH = 5) {
+  const group = 3, gap = 2;
+  const pitch = (group + gap) * linkH;
+  for (let gy = 0; gy + linkH <= h; gy += pitch) {
+    for (let k = 0; k < group && gy + k * linkH + linkH <= h; k++) {
+      pxRect(g, R(x), R(y + gy + k * linkH), 1, Math.max(1, linkH - 1), color, alpha * (1 - gy / (h * 1.6)));
+    }
+  }
+}
+
 // 三层视差位移：远景几乎不动，近景滑得最多（保证长镜头横移的方向感）。
 export const JOURNEY_PARALLAX = { back: 12, mid: 30, fore: 52 };
 export function journeyPan(p) {
@@ -856,15 +868,16 @@ function forgeBack(g, L) {
   // 砖墙（错缝 + 每四行压暗）
   courses(g, { x: -B, y: wallTop, w: w + B * 2, h: wallBot - wallTop, rowH, color: 0x3a231a, alpha: 1, light: 0x6b4a38, lightAlpha: 0.26 });
   for (let r = 0; r < rows; r += 4) pxRect(g, -B, wallTop + r * rowH, w + B * 2, rowH, C.void, 0.12);
+  // 砖面只隔一行点一次、每块宽 7 格，受光面用 2px 高（1px 在竖屏是噪点，不是砖）
   const rng2 = makeRng(77);
-  for (let r = 0; r < rows; r++) {
-    if (r % 3 === 2) continue;
-    for (let c2 = -2; c2 < 9; c2++) {
-      if (rng2() > 0.55) continue;
-      const bx = -B + c2 * R((w + B * 2) / 9) + (r % 2) * 24;
+  const cellW = R((w + B * 2) / 7);
+  for (let r = 0; r < rows; r += 2) {
+    for (let c2 = -1; c2 < 8; c2++) {
+      if (rng2() > 0.5) continue;
+      const bx = -B + c2 * cellW + (r % 4 === 0 ? 0 : R(cellW / 2));
       const by = wallTop + r * rowH;
-      pxRect(g, bx + 1, by + 1, R((w + B * 2) / 9) - 2, rowH - 2, C.void, 0.13);
-      if (rng2() > 0.8) pxRect(g, bx + 2, by + 2, R((w + B * 2) / 9) - 4, 1, 0x6b4a38, 0.3);
+      pxRect(g, bx + 1, by + 1, cellW - 2, rowH - 2, C.void, 0.14);
+      if (rng2() > 0.78) pxRect(g, bx + 2, by + 2, cellW - 4, 2, 0x6b4a38, 0.28);
     }
   }
   // 木构架：两根立柱把炉膛夹在中间
@@ -913,13 +926,16 @@ function forgeBack(g, L) {
   pxRect(g, h1x - R(9 * u), railY + R(37 * u), R(19 * u), 1, C.void, 0.5);
   // 铁钳（两根长杆收拢）
   const t1x = twX + R(twW * 0.32);
-  pxLine(g, t1x - R(4 * u), railY, t1x + R(2 * u), railY + R(38 * u), 0x8a7a68, 0.95, 2);
-  pxLine(g, t1x + R(4 * u), railY, t1x + R(2 * u), railY + R(38 * u), 0x8a7a68, 0.95, 2);
+  for (const off of [0, 1]) {
+    thinLine(g, t1x - R(4 * u) + off, railY, t1x + R(2 * u) + off, railY + R(38 * u), 0x8a7a68, off ? 0.7 : 0.95);
+    thinLine(g, t1x + R(4 * u) + off, railY, t1x + R(2 * u) + off, railY + R(38 * u), 0x8a7a68, off ? 0.7 : 0.95);
+  }
   pxRect(g, t1x + R(1 * u), railY + R(38 * u), R(5 * u), 2, 0x3a3230, 1);
   // 手锯
   const s1x = twX + R(twW * 0.50);
   pxRect(g, s1x, railY + R(6 * u), R(30 * u), 2, 0x8a7a68, 0.85);
-  pxLine(g, s1x, railY + R(6 * u), s1x + R(26 * u), railY + R(20 * u), 0x5a4426, 0.9, 2);
+  thinLine(g, s1x, railY + R(6 * u), s1x + R(26 * u), railY + R(20 * u), 0x5a4426, 0.9);
+  thinLine(g, s1x, railY + R(6 * u) + 1, s1x + R(26 * u), railY + R(20 * u) + 1, 0x3a2a1e, 0.7);
   pxRect(g, s1x + R(26 * u), railY + R(18 * u), R(8 * u), R(4 * u), 0x3a2a1e, 1);
   // 三只马蹄铁
   for (let k = 0; k < 3; k++) {
@@ -928,29 +944,104 @@ function forgeBack(g, L) {
     pxRect(g, sx + R(8 * u), sy, 2, R(10 * u), 0x8a7a68, 0.9);
     pxRect(g, sx, sy + R(10 * u), R(10 * u), 2, 0x8a7a68, 0.9);
   }
-  // 靠墙的三根铁条
-  for (let k = 0; k < 3; k++) pxLine(g, R(w * (0.75 + k * 0.03)), R(h * 0.46), R(w * (0.79 + k * 0.03)), R(h * 0.74), 0x4a4442, 0.85, 2);
+  // 靠墙的三根铁条：竖屏下这条斜线有 200+ 像素，逐像素 Bresenham 单它就要 600+ 条指令，
+  // 改走 1px 矢量线（再偏移 1px 补出 2px 厚度）
+  for (let k = 0; k < 3; k++) {
+    const bx0 = R(w * (0.66 + k * 0.03)), by0 = R(h * 0.46);
+    const bx1 = R(w * (0.70 + k * 0.03)), by1 = R(h * 0.74);
+    thinLine(g, bx0, by0, bx1, by1, 0x4a4442, 0.85);
+    thinLine(g, bx0 + 1, by0, bx1 + 1, by1, 0x3a3230, 0.7);
+  }
   // 风箱（左侧）：木箱 + 皮囊楔 + 铁箍 + 喷嘴 + 拉杆
   const bx = R(w * 0.045), bw = R(w * 0.10), by = R(h * 0.45), bh = R(h * 0.13);
   pxRect(g, bx, by, bw, bh, 0x3a2f22, 1);
   pxRect(g, bx, by, bw, 1, 0x6a5236, 0.9);
   pxRect(g, bx, by + bh - 1, bw, 1, 0x1a1513, 0.9);
   silhouette(g, [{ x: bx + bw, y: by + R(2 * u) }, { x: bx + bw + R(22 * u), y: by - R(6 * u) }, { x: bx + bw + R(26 * u), y: by + R(10 * u) }, { x: bx + bw, y: by + bh - R(2 * u) }], 0x4a3a2a, 1);
-  for (let k = 0; k < 3; k++) pxLine(g, bx + bw + R(2 * u), by + R(2 * u) + k * R(3 * u), bx + bw + R(22 * u), by - R(5 * u) + k * R(6 * u), 0x2a2422, 0.5, 1);
+  for (let k = 0; k < 3; k++) thinLine(g, bx + bw + R(2 * u), by + R(2 * u) + k * R(3 * u), bx + bw + R(22 * u), by - R(5 * u) + k * R(6 * u), 0x2a2422, 0.5);
   pxRect(g, bx + R(bw * 0.30), by, 2, bh, 0x2a2422, 0.95);
   pxRect(g, bx + R(bw * 0.68), by, 2, bh, 0x2a2422, 0.95);
   pxRect(g, bx + bw + R(22 * u), by + R(2 * u), R(14 * u), R(3 * u), 0x2a2422, 1);
-  pxLine(g, bx + R(bw * 0.5), by, bx - R(6 * u), by - R(30 * u), 0x5a4426, 1, 2);
+  thinLine(g, bx + R(bw * 0.5), by, bx - R(6 * u), by - R(30 * u), 0x5a4426, 1);
+  thinLine(g, bx + R(bw * 0.5) + 1, by, bx - R(6 * u) + 1, by - R(30 * u), 0x3a2a1c, 0.8);
   pxRect(g, bx - R(10 * u), by - R(34 * u), R(8 * u), R(4 * u), 0x2a2422, 1);
   // 吊灯：锥形灯罩 + 铁环 + 冷光
   const lx = R(w * 0.50), ly = R(h * 0.12);
-  chain(g, { x: lx, y: 0, h: ly - R(6 * u), color: 0x4a4442, alpha: 0.85, linkH: 5 });
+  chainHint(g, lx, 0, ly - R(6 * u), 0x4a4442, 0.85, 5);
   silhouette(g, [{ x: lx - R(9 * u), y: ly }, { x: lx + R(9 * u), y: ly }, { x: lx + R(5 * u), y: ly - R(7 * u) }, { x: lx - R(5 * u), y: ly - R(7 * u) }], 0x3a3230, 1);
   pxRect(g, lx - R(8 * u), ly, R(16 * u), 2, 0x2a2422, 1);
   pxRect(g, lx - R(5 * u), ly + 2, R(10 * u), 2, C.arcane, 0.6);
   pxRect(g, lx - R(3 * u), ly + 4, R(6 * u), 1, C.arcaneLight, 0.6);
-  // 烟熏痕
-  for (let k = 0; k < 3; k++) pxRect(g, fx - R(14 * u) + k * R(12 * u), hoodTop - R(10 * u) + (k % 2) * 3, R(6 * u), R(9 * u), C.void, 0.22);
+  // 烟道积灰：炉罩顶上收窄的烟熏羽状痕 + 三条挂下来的积灰 + 罩沿的灰垢
+  silhouette(g, [
+    { x: fx - R(fw * 0.34), y: hoodTop + 2 }, { x: fx + R(fw * 0.34), y: hoodTop + 2 },
+    { x: fx + R(fw * 0.62), y: wallTop + R(6 * u) }, { x: fx - R(fw * 0.54), y: wallTop + R(6 * u) },
+  ], C.void, 0.24);
+  for (let k = 0; k < 3; k++) {
+    const sx2 = fx - R(fw * 0.20) + k * R(fw * 0.20);
+    pxRect(g, sx2, hoodTop - R(5 * u) - k * 3, 2, R(5 * u) + k * 2, C.void, 0.34);
+    pxRect(g, sx2 - 1, hoodTop + R(3 * u) + k * 4, R(4 * u), 1, 0x4a3a30, 0.4);
+  }
+  // 半成品武器架（锻炉独有）：两根铁钩吊横杆，挂三把剑与一柄斧，刃口都还没开
+  const rkX = R(w * 0.042), rkW = R(w * 0.17), rkY = R(h * 0.235);
+  pxRect(g, rkX, rkY, rkW, 2, C.stoneDark, 1);
+  pxRect(g, rkX, rkY, rkW, 1, C.stoneLight, 0.45);
+  pxRect(g, rkX, rkY + 2, rkW, 1, C.void, 0.6);
+  for (const hx2 of [rkX + R(rkW * 0.12), rkX + R(rkW * 0.88)]) {
+    pxRect(g, hx2 - 1, rkY - R(8 * u), 3, R(8 * u), 0x4a4442, 0.95);
+    pxRect(g, hx2 - R(4 * u), rkY - R(9 * u), R(9 * u), 2, 0x2a2422, 1);
+  }
+  // 剑：2px 实体刃身（1px 会读成铁丝）、3px 护手横条、2px 深木柄、剑尖 1px 收尖
+  const rackBlade = (bxp, blen, bwid) => {
+    const bw = Math.max(2, bwid);
+    const hx3 = bxp + Math.round(bw / 2) - 1;
+    const gY = rkY + 3 + R(6 * u);
+    const bladeH = Math.max(4, blen - R(4 * u));
+    pxRect(g, hx3, rkY + 3, 2, R(6 * u), 0x4a3826, 1);                 // 2px 深木柄
+    pxRect(g, hx3, rkY + 3, 1, R(6 * u), 0x6a5236, 0.85);
+    pxRect(g, bxp - R(5 * u), gY, bw + R(10 * u), 3, 0x7a6a52, 1);     // 3px 护手
+    pxRect(g, bxp - R(5 * u), gY, bw + R(10 * u), 1, 0xb0a088, 0.65);
+    pxRect(g, bxp, gY + 3, bw, bladeH, 0x9a8a76, 1);                   // 实体刃身
+    pxRect(g, bxp, gY + 3, 1, bladeH, 0xd8ccb4, 0.85);                 // 刃口受光
+    pxRect(g, bxp + bw - 1, gY + 3, 1, bladeH, 0x6a6058, 1);           // 背光侧
+    pxRect(g, bxp, gY + 3 + bladeH, 1, R(3 * u), 0x9a8a76, 1);         // 剑尖单像素收尖
+  };
+  rackBlade(rkX + R(rkW * 0.16), R(30 * u), 3);
+  rackBlade(rkX + R(rkW * 0.39), R(23 * u), 3);
+  rackBlade(rkX + R(rkW * 0.58), R(35 * u), 4);
+  // 斧：2px 长柄 + 实体三角斧头（fillPoints）+ 绑绳 + 柄尾铁箍
+  const axeX = rkX + R(rkW * 0.80);
+  const ahY = rkY + R(10 * u), ahH = R(16 * u);
+  pxRect(g, axeX, rkY + 3, 2, R(34 * u), 0x4a3826, 1);
+  pxRect(g, axeX, rkY + 3, 1, R(34 * u), 0x6a5236, 0.85);
+  silhouette(g, [
+    { x: axeX + 2, y: ahY + R(4 * u) },
+    { x: axeX + R(19 * u), y: ahY + R(2 * u) },
+    { x: axeX + R(19 * u), y: ahY + ahH - R(1 * u) },
+    { x: axeX + 2, y: ahY + ahH - R(4 * u) },
+  ], 0x8a7a68, 1);
+  pxRect(g, axeX + R(17 * u), ahY + R(2 * u), 2, ahH - R(3 * u), 0xd8ccb4, 0.7);  // 竖直刃口
+  pxRect(g, axeX + 2, ahY + R(5 * u), R(5 * u), R(3 * u), 0x2a2422, 1);            // 柄孔
+  pxRect(g, axeX + R(7 * u), ahY + R(2 * u), R(10 * u), 1, 0x6a6058, 0.5);         // 背脊
+  pxRect(g, axeX - 1, ahY + R(2 * u), 4, 2, 0x2a2422, 1);
+  pxRect(g, axeX - 1, rkY + R(33 * u), 4, 2, 0x2a2422, 1);
+  // 淬火水槽（锻炉独有）：靠墙的整条石槽，槽沿受光、水面发青，两根剑胚斜插着淬
+  const trX = R(w * 0.785), trW = R(w * 0.205), trY = R(h * 0.705), trH = R(12 * u);
+  pxRect(g, trX - R(2 * u), trY + trH, trW + R(4 * u), R(3 * u), C.void, 0.4);
+  pxRect(g, trX, trY, trW, trH, 0x2a1d14, 1);
+  pxRect(g, trX, trY, trW, 2, 0x7a5e40, 1);
+  pxRect(g, trX, trY + 2, trW, 1, 0x4a3826, 1);
+  for (let k = 0; k < 4; k++) pxRect(g, trX + R(trW * (0.12 + k * 0.25)), trY + 3, 1, trH - 3, 0x1a120c, 0.85);
+  pxRect(g, trX + 2, trY + 1, trW - 4, 4, 0x1e3833, 1);
+  pxRect(g, trX + 2, trY + 1, trW - 4, 1, C.teal, 0.55);
+  pxRect(g, trX + R(trW * 0.3), trY + 2, R(trW * 0.28), 1, C.swampGlint, 0.35);
+  pxRect(g, trX, trY + trH, trW, 1, 0x0f0a08, 0.8);
+  for (let k = 0; k < 2; k++) {
+    const qx = trX + R(trW * (0.30 + k * 0.34));
+    thinLine(g, qx, trY + 2, qx + R(10 * u), trY - R(17 * u), 0x8a7a68, 0.85);
+    thinLine(g, qx + R(10 * u), trY - R(17 * u), qx + R(13 * u), trY - R(21 * u), 0xa89880, 0.9);
+    pxRect(g, qx + R(9 * u), trY - R(19 * u), R(5 * u), 2, 0x5a4426, 1);
+  }
 }
 
 function forgeMid(g, L) {
@@ -995,7 +1086,7 @@ function forgeMid(g, L) {
   pxLine(g, ax - R(20 * u), ay - R(20 * u), ax - R(32 * u), ay - R(28 * u), 0x8a7a68, 0.9, 2);
   // 吊链 + 铁钩 + 熔埚（悬在砧上方）
   const chx = R(w * 0.665);
-  chain(g, { x: chx, y: 0, h: R(h * 0.40), color: 0x4a4442, alpha: 0.9, linkH: 5 });
+  chainHint(g, chx, 0, R(h * 0.40), 0x4a4442, 0.9, 5);
   const cy = R(h * 0.40);
   pxRect(g, chx - 1, cy, 4, R(6 * u), 0x4a4442, 1);
   silhouette(g, [{ x: chx - R(11 * u), y: cy + R(6 * u) }, { x: chx + R(13 * u), y: cy + R(6 * u) }, { x: chx + R(9 * u), y: cy + R(17 * u) }, { x: chx - R(7 * u), y: cy + R(17 * u) }], 0x241f1d, 1);
@@ -1436,24 +1527,36 @@ function dynForge(g, ctx) {
   const L = journeyLayout('forge', w, h);
   const P = journeyPan(p);
   const fx = L.forgeX - P.back, fy = L.forgeY, fw = L.forgeW, fh = L.forgeH;
-  // 一、炉火：三簇并排的阶梯火舌 + 底部窄亮核（硬边，不用渐变）
+  // 一、炉火：四条高度不同的火舌，逐行左右各收 1px（内白→橙→暗橙），舌间留 1–2px 暗缝
   const ramp = clamp01(p / 0.40);
-  const flick = Math.round(Math.sin(t * 0.012) * 2);
-  const tongues = [[-0.26, 0.58, 0x6b2a14, 1.0], [-0.05, 0.90, 0xb04a1c, 0.95], [0.17, 0.70, 0xff8a4d, 0.9]];
+  const flick = Math.sin(t * 0.012) * 2;
+  const tongues = [[-0.30, 0.34, 0.16], [-0.10, 0.54, 0.20], [0.10, 0.42, 0.16], [0.28, 0.28, 0.12]];
   for (let i = 0; i < tongues.length; i++) {
-    const off = tongues[i][0], hf = tongues[i][1], col = tongues[i][2], a = tongues[i][3];
-    const ww = R(fw * 0.32);
-    const hh = R(fh * hf * (0.42 + 0.58 * ramp)) + (i === 1 ? flick : 0);
+    const off = tongues[i][0], hf = tongues[i][1], wf = tongues[i][2];
+    const ww = Math.max(2, R(fw * wf));
+    const wob = i === 1 ? flick : i === 2 ? -flick : 0;
+    const hh = Math.max(4, R(fh * hf * (0.45 + 0.55 * ramp)) + R(wob));
     const bx = R(fx + off * fw - ww / 2);
-    pxRect(g, bx, fy - hh, ww, hh, col, a);
-    pxRect(g, bx + R(ww * 0.26), fy - hh - R(hh * 0.14), R(ww * 0.48), R(hh * 0.14), col, a);
-    pxRect(g, bx + R(ww * 0.40), fy - hh - R(hh * 0.22), R(ww * 0.20), R(hh * 0.08), col, a * 0.9);
+    // 横屏逐行收 1px；竖屏火舌更高，按 2px 一行收 1px（否则单帧预算超 700）
+    const step = L.tall ? 2 : 1;
+    for (let y = 0; y < hh; y += step) {
+      const frac = 1 - y / hh;                                        // 0 = 火床, 1 = 焰尖
+      const shrink = Math.round(frac * frac * ww * 0.9);
+      const rw2 = Math.max(1, ww - shrink * 2);
+      const rx2 = bx + Math.round((ww - rw2) / 2) + (y % 3 === 2 ? 1 : 0);
+      const col = frac < 0.14 ? 0xffe8b8 : frac < 0.55 ? 0xff8a4d : frac < 0.82 ? 0xd8622a : 0x8e3414;
+      pxRect(g, rx2, fy - hh + y, rw2, Math.min(step, hh - y), col, 0.95);
+    }
+    pxRect(g, bx + Math.round(ww / 2), fy - hh - R(2 * L.u), 1, R(2 * L.u), 0xffe0a0, 0.8); // 焰尖单独 1px
+    if (i === 1) {                                                   // 最高那条火舌的火心（1px 细芯）
+      const ch2 = Math.round(hh * 0.42);
+      pxRect(g, bx + Math.round(ww / 2), fy - ch2, 1, ch2, 0xffe8b8, 0.95);
+    }
   }
-  const coreH = R(fh * 0.30 * (0.5 + 0.5 * ramp));
-  pxRect(g, fx - R(fw * 0.11), fy - coreH, R(fw * 0.22), coreH, 0xffd98a, 0.92);
-  pxRect(g, fx - R(fw * 0.05), fy - coreH - R(coreH * 0.22), R(fw * 0.10), R(coreH * 0.22), 0xffd98a, 0.85);
-  // 炉膛底的余烬带
-  pxRect(g, fx - R(fw * 0.30), fy - R(4 * L.u), R(fw * 0.60), R(4 * L.u), C.arcane, 0.5 * (0.4 + 0.6 * ramp));
+  // 火床：横卧的余烬带，比炉膛口窄 5u，两端压暗
+  const bedIn = R(5 * L.u);
+  pxRect(g, fx - R(fw * 0.30) + bedIn, fy - R(4 * L.u), R(fw * 0.60) - bedIn * 2, R(4 * L.u), 0xb04a1c, 0.9);
+  pxRect(g, fx - R(fw * 0.30) + bedIn + R(3 * L.u), fy - R(3 * L.u), R(fw * 0.60) - bedIn * 2 - R(6 * L.u), R(2 * L.u), C.arcaneLight, 0.7);
   // 二、铁锤砸落一次（震屏 1px）
   const strike = clamp01((p - 0.28) / 0.24);
   const hitting = p > 0.50 && p < 0.62;
@@ -1478,11 +1581,21 @@ function dynForge(g, ctx) {
       if (sp > 0.7 && i < 5) pxRect(g, ex, L.walkY - 2 + (i % 2), 2, 1, 0x6b2a14, 0.6);
     }
   }
-  // 四、淬火槽蒸汽
-  const steam = clamp01((p - 0.68) / 0.30);
+  // 四、淬火水槽的蒸汽：三缕竖向 1px 抖动，每缕五段、相位与高度各不相同
+  const steam = clamp01((p - 0.55) / 0.36);
   if (steam > 0) {
+    const trX = R(w * 0.785) - P.back, trW = R(w * 0.205), trY = R(h * 0.705);
     for (let i = 0; i < 3; i++) {
-      pxRect(g, L.tankX - P.mid - R(5 * L.u) + i * 3, R(L.tankY - 4 - steam * (10 + i * 6)), R(10 - i * 2), 2, C.fog, 0.18 * steam);
+      const baseX = trX + R(trW * (0.24 + i * 0.26));
+      const amp = 2 + i;
+      let sx = baseX, sy = trY - R(2 * L.u);
+      for (let s = 1; s <= 5; s++) {
+        const frac = s / 5;
+        const nx = baseX + R(Math.sin(t * 0.004 + i * 2.1 + s * 0.9) * amp * frac);
+        const ny = trY - R(2 * L.u) - R(frac * steam * (30 + i * 8) * L.u);
+        thinLine(g, sx, sy, nx, ny, C.fog, 0.22 * steam * (1 - frac * 0.55));
+        sx = nx; sy = ny;
+      }
     }
   }
   // 五、拱口煤烟

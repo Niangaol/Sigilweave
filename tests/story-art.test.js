@@ -280,3 +280,213 @@ describe('三处返工的构图要点', () => {
     }
   });
 });
+
+// ── task-4：锻炉预算 / release 光轨 / quiet 静物 / credits 刻名 ─────────────
+const warm = (r, x, y) => {
+  const o = (y * 480 + x) * 4;
+  const R0 = r.buffer[o], G0 = r.buffer[o + 1], B0 = r.buffer[o + 2];
+  return R0 > 100 && R0 > B0 + 40 && G0 > B0 + 20;
+};
+
+describe('锻炉竖屏预算与新增物件', () => {
+  it('forge 竖屏 back 留出余量（≤1150，为武器架/水槽/积灰腾地方）', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.journeyLayout('forge', 480, h);
+      const g = makeCounting();
+      storyArt.JOURNEY_STATIC.forge.back(g, L);
+      expect(g.count, 'h=' + h).toBeLessThanOrEqual(1150);
+      expect(g.count).toBeGreaterThan(200);
+    }
+  });
+
+  it('forge 左墙有武器架（钢色刃面）、右墙有水槽（青色水面）', () => {
+    const W = 480;
+    for (const h of [270, 760]) {
+      const L = storyArt.journeyLayout('forge', W, h);
+      const r = createRaster(W, h, 0x000000);
+      storyArt.JOURNEY_STATIC.forge.back(r.g, L);
+      let steel = 0;
+      for (let y = Math.round(h * 0.23); y < Math.round(h * 0.42); y++) {
+        for (let x = Math.round(W * 0.03); x < Math.round(W * 0.22); x++) {
+          const o = (y * W + x) * 4;
+          if (r.buffer[o] + r.buffer[o + 1] + r.buffer[o + 2] > 260) steel++;
+        }
+      }
+      expect(steel, '武器架 h=' + h).toBeGreaterThan(30);
+      let water = 0;
+      for (let y = Math.round(h * 0.68); y < Math.round(h * 0.77); y++) {
+        for (let x = Math.round(W * 0.78); x < Math.round(W * 0.99); x++) {
+          const o = (y * W + x) * 4;
+          if (r.buffer[o + 1] > 50 && r.buffer[o + 1] > r.buffer[o] + 8) water++;
+        }
+      }
+      expect(water, '水槽 h=' + h).toBeGreaterThan(10);
+    }
+  });
+});
+
+describe('结局三镜的物件与动作', () => {
+  const W = 480;
+  it('release：七印升空（上半屏有黄铜光），中位落地后裂出碎印', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.storyLayout(W, h);
+      const r1 = createRaster(W, h, 0x000000);
+      storyArt.ENDING_STAGES.release(r1.g, CTX(0.5, h));
+      let air = 0;
+      for (let y = 0; y < Math.round(h * 0.45); y++) for (let x = 0; x < W; x++) if (warm(r1, x, y)) air++;
+      expect(air, '升空 h=' + h).toBeGreaterThan(40);
+      const r2 = createRaster(W, h, 0x000000);
+      storyArt.ENDING_STAGES.release(r2.g, CTX(1, h));
+      let shards = 0;
+      for (let y = L.baseY - Math.round(8 * L.u); y < Math.min(h, L.baseY + Math.round(14 * L.u)); y++) {
+        for (let x = L.cx - Math.round(30 * L.u); x < L.cx + Math.round(30 * L.u); x++) if (warm(r2, x, y)) shards++;
+      }
+      expect(shards, '落地碎印 h=' + h).toBeGreaterThan(8);
+    }
+  });
+
+  it('quiet：断剑插在右侧地面、残烛立在 ground 线上', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.storyLayout(W, h);
+      const r = createRaster(W, h, 0x000000);
+      storyArt.ENDING_STATIC.quiet.mid(r.g, L);
+      const lum = (x, y) => {
+        const o = (y * W + x) * 4;
+        return r.buffer[o] + r.buffer[o + 1] + r.buffer[o + 2];
+      };
+      let blade = 0;
+      for (let y = L.ground - Math.round(30 * L.u); y < L.ground; y++) {
+        for (let x = Math.round(W * 0.74); x < Math.round(W * 0.81); x++) if (lum(x, y) > 240) blade++;
+      }
+      expect(blade, '断剑 h=' + h).toBeGreaterThan(25);
+      let waxLit = 0;
+      for (let y = L.ground - Math.round(12 * L.u); y < L.ground; y++) {
+        for (let x = Math.round(W * 0.30); x < Math.round(W * 0.66); x++) if (lum(x, y) > 330) waxLit++;
+      }
+      expect(waxLit, '残烛 h=' + h).toBeGreaterThan(10);
+    }
+  });
+
+  it('quiet：幡布随 t 摆动（布身重心随相位移动）', () => {
+    const centroid = (t) => {
+      const r = createRaster(W, 270, 0x000000);
+      storyArt.ENDING_STAGES.quiet(r.g, { w: W, h: 270, t, p: 0.6, accent: 0xc9a227, stars: [] });
+      let sum = 0, n = 0;
+      for (let y = Math.round(270 * 0.29); y < Math.round(270 * 0.52); y++) {
+        for (let x = Math.round(W * 0.69); x < Math.round(W * 0.82); x++) {
+          const o = (y * W + x) * 4;
+          const R0 = r.buffer[o], G0 = r.buffer[o + 1], B0 = r.buffer[o + 2];
+          if (R0 > 60 && R0 > G0 + 25 && R0 > B0 + 25) { sum += x; n++; }
+        }
+      }
+      return n ? sum / n : 0;
+    };
+    expect(centroid(0)).not.toBeCloseTo(centroid(700), 1);
+  });
+
+  it('creditsRows：行宽错落、行距 +1px、末两行断成多段（不再是一根根金条）', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.storyLayout(W, h);
+      const rows = storyArt.creditsRows(L);
+      expect(rows, 'h=' + h).toHaveLength(11);
+      const ws = rows.map((r) => r.w);
+      expect(Math.max(...ws) - Math.min(...ws), '行宽差 h=' + h).toBeGreaterThanOrEqual(8);
+      for (let i = 1; i < rows.length; i++) {
+        expect(Math.abs(rows[i].y - rows[i - 1].y), '行距 h=' + h).toBeGreaterThanOrEqual(5);
+      }
+      expect(storyArt.creditsSegments(rows[0], L), '普通行整段 h=' + h).toHaveLength(1);
+      expect(storyArt.creditsSegments(rows[10], L).length, '末行断段 h=' + h).toBeGreaterThanOrEqual(2);
+      expect(storyArt.creditsSegments(rows[9], L).length).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('credits：当前刻名行点亮（1px 亮刻，且已亮行不再成亮条）', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.storyLayout(W, h);
+      const lit = (p) => {
+        const r = createRaster(W, h, 0x000000);
+        storyArt.ENDING_STAGES.credits(r.g, CTX(p, h));
+        let n = 0;
+        for (let y = Math.round(h * 0.50); y < Math.round(h * 0.80); y++) {
+          for (let x = L.cx - Math.round(44 * L.u); x < L.cx + Math.round(44 * L.u); x++) if (warm(r, x, y)) n++;
+        }
+        return n;
+      };
+      expect(lit(0.75), 'h=' + h).toBeGreaterThan(lit(0.12));
+      expect(lit(0.75)).toBeGreaterThan(20);
+    }
+  });
+
+  it('quiet：祭坛是卧式台面（宽 > 2 倍深、远排窄近排宽）', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.storyLayout(W, h);
+      const top = storyArt.altarTop(L);
+      expect(top.cells, 'h=' + h).toHaveLength(16);
+      expect(top.nearW, '宽 > 2 倍深 h=' + h).toBeGreaterThan(top.depth * 2);
+      expect(top.farW, '上窄下宽 h=' + h).toBeLessThan(top.nearW);
+      expect(top.cells[0].w, '远排格窄 h=' + h).toBeLessThan(top.cells[15].w);
+    }
+  });
+
+  it('forge：斧头是实体三角（有 ≥8px 的连续实心行）', () => {
+    const W = 480;
+    for (const h of [270, 760]) {
+      const L = storyArt.journeyLayout('forge', W, h);
+      const r = createRaster(W, h, 0x000000);
+      storyArt.JOURNEY_STATIC.forge.back(r.g, L);
+      let solid = 0;
+      for (let y = Math.round(h * 0.22); y < Math.round(h * 0.40); y++) {
+        let run = 0, best = 0;
+        for (let x = Math.round(W * 0.16); x < Math.round(W * 0.24); x++) {
+          const o = (y * W + x) * 4;
+          const lit = r.buffer[o] + r.buffer[o + 1] + r.buffer[o + 2] > 240;
+          run = lit ? run + 1 : 0;
+          if (run > best) best = run;
+        }
+        if (best >= 8) solid++;
+      }
+      expect(solid, '实体斧头 h=' + h).toBeGreaterThan(0);
+    }
+  });
+
+  it('forge：炉火是分离的火舌（同一行上 ≥3 段亮带 + 暗缝）', () => {
+    const W = 480;
+    for (const h of [270, 760]) {
+      const L = storyArt.journeyLayout('forge', W, h);
+      const r = createRaster(W, h, 0x000000);
+      storyArt.JOURNEY_STAGES.forge(r.g, { w: W, h, t: 900, p: 1, accent: 0xc9a227, stars: [] });
+      const fy = L.forgeY, fw = L.forgeW, fx = L.forgeX;
+      let runs = 0;
+      for (const dy of [6, 10, 14]) {
+        const y = fy - Math.round(dy * L.u);
+        let n = 0, prev = false;
+        for (let x = Math.round(fx - fw * 0.36); x < Math.round(fx + fw * 0.36); x++) {
+          const o = (y * W + x) * 4;
+          const lit = warm(r, x, y) && r.buffer[o + 1] > 40;
+          if (lit && !prev) n++;
+          prev = lit;
+        }
+        runs = Math.max(runs, n);
+      }
+      expect(runs, '火舌段数 h=' + h).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('credits：碑前有台阶与两侧烛台（碑座两侧的黄铜竖杆）', () => {
+    for (const h of [270, 760]) {
+      const L = storyArt.storyLayout(W, h);
+      const r = createRaster(W, h, 0x000000);
+      storyArt.ENDING_STATIC.credits.mid(r.g, L);
+      const baseY = Math.round(h * 0.80);
+      let rods = 0;
+      for (let y = baseY - Math.round(26 * L.u); y < baseY + Math.round(8 * L.u); y++) {
+        for (const fx of [0.355, 0.645]) {
+          const x = Math.round(W * fx);
+          if (warm(r, x, y) || warm(r, x - 1, y)) rods++;
+        }
+      }
+      expect(rods, '烛台 h=' + h).toBeGreaterThan(20);
+    }
+  });
+});
+

@@ -336,14 +336,17 @@ function obelisk(g, x, baseY, oh, alpha) {
   thinLine(g, ix, ib - ih + 6, ix, ib - 8, C.stoneLight, 0.3 * alpha);
 }
 
-function stele(g, cx, baseY, sw, sh, alpha) {
+function stele(g, cx, baseY, sw, sh, alpha, spread) {
   const ix = Math.round(cx);
   const ib = Math.round(baseY);
   const iw = Math.round(sw);
   const ih = Math.round(sh);
+  const sp = spread === undefined ? 3 : spread;
   pxRect(g, ix - iw / 2, ib - ih, iw, ih, C.stoneDark, alpha);
-  pxRect(g, ix - iw / 2 - 3, ib - ih - 5, iw + 6, 5, C.stone, alpha);
-  pxRect(g, ix - iw / 2 - 3, ib - ih - 5, iw + 6, 1, C.stoneLight, 0.45 * alpha);
+  pxRect(g, ix - iw / 2 - sp, ib - ih - 5, iw + sp * 2, 5, C.stone, alpha);
+  pxRect(g, ix - iw / 2 - sp, ib - ih - 5, iw + sp * 2, 1, C.stoneLight, 0.45 * alpha);
+  // 檐下的 1px 暗影：让碑首压住碑身，而不是一块比碑身宽的「桌沿」
+  pxRect(g, ix - iw / 2 - sp, ib - ih, iw + sp * 2, 1, C.void, 0.6 * alpha);
   pxRect(g, ix - iw / 2 - 2, ib - 2, iw + 4, 3, C.stone, 0.8 * alpha);
   for (let i = 0; i < 4; i++) {
     const ly = ib - ih + 8 + i * Math.round(ih * 0.16);
@@ -394,6 +397,28 @@ function altarBox(L) {
     oy: Math.round(L.altarY - GRID / 2),
     cell: CELL, gap: GAP, size: GRID,
   };
+}
+
+// 卧式祭坛台面：远排窄、近排宽的梯形顶面（depth 远小于宽），16 个刻格按透视收
+export function altarTop(L) {
+  const u = L.u;
+  const nearW = Math.round(132 * u);
+  const farW = Math.round(nearW - 16 * u);
+  const depth = Math.round(50 * u);
+  const cx = L.cx;
+  const oy = Math.round(L.altarY - depth / 2);
+  const gap = Math.max(1, Math.round(u));
+  const rowD = Math.max(4, Math.floor((depth - gap * 3) / 4));
+  const cells = [];
+  for (let r = 0; r < 4; r++) {
+    const t = r / 3;                                   // 0 = 远排，1 = 近排
+    const rw = Math.round(farW + (nearW - farW) * t);
+    const cw = Math.max(4, Math.floor((rw - gap * 3) / 4));
+    const rx = cx - Math.round(rw / 2);
+    const ry = oy + r * (rowD + gap);
+    for (let c = 0; c < 4; c++) cells.push({ x: rx + c * (cw + gap), y: ry, w: cw, h: rowD, row: r });
+  }
+  return { nearW, farW, depth, oy, cells, bottom: oy + depth };
 }
 
 // ---------- 开场静态三层 ----------
@@ -833,6 +858,9 @@ function releaseFore(g, L) {
   pxRect(g, -L.B, Math.round(L.h * 0.96), L.w + L.B * 2, Math.round(L.h * 0.04) + L.B, T.dark, 0.5);
 }
 
+// 残烛位置（静态与动态共用）：[横向比例, 蜡身高（u）]
+const QUIET_STUBS = [[0.33, 7], [0.47, 5], [0.63, 8]];
+
 function quietBack(g, L) {
   archWall(g, L, T.wall, T.floorLine);
   ring(g, L.cx, Math.round(L.h * 0.24), Math.round(46 * L.u), C.brassDark, 0.12, 28);
@@ -842,22 +870,68 @@ function quietBack(g, L) {
 function quietMid(g, L) {
   // 中景地面：地平线到 ground，前景层只从 ground 往下压边
   fill(g, -L.B, L.horizon, L.w + L.B * 2, L.ground - L.horizon, T.floor);
-  const box = altarBox(L);
-  const pad = Math.round(10 * L.u);
-  pxRect(g, box.ox - pad, box.oy - pad, box.size + pad * 2, box.size + pad * 2, C.stoneDark, 1);
-  pxRect(g, box.ox - pad, box.oy - pad, box.size + pad * 2, 2, C.stoneLight, 0.4);
-  pxFrame(g, box.ox - pad, box.oy - pad, box.size + pad * 2, box.size + pad * 2, C.brassDark, 1, 0.6);
-  for (let i = 0; i < 16; i++) {
-    const gx = box.ox + (i % 4) * (box.cell + box.gap);
-    const gy = box.oy + Math.floor(i / 4) * (box.cell + box.gap);
-    pxRect(g, gx, gy, box.cell, box.cell, C.graveTileDark, 1);
-    pxFrame(g, gx, gy, box.cell, box.cell, C.groove, 1, 0.22);
+  const top = altarTop(L);
+  const u = Math.max(1, Math.round(L.u));
+  // 台脚：两级内收的暗石基座，把顶面压在台上
+  // 台身：从台面一直落到地面的实体石座（不然台面像浮在壁龛的黑洞口上）
+  const pedTop = top.bottom + 1;
+  const pedBot = Math.min(L.ground + 2, pedTop + Math.round(120 * L.u));
+  const pedW0 = Math.round(top.nearW * 0.88), pedW1 = Math.round(top.nearW * 1.02);
+  for (let i = 0; i < 3; i++) {
+    const y0 = pedTop + Math.round((pedBot - pedTop) * (i / 3));
+    const y1 = pedTop + Math.round((pedBot - pedTop) * ((i + 1) / 3));
+    const ww3 = Math.round(pedW0 + (pedW1 - pedW0) * (i / 2));
+    pxRect(g, L.cx - Math.round(ww3 / 2), y0, ww3, Math.max(2, y1 - y0), C.stoneDark, 0.95);
+    pxRect(g, L.cx - Math.round(ww3 / 2), y0, 1, Math.max(2, y1 - y0), C.stoneLight, 0.22);
+    pxRect(g, L.cx - Math.round(ww3 / 2), y0, ww3, 1, i === 0 ? C.stoneLight : C.void, i === 0 ? 0.30 : 0.35);
   }
-  steps(g, { cx: L.cx, y: box.oy + box.size + pad, w: Math.round(box.size * 1.3), count: 3, rise: Math.round(4 * L.u), color: C.stoneDark, light: C.stoneLight, alpha: 0.95 });
+  pxRect(g, L.cx - Math.round(pedW1 / 2), pedBot, pedW1, 2, C.void, 0.55);
+  // 台面：一整块梯形石板（远窄近宽），不按排分层，避免读成四级台阶
+  const fw2 = top.farW, nw2 = top.nearW;
+  silhouette(g, [
+    { x: L.cx - Math.round(fw2 / 2), y: top.oy },
+    { x: L.cx + Math.round(fw2 / 2), y: top.oy },
+    { x: L.cx + Math.round(nw2 / 2), y: top.bottom },
+    { x: L.cx - Math.round(nw2 / 2), y: top.bottom },
+  ], mix(C.graveTileDark, C.void, 0.34), 1);
+  // 透视刻格：只有 1px 暗刻线，不做亮框（亮框会读成抽屉）
+  for (const c of top.cells) {
+    pxRect(g, c.x, c.y, c.w, c.h, mix(C.graveTileDark, C.void, 0.18), 1);
+    pxFrame(g, c.x, c.y, c.w, c.h, C.void, 1, 0.45);
+  }
+  // 左右斜边 1px 受光 + 远端 1px 暗沿
+  thinLine(g, L.cx - Math.round(fw2 / 2), top.oy, L.cx - Math.round(nw2 / 2), top.bottom, C.stoneLight, 0.30);
+  thinLine(g, L.cx + Math.round(fw2 / 2), top.oy, L.cx + Math.round(nw2 / 2), top.bottom, C.stoneLight, 0.22);
+  pxRect(g, L.cx - Math.round(fw2 / 2), top.oy, fw2, 1, C.void, 0.5);
+  // 近端 2px 台沿（前脸）+ 下沿暗缝
+  pxRect(g, L.cx - Math.round(nw2 / 2), top.bottom - u, nw2, u * 2, C.stone, 0.85);
+  pxRect(g, L.cx - Math.round(nw2 / 2), top.bottom - u, nw2, 1, C.stoneLight, 0.35);
+  pxRect(g, L.cx - Math.round(nw2 / 2), top.bottom + 1, nw2, 1, C.void, 0.6);
   wax(g, Math.round(L.w * 0.22), Math.round(L.h * 0.80), Math.round(14 * L.u), C.bone, C.mute, C.brassDark, 0.7);
   wax(g, Math.round(L.w * 0.78), Math.round(L.h * 0.80), Math.round(14 * L.u), C.bone, C.mute, C.brassDark, 0.7);
   candelabrum(g, Math.round(L.w * 0.08), Math.round(L.h * 0.86), Math.round(28 * L.u), 0.7);
   candelabrum(g, Math.round(L.w * 0.92), Math.round(L.h * 0.86), Math.round(28 * L.u), 0.7);
+  // 三支将熄的残烛：矮、蜡身塌软、蜡泪积在座上（压在 ground 线上，不会被前景地面埋掉）
+  for (const [fx, hh] of QUIET_STUBS) {
+    const bx2 = Math.round(L.w * fx), by2 = L.ground - 1;
+    pxRect(g, bx2 - 3, by2 - 1, 7, 2, C.brassDark, 0.7);
+    pxRect(g, bx2 - 1, by2 - Math.round(hh * L.u), 3, Math.round(hh * L.u), C.bone, 0.7);
+    pxRect(g, bx2 - 2, by2 - Math.round(hh * L.u * 0.5), 5, 1, C.bone, 0.55);
+    pxRect(g, bx2 - 2, by2 - 2, 2, 2, C.parchment, 0.5);
+  }
+  // 断剑插地（右侧空地）：剑身断口、护手、缠柄、半埋的剑尖
+  const swX = Math.round(L.w * 0.775), swY = L.ground - 2;
+  pxRect(g, swX - 4, swY - Math.round(4 * L.u), 9, 3, C.void, 0.5);
+  silhouette(g, [
+    { x: swX - 1, y: swY }, { x: swX - 2, y: swY - Math.round(22 * L.u) },
+    { x: swX + 2, y: swY - Math.round(26 * L.u) }, { x: swX + 3, y: swY - Math.round(20 * L.u) },
+    { x: swX + 3, y: swY },
+  ], 0x6a6058, 0.95);
+  thinLine(g, swX + 1, swY - 2, swX + 1, swY - Math.round(19 * L.u), 0x9a9088, 0.6);
+  pxRect(g, swX - Math.round(8 * L.u), swY - Math.round(27 * L.u), Math.round(16 * L.u), 2, 0x4a4442, 1);
+  pxRect(g, swX - 1, swY - Math.round(33 * L.u), 3, Math.round(6 * L.u), 0x3a2a1e, 1);
+  pxDiamond(g, swX, swY - Math.round(35 * L.u), 2, C.brassDark, 0.8, true);
+  pxRect(g, swX - Math.round(5 * L.u), swY - Math.round(27 * L.u), Math.round(10 * L.u), 1, C.bloodDark, 0.5);
 }
 
 function quietFore(g, L) {
@@ -868,6 +942,34 @@ function quietFore(g, L) {
   }
   pxRect(g, -L.B, Math.round(L.h * 0.90), L.w + L.B * 2, 3, C.fog, 0.06);
   rubble(g, { x: Math.round(L.w * 0.62), y: Math.round(L.h * 0.96), w: Math.round(L.w * 0.22), h: 8, seed: 105, color: C.stoneDark, color2: C.stone, count: 12, alpha: 0.65 });
+  // 前景散落：两截倒下的断柱（鼓石）与翻倒的柱头（竖屏地面很长，不能只留空石板）
+  for (const [fx, fy, sc] of [[0.62, 0.845, 1], [0.86, 0.885, 0.8]]) {
+    const bx2 = Math.round(L.w * fx), by2 = Math.round(L.h * fy);
+    const dw = Math.round(15 * L.u * sc), dh = Math.round(9 * L.u * sc);
+    pxRect(g, bx2 - Math.round(dw / 2), by2 - dh, dw, dh, C.stoneDark, 0.92);
+    pxRect(g, bx2 - Math.round(dw / 2), by2 - dh, dw, 1, C.stoneLight, 0.4);
+    pxRect(g, bx2 - Math.round(dw / 2), by2 - dh, 1, dh, C.stoneLight, 0.2);
+    pxRect(g, bx2 + Math.round(dw * 0.1), by2 - dh - Math.round(2 * L.u * sc), Math.round(dw * 0.42), Math.round(2 * L.u * sc), C.stoneDark, 0.92);
+    pxRect(g, bx2 - Math.round(dw / 2), by2, dw, 1, C.void, 0.5);
+    pxRect(g, bx2 + Math.round(dw * 0.6), by2 - Math.round(3 * L.u * sc), Math.round(7 * L.u * sc), Math.round(3 * L.u * sc), C.stone, 0.85);
+    pxRect(g, bx2 + Math.round(dw * 0.6), by2 - Math.round(3 * L.u * sc), Math.round(7 * L.u * sc), 1, C.stoneLight, 0.3);
+  }
+  for (let k = 0; k < 6; k++) {
+    const sx = Math.round(L.w * (0.34 + k * 0.095)), sy = Math.round(L.h * (0.885 + (k % 3) * 0.018));
+    pxRect(g, sx, sy, 3 + (k % 3), 2, C.stoneDark, 0.85);
+    pxRect(g, sx, sy, 2, 1, C.stoneLight, 0.3);
+  }
+  // 灰烬堆（前景）：三层递减的暗灰 + 几点未熄的白灰
+  const ashX = Math.round(L.w * 0.21), ashY = Math.round(L.h * 0.945);
+  const ashW = Math.round(26 * L.u);
+  pxRect(g, ashX - ashW, ashY - Math.round(3 * L.u), ashW * 2, Math.round(3 * L.u), C.ash, 0.55);
+  pxRect(g, ashX - Math.round(ashW * 0.66), ashY - Math.round(6 * L.u), Math.round(ashW * 1.32), Math.round(3 * L.u), C.ash, 0.45);
+  pxRect(g, ashX - Math.round(ashW * 0.3), ashY - Math.round(8 * L.u), Math.round(ashW * 0.6), Math.round(2 * L.u), C.ash, 0.38);
+  pxRect(g, ashX - ashW, ashY, ashW * 2, 1, C.void, 0.5);
+  for (let k = 0; k < 5; k++) {
+    pxRect(g, ashX - ashW + Math.round(ashW * 0.3) + k * Math.round(ashW * 0.34), ashY - Math.round(4 * L.u) - (k % 2), 2, 1, C.bone, 0.4);
+  }
+  pxRect(g, ashX - Math.round(ashW * 0.2), ashY - Math.round(9 * L.u), 2, 2, C.mute, 0.5);
 }
 
 function dawnBack(g, L) {
@@ -988,21 +1090,81 @@ function dawnFore(g, L) {
   rubble(g, { x: Math.round(L.w * 0.30), y: Math.round(L.h * 0.96), w: Math.round(L.w * 0.40), h: Math.round(L.h * 0.03), seed: 111, color: C.stoneDark, color2: C.stone, count: 9, alpha: 0.8 });
   pxRect(g, -L.B, Math.round(L.h * 0.90), L.w + L.B * 2, 2, C.fog, 0.06);
 }
+// 碑面刻名行（静态刻痕与动态点亮共用）：自下而上 CREDITS_ROWS 行，行宽与缩进各不相同
+const CREDITS_ROWS = 11;
+export function creditsRows(L) {
+  const u = L.u;
+  const baseY = Math.round(L.h * 0.80);
+  const bot = baseY - Math.round(10 * u);
+  // 行距 +1px：11 行不再挤成一根格栅
+  const rowH = Math.max(4, Math.round((52 * u) / CREDITS_ROWS) + 1);
+  const rows = [];
+  for (let r = 0; r < CREDITS_ROWS; r++) {
+    // 行宽按确定映射错落（0.45–0.94，模拟名字长短），行首再错开 0–4px
+    const wRow = Math.max(8, Math.round(42 * u * (0.45 + ((r * 37) % 50) / 100)));
+    const ind = ((r * 13) % 5) * Math.max(1, Math.round(u)) - Math.round(2 * u);
+    rows.push({
+      y: bot - (r + 1) * rowH + 1,
+      x: L.cx - Math.round(wRow / 2) + ind,
+      w: wRow,
+      broken: r >= CREDITS_ROWS - 2,
+    });
+  }
+  return rows;
+}
+
+// 末两行的刻名断成 2–3 段（残缺铭文，不是一整根金条）
+export function creditsSegments(row, L) {
+  if (!row.broken) return [[row.x, row.w]];
+  const u = Math.max(1, Math.round(L.u));
+  const cut1 = Math.round(row.w * 0.40), cut2 = Math.round(row.w * 0.74);
+  return [
+    [row.x, cut1 - u],
+    [row.x + cut1 + u, cut2 - cut1 - u * 2],
+    [row.x + cut2 + u, row.w - cut2 - u * 2],
+  ].filter(([, w2]) => w2 >= 3);
+}
+
 function creditsBack(g, L) {
   skyFill(g, L, [[0, T.sky0], [0.12, T.sky1], [0.26, T.sky2], [0.40, T.sky3]]);
   starfield(g, {
     x: -L.B, y: 0, w: L.w + L.B * 2, h: Math.round(L.h * 0.6), seed: 111,
     count: L.tall ? 80 : 56, color: C.bone, bright: C.white, accent: C.runeCold, alpha: 0.9,
   });
-  sevenStars(g, L, 0.7, 1);
+  // 收尾的星象只剩两颗亮星与一条短连线（七星连线在竖屏会拼成漂浮的线框盒）
+  const s1x = Math.round(L.w * 0.44), s1y = Math.round(L.h * 0.10);
+  const s2x = Math.round(L.w * 0.505), s2y = Math.round(L.h * 0.135);
+  thinLine(g, s1x, s1y, s2x, s2y, C.runeCold, 0.20);
+  pxRect(g, s1x, s1y, 2, 2, C.white, 0.8);
+  pxRect(g, s2x, s2y, 2, 2, C.white, 0.62);
   ring(g, L.cx, Math.round(L.h * 0.45), Math.round(100 * L.u), C.brassDark, 0.12, 34);
   ring(g, L.cx, Math.round(L.h * 0.45), Math.round(70 * L.u), C.brassDark, 0.08, 26);
+  // 地平线上的晨光带：碑铭剧场收尾时天要亮了（硬边 1px，不做渐变）
+  pxRect(g, -L.B, L.horizon - 2, L.w + L.B * 2, 1, mix(T.dawn2, C.brassLight, 0.30), 0.28);
+  pxRect(g, -L.B, L.horizon - 1, L.w + L.B * 2, 1, mix(T.dawn2, T.dawn3, 0.55), 0.34);
+  pxRect(g, -L.B, L.horizon, L.w + L.B * 2, 2, mix(T.dawn2, T.dawn3, 0.35), 0.16);
 }
 
 function creditsMid(g, L) {
   // 中景地面：地平线到 ground，前景层只从 ground 往下压边
   fill(g, -L.B, L.horizon, L.w + L.B * 2, L.ground - L.horizon, T.floor);
-  stele(g, L.cx, Math.round(L.h * 0.80), Math.round(96 * L.u), Math.round(78 * L.u), 0.85);
+  const steleBase = Math.round(L.h * 0.80);
+  stele(g, L.cx, steleBase, Math.round(96 * L.u), Math.round(78 * L.u), 0.85, 0);
+  // 碑面刻痕（未点亮的刻名行）+ 碑首的横线分层
+  for (const row of creditsRows(L)) {
+    for (const [sx2, sw2] of creditsSegments(row, L)) pxRect(g, sx2, row.y, sw2, 1, C.groove, 0.20);
+  }
+  // 碑前三级台阶 + 两侧烛台（台阶把碑从地面托起来，不再是「一块板插在地上」）
+  steps(g, { cx: L.cx, y: steleBase + 3, w: Math.round(128 * L.u), count: 3, rise: Math.round(4 * L.u), color: C.stoneDark, light: C.stoneLight, alpha: 0.95 });
+  candelabrum(g, Math.round(L.w * 0.355), steleBase + Math.round(6 * L.u), Math.round(24 * L.u), 0.85);
+  candelabrum(g, Math.round(L.w * 0.645), steleBase + Math.round(6 * L.u), Math.round(24 * L.u), 0.85);
+  // 碑座周围散落的契约残片（碎印的黄铜小片，与 release 的碎印同族）
+  for (let k = 0; k < 6; k++) {
+    const cxp = Math.round(L.w * (0.26 + k * 0.095)) + (k % 2 ? 3 : -2);
+    const cyp = steleBase + Math.round(4 * L.u) + (k % 3) * 2;
+    pxRect(g, cxp, cyp, 4 + (k % 3), 2, C.brassDark, 0.75);
+    pxRect(g, cxp, cyp, 2 + (k % 2), 1, C.brass, 0.6);
+  }
   for (const fx of [0.14, 0.86]) {
     column(g, {
       cx: Math.round(L.w * fx), topY: Math.round(L.h * 0.08), bottomY: Math.round(L.h * 0.84),
@@ -1194,26 +1356,97 @@ export const OPENING_STAGES = {
 
 // ---------- 结局动态件 ----------
 
+// 七枚契约印的解封：先同时离座升起，再沿四种曲率的弧线散开、拖出 1px 光轨；
+// 最靠近观者的那枚（中位）升起后落回地面裂开，留下四块碎印。
+const RELEASE_ARC = [
+  { dx: -0.30, lift: 0.30, sag: 0.10 },
+  { dx: -0.20, lift: 0.46, sag: 0.04 },
+  { dx: -0.11, lift: 0.62, sag: -0.06 },
+  { dx: 0.00, lift: 0.72, sag: -0.10 },
+  { dx: 0.12, lift: 0.56, sag: 0.06 },
+  { dx: 0.22, lift: 0.40, sag: 0.12 },
+  { dx: 0.32, lift: 0.26, sag: 0.16 },
+];
 function dynRelease(g, { w, h, t, p, accent }) {
   const L = storyLayout(w, h);
+  const u = L.u;
+  const r = Math.round(18 * u);
+  const CRACK = 3;
+  const crackStart = 0.80;
+  // 横向按 q² 加速、纵向按 q^0.75 持续上升：七枚印各自不同的 (dx, lift) 组合给出四种可辨曲率，
+  // 且都朝画面上方逸出，不会在半空拐回来读成乱划痕
+  const sealPos = (i, q) => {
+    const a = RELEASE_ARC[i];
+    const cx = contractCenter(w, i);
+    const cy0 = L.baseY - CONTRACT_TOP[i] - 10 - r;
+    const x = cx + a.dx * w * q * q;
+    const y = cy0 - a.lift * h * 0.55 * Math.pow(q, 0.75);
+    return [Math.round(x), Math.round(y)];
+  };
   for (let i = 0; i < 7; i++) {
     const cx = contractCenter(w, i);
-    const breakAt = 0.08 + i * 0.115;
-    const bp = clamp01((p - breakAt) / 0.3);
-    const a = 1 - 0.68 * clamp01((p - breakAt) / 0.55);
+    const a = 1 - 0.68 * clamp01((p - 0.08) / 0.55);
     drawContractRelic(g, cx, L.baseY, i, a, accent);
-    const r = Math.round(18 * L.u);
     const topY = L.baseY - CONTRACT_TOP[i];
-    const cy = topY - 10 - r;
-    if (bp <= 0) {
-      thinLine(g, cx, cy + r, cx, topY, C.brassDark, 0.4);
-      contractSeal(g, cx, cy, r, t, accent, 0.85);
-    } else {
-      drawShatter(g, { cx, cy, r, p: bp, accent, seed: 0x51c7 + i * 131 });
-      for (let k = 0; k < 3; k++) {
-        const uy = clamp01(bp * 1.4 - k * 0.2);
-        pxRect(g, cx + (k - 1) * 6, Math.round(cy - uy * Math.round(48 * L.u)), 1, 2, C.arcaneLight, (1 - uy) * 0.7);
+    const cy0 = topY - 10 - r;
+    if (i === CRACK) {
+      // 最近的一枚：原地升起 → 落回地面 → 裂开
+      const qc = clamp01(p / 0.62);
+      const hover = Math.round(Math.sin(Math.PI * qc) * 20 * u);
+      const fall = clamp01((p - 0.62) / (crackStart - 0.62));
+      const groundY = L.baseY - Math.round(7 * u);
+      if (p < crackStart) {
+        const cy = Math.round(cy0 - hover + (groundY - cy0 + hover) * fall * fall);
+        thinLine(g, cx, cy + r, cx, Math.min(topY, cy + r + Math.round(6 * u)), C.brassDark, 0.55);
+        contractSeal(g, cx, cy, r, t, accent, 0.9);
+      } else {
+        drawShatter(g, { cx, cy: groundY, r: Math.round(16 * u), p: clamp01((p - crackStart) / 0.18), accent, seed: 0x51c7 + 393 });
       }
+      if (p > crackStart + 0.04) {
+        // 地面留下的四块碎印（硬边小片，带暗底）
+        for (let k = 0; k < 4; k++) {
+          const sx = cx + Math.round((-16 + k * 10) * u), sy = groundY + 2 + (k % 2);
+          const sw2 = Math.round((5 - (k % 3)) * u);
+          pxRect(g, Math.round(sx), Math.round(sy), sw2, 2, C.brassDark, 0.85);
+          pxRect(g, Math.round(sx), Math.round(sy), Math.max(1, sw2 - 2), 1, C.brass, 0.7);
+          pxRect(g, Math.round(sx), Math.round(sy) + 2, sw2, 1, C.void, 0.5);
+        }
+      }
+      continue;
+    }
+    const q = clamp01((p - 0.10) / 0.62);
+    const [sx, sy] = sealPos(i, q);
+    // 光轨：取 4 段，越飞越淡（不同曲率靠 RELEASE_ARC 的 lift/sag 组合区分）
+    if (q > 0.05 && q < 0.98) {
+      const trailA = 0.42 * (1 - q * 0.55);
+      let [tx0, ty0] = sealPos(i, Math.max(0, q - 0.18));
+      for (let s = 1; s <= 4; s++) {
+        const [tx1, ty1] = sealPos(i, Math.max(0, q - 0.18 + (0.18 * s) / 4));
+        thinLine(g, tx0, ty0, tx1, ty1, C.brassLight, trailA);
+        tx0 = tx1; ty0 = ty1;
+      }
+    }
+    const fade = 1 - clamp01((q - 0.55) / 0.45);
+    if (fade <= 0) continue;
+    if (q < 0.04) {
+      thinLine(g, sx, sy + r, sx, topY, C.brassDark, 0.55);
+      contractSeal(g, sx, sy, r, t, accent, 0.85 * fade);
+    } else if (q < 0.42) {
+      contractSeal(g, sx, sy, r, t, accent, 0.85 * fade);
+    } else {
+      // 飞远后收成「远处的一枚印」：细环 + 四向刻齿 + 中心菱形（不再画符文，省指令给光轨）
+      const rr = Math.max(5, Math.round(r * (1 - 0.35 * q)));
+      ring(g, sx, sy, rr, C.brassDark, 0.34 * fade, 18);
+      pxDiamond(g, sx, sy, 2, accent, 0.8 * fade, true);
+      for (let k = 0; k < 4; k++) {
+        const txx = k < 2 ? sx + (k === 0 ? -rr : rr) : sx;
+        const tyy = k < 2 ? sy : sy + (k === 2 ? -rr : rr);
+        pxRect(g, txx, tyy, 1, 1, C.brassLight, 0.6 * fade);
+      }
+    }
+    for (let k = 0; k < 2; k++) {
+      const uy = clamp01(q * 1.4 - k * 0.3);
+      pxRect(g, sx + (k - 1) * 5, Math.round(sy - uy * Math.round(30 * u)), 1, 2, C.arcaneLight, (1 - uy) * 0.6 * fade);
     }
   }
   for (let i = 0; i < 10; i++) {
@@ -1225,26 +1458,55 @@ function dynRelease(g, { w, h, t, p, accent }) {
 
 function dynQuiet(g, { w, h, t, p, accent }) {
   const L = storyLayout(w, h);
-  const box = altarBox(L);
+  const top = altarTop(L);
   const litCount = 16 - Math.floor(clamp01((p - 0.1) / 0.6) * 16);
-  const centerOf = (i) => [
-    box.ox + (i % 4) * (box.cell + box.gap) + Math.round(box.cell / 2),
-    box.oy + Math.floor(i / 4) * (box.cell + box.gap) + Math.round(box.cell / 2),
-  ];
+  const centerOf = (i) => {
+    const c = top.cells[i];
+    return [c.x + Math.round(c.w / 2), c.y + Math.round(c.h / 2)];
+  };
   for (let i = 0; i < litCount; i++) {
-    const gx = box.ox + (i % 4) * (box.cell + box.gap);
-    const gy = box.oy + Math.floor(i / 4) * (box.cell + box.gap);
-    pxRect(g, gx, gy, box.cell, box.cell, C.graveTileLit, 0.9);
-    pxFrame(g, gx, gy, box.cell, box.cell, C.groove, 1, 0.7);
-    pxDiamond(g, gx + Math.round(box.cell / 2), gy + Math.round(box.cell / 2), 3, accent, 0.7, true);
+    const c = top.cells[i];
+    pxRect(g, c.x, c.y, c.w, c.h, C.graveTileLit, 0.85);
+    pxFrame(g, c.x, c.y, c.w, c.h, C.groove, 1, 0.6);
+    pxDiamond(g, c.x + Math.round(c.w / 2), c.y + Math.round(c.h / 2), 2, accent, 0.6, true);
   }
   for (let i = 1; i < litCount; i++) {
     const [x1, y1] = centerOf(i - 1);
     const [x2, y2] = centerOf(i);
     thinLine(g, x1, y1, x2, y2, accent, 0.4);
   }
+  // 被晨风掀起的幡布一角：挂点在右拱柱，布角随 t 与 p 摆动（摆动幅度随 p 变大）
+  const bax = Math.round(w * 0.705), bay = Math.round(h * 0.32);
+  const blen = Math.round(30 * L.u), bwid = Math.round(20 * L.u);
+  const sway = Math.round(Math.sin(t * 0.0035 + p * 2.4) * (2 + 3 * p));
+  const sway2 = Math.round(Math.sin(t * 0.0035 + p * 2.4 + 0.9) * (1 + 2 * p));
+  // 布身：上窄下宽、底边被风撕成两片（不是一块方红布）
+  silhouette(g, [
+    { x: bax, y: bay }, { x: bax + bwid, y: bay + 2 },
+    { x: bax + bwid + sway, y: bay + Math.round(blen * 0.62) },
+    { x: bax + bwid + sway - 2, y: bay + blen },
+    { x: bax + Math.round(bwid * 0.55) + sway2, y: bay + Math.round(blen * 0.86) },
+    { x: bax + sway2 - 1, y: bay + blen - 4 },
+  ], C.bloodDark, 0.62);
+  // 挂杆 + 两道褶皱的暗面 + 受光边
+  pxRect(g, bax - 3, bay - 2, bwid + 6, 2, C.brassDark, 0.8);
+  pxRect(g, bax - 3, bay - 2, bwid + 6, 1, C.brass, 0.45);
+  pxRect(g, bax + Math.round(bwid * 0.34) + Math.round(sway * 0.3), bay + 4, 2, Math.round(blen * 0.6), C.void, 0.3);
+  thinLine(g, bax + 1, bay + 2, bax + 1 + sway2, bay + blen - 5, 0x8a5a46, 0.5);
+  // 三支残烛的火苗：快熄的短焰 + 极小的晕（不画整圈光池）
+  for (let i = 0; i < QUIET_STUBS.length; i++) {
+    const [fx, hh] = QUIET_STUBS[i];
+    const cxp = Math.round(w * fx), cyp = L.ground - 1 - Math.round(hh * L.u);
+    const flick = 0.45 + 0.55 * Math.abs(Math.sin(t * 0.017 + i * 2.3));
+    const die = clamp01(1 - (p - 0.35 - i * 0.12) / 0.4);
+    const fa = flick * die;
+    if (fa <= 0.02) continue;
+    pxRect(g, cxp, cyp - 3, 1, 3, C.brassLight, 0.85 * fa);
+    pxRect(g, cxp - 1, cyp - 1, 3, 1, C.brassLight, 0.35 * fa);
+    pxRect(g, cxp - 2, cyp - 4, 5, 1, C.brassLight, 0.10 * fa);
+  }
   const hx = Math.round(w / 2);
-  const hy = Math.round(box.oy + box.size + Math.round(40 * L.u));
+  const hy = Math.round(top.bottom + Math.round(40 * L.u));
   heroSilhouette(g, hx, hy, 1);
   if (p <= 0.85) {
     const flick = 0.4 + 0.6 * Math.abs(Math.sin(t * 0.02));
@@ -1303,6 +1565,25 @@ function dynCredits(g, { w, h, t, p, accent, stars }) {
     cx: L.cx, cy: Math.round(h * 0.45), r: Math.round(64 * L.u), t, accent,
     alpha: 0.14, spokes: 6, runes: false, core: false,
   });
+  // 碑面刻名逐行亮起：自下而上，当前行更亮更粗（1px 刻痕行，不写真文字）
+  const rows = creditsRows(L);
+  const lit = Math.floor(clamp01((p - 0.04) / 0.66) * rows.length);
+  for (let r = 0; r < lit; r++) {
+    const row = rows[r];
+    if (r === lit - 1) {
+      // 当前行：1px 亮刻 + 刻痕上方 1px 余辉（碑面靠暗刻出质感，不靠金条）
+      pxRect(g, row.x, row.y - 1, row.w, 1, C.brassLight, 0.12);
+      pxRect(g, row.x, row.y, row.w, 1, C.brass, 0.7);
+    } else {
+      for (const [sx2, sw2] of creditsSegments(row, L)) pxRect(g, sx2, row.y, sw2, 1, C.groove, 0.30);
+    }
+  }
+  // 碑前浮尘（暖色，向碑面上方飘）
+  for (let i = 0; i < 10; i++) {
+    const dx = Math.round(w * 0.34 + ((i * 47 + t * 0.012) % Math.round(w * 0.32)));
+    const dy = Math.round(h * 0.46 + ((i * 31 + t * 0.008) % Math.round(h * 0.28)));
+    pxRect(g, dx, dy, 1, 1, C.brassLight, 0.22);
+  }
   for (let i = 0; i < 8; i++) {
     const dx = Math.round((i * 59 + t * 0.006) % w);
     const dy = Math.round(h * 0.12 + ((i * 43 + t * 0.01) % Math.round(h * 0.5)));

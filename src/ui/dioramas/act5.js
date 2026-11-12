@@ -66,11 +66,19 @@ function gothicWindow(g, cx, sill, w, h, ux, lit, accent) {
   });
   pointedArch(g, {
     cx, baseY: sill, w, h, t: 0,
-    fillColor: lit ? accent : C.glassBlue, fillAlpha: lit ? 0.5 : 0.42, segs: 16,
+    fillColor: C.glassBlue, fillAlpha: lit ? 0.72 : 0.42, segs: 16,
   });
   if (lit) {
-    pointedArch(g, { cx, baseY: sill, w: w - R(4 * ux), h: h - R(3 * ux), t: 0, fillColor: accent, fillAlpha: 0.22, segs: 16 });
-    fill(g, cx - R(w * 0.2), sill - R(h * 0.72), R(w * 0.4), R(h * 0.34), C.white, 0.14);
+    // 光只落在窗的下半部：上暗下亮、硬边分档。整块染浅色 + 尖顶 = 「帐篷」
+    fill(g, cx - R(w * 0.46), sill - R(h * 0.46), R(w * 0.92), R(h * 0.46), accent, 0.1);
+    fill(g, cx - R(w * 0.34), sill - R(h * 0.28), R(w * 0.68), R(h * 0.28), accent, 0.13);
+    fill(g, cx - R(w * 0.2), sill - R(h * 0.14), R(w * 0.4), R(h * 0.14), C.white, 0.13);
+    // 拱头逐行压暗：尖拱越往上越窄，压暗的宽度也跟着收（顶上一块浅灰就是帐篷尖）
+    for (let k = 1; k <= 4; k++) {
+      const fw = R(w * (0.16 + k * 0.13));
+      const fy = sill - R(h * (0.99 - k * 0.055));
+      fill(g, cx - R(fw / 2), fy, fw, Math.max(1, R(h * 0.06)), C.void, 0.3);
+    }
   } else {
     // 暗窗的玻璃反光（1px 斜线，说明是玻璃不是洞）
     line(g, cx - R(w * 0.28), sill - R(h * 0.42), cx + R(w * 0.06), sill - R(h * 0.12), C.mute, 0.3);
@@ -81,7 +89,13 @@ function gothicWindow(g, cx, sill, w, h, ux, lit, accent) {
   for (let i = 1; i <= 2; i++) {
     fill(g, R(cx - w / 2 + (w * i) / 3), sill - mH, 1, mH, C.stoneDark, lit ? 0.9 : 0.75);
   }
-  fill(g, cx - R(w * 0.34), sill - R(h * 0.26), R(w * 0.68), 1, C.stoneDark, lit ? 0.8 : 0.65);
+  // 横向窗棂 3 条：窗里没有横棂，玻璃就只是一片浅色团块
+  for (const f of [0.2, 0.36, 0.52, 0.68]) {
+    const yy = sill - R(h * f);
+    const ww = Math.max(4, f < 0.5 ? w - 3 : R((w - 3) * (1 - (f - 0.5) * 1.1)));
+    fill(g, cx - R(ww / 2), yy, ww, 1, C.stoneDark, lit ? 0.85 : 0.7);
+    if (lit) fill(g, cx - R(ww / 2), yy + 1, ww, 1, C.white, 0.1);
+  }
   // 拱顶石雕：两根 1px 斜棂交于拱尖
   line(g, cx, sill - h + 2, cx - R(w * 0.16), sill - R(h * 0.6), C.stoneDark, lit ? 0.75 : 0.6);
   line(g, cx, sill - h + 2, cx + R(w * 0.16), sill - R(h * 0.6), C.stoneDark, lit ? 0.75 : 0.6);
@@ -118,28 +132,32 @@ function courtColumn(g, cx, topY, bottomY, cw, ux, accent, lit) {
   const h = bottomY - topY;
   const half = R(cw / 2);
   // 立面投影：光从右窗来，影子落左墙（两层硬边，越贴柱越深）
-  fill(g, cx - half - R(11 * ux), topY + R(2 * ux), R(6 * ux), h, C.void, 0.3);
-  fill(g, cx - half - R(5 * ux), topY + R(2 * ux), R(4 * ux), h, C.void, 0.18);
-  // 柱身三档
-  fill(g, cx - half, topY, cw, h, C.stone, 1);
-  fill(g, cx - half, topY, R(3 * ux), h, C.stoneLight, 0.55);
-  fill(g, cx + half - R(4 * ux), topY, R(4 * ux), h, C.void, 0.45);
+  fill(g, cx - half - R(11 * ux), topY + R(2 * ux), R(6 * ux), h, C.void, 0.62);
+  fill(g, cx - half - R(5 * ux), topY + R(2 * ux), R(4 * ux), h, C.void, 0.48);
+  // 柱身剪影：整根压成 stoneDark（不再用 stone），只留 1px 受光棱 + 1px 次亮棱。
+  // 四根柱成了一排黑柱，把整面墙切段——画面才有骨架，而不是一片淡紫
+  fill(g, cx - half, topY, cw, h, C.stoneDark, 1);
+  fill(g, cx - half, topY, 1, h, C.stoneLight, 0.62);
+  fill(g, cx - half + 1, topY, 1, h, C.stone, 0.32);
+  fill(g, cx + half - R(4 * ux), topY, R(4 * ux), h, C.void, 0.7);
   // 凹槽：贴柱身走的 1px 竖线（槽口压暗、槽右侧提亮）
   for (let i = 1; i <= 3; i++) {
     const fx = cx - half + R((cw * i) / 4);
-    fill(g, fx, topY + R(6 * ux), 1, h - R(12 * ux), C.void, 0.42);
-    fill(g, fx + 1, topY + R(6 * ux), 1, h - R(12 * ux), C.stoneLight, 0.18);
+    fill(g, fx, topY + R(6 * ux), 1, h - R(12 * ux), C.void, 0.85);
+    fill(g, fx + 1, topY + R(6 * ux), 1, h - R(12 * ux), C.stone, 0.34);
   }
   // 柱头三级：冠板 / 钟形 / 颈线
   fill(g, cx - half - R(5 * ux), topY - R(5 * ux), cw + R(10 * ux), R(5 * ux), C.stoneLight, 0.9);
   fill(g, cx - half - R(5 * ux), topY - R(5 * ux), cw + R(10 * ux), 1, C.white, 0.3);
   fill(g, cx - half - R(5 * ux), topY - 1, cw + R(10 * ux), 1, C.stoneDark, 0.9);
   fill(g, cx - half - R(2 * ux), topY, cw + R(4 * ux), R(2 * ux), C.stoneDark, 0.8);
-  // 柱础三级：台座 / 圆盘 / 收口
-  fill(g, cx - half - R(6 * ux), bottomY - R(6 * ux), cw + R(12 * ux), R(6 * ux), C.stoneDark, 1);
-  fill(g, cx - half - R(6 * ux), bottomY - R(6 * ux), cw + R(12 * ux), 1, C.stone, 0.65);
-  fill(g, cx - half - R(8 * ux), bottomY - R(2 * ux), cw + R(16 * ux), R(2 * ux), C.stoneDark, 1);
-  fill(g, cx - half - R(8 * ux), bottomY - R(2 * ux), cw + R(16 * ux), 1, C.stoneLight, 0.4);
+  // 柱础三级：台座 / 圆盘 / 收口（暗体 + 1px 受光棱，柱脚再压一道接地影）
+  fill(g, cx - half - R(6 * ux), bottomY - R(6 * ux), cw + R(12 * ux), R(6 * ux), C.void, 1);
+  fill(g, cx - half - R(6 * ux), bottomY - R(6 * ux), cw + R(12 * ux), 1, C.stone, 0.55);
+  fill(g, cx - half - R(6 * ux), bottomY - R(5 * ux), cw + R(12 * ux), 1, C.void, 0.6);
+  fill(g, cx - half - R(8 * ux), bottomY - R(2 * ux), cw + R(16 * ux), R(2 * ux), C.void, 1);
+  fill(g, cx - half - R(8 * ux), bottomY - R(2 * ux), cw + R(16 * ux), 1, C.stoneLight, 0.45);
+  fill(g, cx - half - R(12 * ux), bottomY, cw + R(24 * ux), 2, C.void, 0.85);
   // 迎光柱：左边沿吃一档幕色（只给受光面，不整根染色）
   if (lit) fill(g, cx - half, topY + R(8 * ux), 1, h - R(16 * ux), accent, 0.22);
 }
@@ -197,11 +215,11 @@ export function back(g, L) {
   // 后墙：整面先压到 nightDeep，再用砌缝与受光面把 - 石块 - 一块块抬出来
   const wallH = horizon - wallY;
   const rowH = Math.max(6, R(12 * ux));
-  fill(g, 0, wallY, w, wallH, C.nightDeep, 1);
+  fill(g, 0, wallY, w, wallH, C.ink, 1);
   fill(g, 0, wallY, w, 1, C.void, 0.7);
   for (let y = wallY + rowH; y < horizon - 1; y += rowH) {
     fill(g, 0, y, w, 1, C.void, 0.62);          // 横缝
-    fill(g, 0, y - R(rowH * 0.55), w, Math.max(1, R(rowH * 0.5)), C.stoneDark, 0.55); // 石面受光带
+    fill(g, 0, y - R(rowH * 0.55), w, Math.max(1, R(rowH * 0.5)), C.stoneDark, 0.72); // 石面受光带
     fill(g, 0, y - 1, w, 1, C.stone, 0.14);     // 缝上亮唇
   }
   const jointStep = R(76 * ux);
@@ -213,8 +231,13 @@ export function back(g, L) {
       fill(g, x + 1, y, 1, Math.min(rowH, horizon - y), C.stone, 0.12);
     }
   }
+  // 深廊：柱与柱之间整段压成实色 void（不叠半透明紫灰），墙才真的暗下去；
+  // 中段只压一半，给法典碑留一块「亮石从黑墙里浮出来」的底
+  for (const [p0, p1, a] of [[0, 0.045, 0.95], [0.045, 0.215, 0.9], [0.215, 0.29, 0.55], [0.29, 0.5, 0.5], [0.5, 0.62, 0.3], [0.62, 0.815, 0.12], [0.815, 0.955, 0.9], [0.955, 1, 0.95]]) {
+    fill(g, R(w * p0), wallY, R(w * (p1 - p0)) + 1, wallH, C.void, a);
+  }
   // 暗部：檐下的投光死角 + 左半厅的深影 + 右半厅的受光（平涂硬边，不做渐变）
-  fill(g, 0, wallY, w, R(wallH * 0.16), C.void, 0.35);
+  fill(g, 0, wallY, w, R(wallH * 0.16), C.void, 0.55);
   poly(g, [
     { x: 0, y: wallY }, { x: R(w * 0.22), y: wallY },
     { x: R(w * 0.12), y: horizon }, { x: 0, y: horizon },
@@ -232,12 +255,12 @@ export function back(g, L) {
     { x: w, y: horizon }, { x: R(w * 0.6), y: horizon },
   ], C.stone, 0.12);
 
-  // 墙裙：与地面交界压一道亮顶暗身的基座，托住所有中景物件
-  fill(g, 0, horizon - wainH, w, wainH, C.stoneDark, 1);
-  fill(g, 0, horizon - wainH, w, R(wainH * 0.5), C.stone, 0.5);
-  fill(g, 0, horizon - wainH, w, 1, C.stoneLight, 0.9);
-  fill(g, 0, horizon - wainH + 1, w, 1, C.void, 0.4);
-  for (let x = 0; x < w; x += R(30 * ux)) fill(g, x, horizon - wainH + 2, 1, wainH - 2, C.void, 0.45);
+  // 墙裙：压成一条黑基座，顶上只留 1px 受光棱——墙与地的分界靠它，不靠色差
+  fill(g, 0, horizon - wainH, w, wainH, C.void, 1);
+  fill(g, 0, horizon - wainH, w, R(wainH * 0.45), C.stoneDark, 0.75);
+  fill(g, 0, horizon - wainH, w, 1, C.stoneLight, 0.7);
+  fill(g, 0, horizon - wainH + 1, w, 1, C.stone, 0.35);
+  for (let x = 0; x < w; x += R(30 * ux)) fill(g, x, horizon - wainH + 2, 1, wainH - 2, C.void, 0.8);
   fill(g, 0, horizon - 1, w, 1, C.void, 0.9);
 
   // 右窗洒在墙上的光（硬边梯形，只抬受光侧，不整片染色）
@@ -258,7 +281,7 @@ export function back(g, L) {
   gothicWindow(g, lcx, winSill, winW, winH, ux, true, accent);
   // 受光高窗的亮核：玻璃再压两层，成为全画最亮的地方
   fill(g, lcx - R(winW * 0.3), winSill - R(winH * 0.8), R(winW * 0.6), R(winH * 0.5), accent, 0.2);
-  fill(g, lcx - R(winW * 0.14), winSill - R(winH * 0.7), R(winW * 0.28), R(winH * 0.3), C.white, 0.16);
+  fill(g, lcx - R(winW * 0.14), winSill - R(winH * 0.7), R(winW * 0.28), R(winH * 0.3), C.white, 0.24);
   // 阶梯光晕：硬边两层，模拟窗光外溢
   fill(g, lcx - R(winW * 0.5) - R(9 * ux), winTop - R(6 * ux), winW + R(18 * ux), winH + R(12 * ux), accent, 0.05);
   fill(g, lcx - R(winW * 0.5) - R(4 * ux), winTop - R(3 * ux), winW + R(8 * ux), winH + R(6 * ux), accent, 0.035);
@@ -278,14 +301,17 @@ export function back(g, L) {
   // —— 高窗光柱：梯形底 + 叠加半透明矩形叠出体积（硬边，不做模糊） ——
   const bx0 = lcx - R(winW / 2);
   const bx1 = lcx + R(winW / 2);
-  poly(g, [
-    { x: bx0, y: winSill }, { x: bx1, y: winSill },
-    { x: bx1 - R(8 * ux), y: horizon }, { x: bx0 - R(56 * ux), y: horizon },
-  ], accent, 0.05);
-  for (let i = 0; i < 4; i++) {
-    const y = winSill + R(((horizon - winSill) * i) / 4);
-    const hh = R((horizon - winSill) / 4);
-    fill(g, bx0 - R(i * 7 * ux), y, (bx1 - bx0) + R(i * 14 * ux), hh, accent, 0.03 + i * 0.008);
+  // 光柱边缘按 3px 一格的阶梯往外散（直边梯形会读成帐篷），内部三层递减叠加、越靠下越散
+  const shaftH = horizon - winSill;
+  const steps = Math.max(3, Math.round(shaftH / 3));
+  const span0 = bx1 - bx0;
+  for (let k = 0; k < steps; k++) {
+    const y = winSill + R((shaftH * k) / steps);
+    const sl = Math.max(1, winSill + R((shaftH * (k + 1)) / steps) - y);
+    const spread = R(k * 3.6 * ux);
+    fill(g, bx0 - spread, y, span0 + spread * 2, sl, accent, 0.04);
+    fill(g, bx0 - R(spread * 0.55), y, span0 + R(spread * 1.1), sl, accent, 0.07);
+    fill(g, bx0 + R(3 * ux), y, Math.max(4, span0 - R(6 * ux)), sl, accent, 0.1);
   }
   // 左（背光）窗：只漏一点冷灰的环境光，不抢右窗
   const ax0 = dcx - R(winW / 2);
@@ -314,18 +340,19 @@ export function mid(g, L) {
   farRail(g, L);
   columnShadows(g, L);
 
-  // 三块判词碑：远排小、中排居中且歪斜、近排最大（基座 y 各自不同、碑首造型各异）
+  // 三块判词碑：近排最大且歪立（圆首）/ 中排正立完整（收尖）/ 远排崩口（只有近排六成高）
   const tx = [0.135, 0.235, 0.315];
   const tws = [46, 34, 26];
   const ths = [64, 46, 34];
+  // 断掉的上半截碑躺在地上，法槌头落在它断口旁——「这里审判过」。
+  // 先画、且贴着左端：放在碑列前面会叠到近排碑面上，被读成碑上的黄把手
+  fallenStele(g, R(w * 0.035), ground - R(8 * v), R(30 * ux), R(7 * v), ux, v);
   for (let i = 0; i < 3; i++) {
     const bw = R(tws[i] * ux);
     const bh = R(ths[i] * v);
     const by = ground - (i === 0 ? 0 : i === 1 ? R(13 * v) : R(26 * v));
     stele(g, R(w * tx[i]), by, bw, bh, ux, v, i);
   }
-  // 断掉的上半截碑躺在地上，法槌头还压在它旁边——「这里审判过」
-  fallenStele(g, R(w * 0.16), ground - R(8 * v), R(30 * ux), R(7 * v), ux, v);
 
   judgeBench(g, L, ground, v, ux);
   scales(g, R(w * 0.6875), ground, v, ux, L.accent);
@@ -336,8 +363,8 @@ export function mid(g, L) {
   // 竖屏才有的近地面：石徽 + 两根落地烛架，把大块空地面收住
   if (L.tall) {
     floorMedallion(g, R(w / 2), base - R(58 * v), v);
-    floorLamp(g, R(w * 0.08), base - R(6 * v), v);
-    floorLamp(g, R(w * 0.94), base - R(6 * v), v);
+    floorLamp(g, R(w * 0.08), base - R(20 * v), v);   // 站在近景栏杆之后：太靠下会被栏杆压住，只剩三根蜡烛在飘
+    floorLamp(g, R(w * 0.94), base - R(20 * v), v);
   }
 }
 
@@ -403,24 +430,46 @@ function marbleFloor(g, L, base) {
     const y2 = ys[i + 1];
     const hh = y2 - y;
     if (hh <= 0) continue;
-    const tier = i < 2 ? 0 : i < 5 ? 1 : 2;
-    fill(g, 0, y, w, hh, tier === 0 ? C.void : tier === 1 ? C.nightDeep : C.stoneDark, 1);
-    if (tier === 1) fill(g, 0, y, w, hh, C.stoneDark, 0.5);
-    if (tier === 2) fill(g, 0, y, w, hh, C.stone, 0.32);
+    // 明度分档按「看得见的深度」切：远景栏杆到碑座之间只有 39px，近排必须提前开始
+    const tier = i < 2 ? 0 : i < 4 ? 1 : 2;
+    // 三档明度彻底拉开：远排 ink（退进黑里）/ 中排 stone / 近排 stoneLight + 冷光
+    fill(g, 0, y, w, hh, tier === 0 ? C.ink : tier === 1 ? C.stone : C.stoneLight, 1);
+    if (tier === 0) fill(g, 0, y, w, hh, C.void, 0.55);
+    if (tier === 1) fill(g, 0, y, w, hh, C.stoneLight, 0.34);
+    if (tier === 2) {
+      fill(g, 0, y, w, hh, C.groove, 0.16);                                  // 近排抬一档
+      fill(g, 0, y + R(hh * 0.62), w, hh - R(hh * 0.62), C.stone, 0.35);     // 后缘回落，石板有厚度
+    }
+    // 每块石板略作明暗差（固定错位取模，不用随机）：整片地面才不是一块平色块
+    const tile = R(w / 6);
+    for (let tI = 0; tI < 6; tI++) {
+      const m = (tI * 2 + i * 2 + (i >> 1)) % 3;
+      if (m === 0) continue;
+      fill(g, tI * tile, y, tile, hh, m === 1 ? C.void : C.stone, tier === 0 ? 0.12 : 0.08);
+    }
   }
   // 石缝必须整排铺完之后再画——否则每条缝都被下一排的填色盖掉，地面就成了一块平板
   for (let i = 1; i <= rows; i++) {
     const y = ys[i];
     if (y >= base) break;
     const near = i >= 5;
-    fill(g, 0, y, w, 1, C.void, near ? 0.88 : 0.72);
-    fill(g, 0, y + 1, w, 1, C.stone, near ? 0.52 : 0.26);
+    fill(g, 0, y, w, 1, C.void, near ? 0.92 : 0.8);                            // 1px 深缝
+    fill(g, 0, y - 1, w, 1, near ? C.groove : C.stoneLight, near ? 0.4 : 0.45); // 缝上沿受光
+    fill(g, 0, y + 1, w, 1, C.void, 0.22);                                     // 缝下阴影
   }
-  // 纵缝：从消失点放射的透视缝，近处加粗
+  // 纵缝：从灭点放射的透视缝，越近越粗（2–3px）；缝里压暗，右侧留一条石面亮唇
+  const vpx = R(w / 2);
+  const vpy = horizon + 1;
   for (let i = -3; i <= 3; i++) {
     if (!i) continue;
-    line(g, R(w / 2) + i * 9, horizon + 1, R(w / 2) + i * 96, base + R(dy * 0.3), C.void, 0.5);
-    line(g, R(w / 2) + i * 9 + 1, horizon + 1, R(w / 2) + i * 96 + 1, base + R(dy * 0.3), C.stone, 0.18);
+    const fx = vpx + i * 9;
+    const nx = vpx + i * 104;
+    const tw = Math.abs(i) % 2 ? 3 : 2;
+    poly(g, [
+      { x: fx, y: vpy }, { x: fx + 1, y: vpy },
+      { x: nx + tw, y: base }, { x: nx, y: base },
+    ], C.void, L.tall ? 0.5 : 0.8);
+    line(g, fx + 1, vpy, nx + tw, base, C.stone, L.tall ? 0.16 : 0.22);
   }
   // 每排错开的短竖缝：一排排的石板接缝，不做成放射噪声
   for (let i = 0; i < rows; i += 2) {
@@ -432,22 +481,35 @@ function marbleFloor(g, L, base) {
       fill(g, x, y, 1, hh, C.void, 0.55);
     }
   }
+  // 左半厅不在窗光里：整片压一层 void——右窗成了唯一光源，明暗对比都从这里来
+  poly(g, [
+    { x: 0, y: horizon + 1 }, { x: R(w * 0.4), y: horizon + 1 },
+    { x: R(w * 0.28), y: base }, { x: 0, y: base },
+  ], C.void, 0.3);
+  poly(g, [
+    { x: 0, y: horizon + 1 }, { x: R(w * 0.2), y: horizon + 1 },
+    { x: R(w * 0.14), y: base }, { x: 0, y: base },
+  ], C.void, 0.2);
   // 右半地面整体受光（平涂，不是渐变）
   poly(g, [
     { x: R(w * 0.44), y: horizon + 1 }, { x: w, y: horizon + 1 },
     { x: w, y: base }, { x: R(w * 0.24), y: base },
-  ], C.stone, 0.07);
-  // 窗光池：与远景光柱接上，向近处放大
+  ], C.stone, 0.1);
+  // 冷光池：高窗光柱落地，三层由外到内叠到 0.16（冷白是全场唯一强光）
   poly(g, [
-    { x: R(w * 0.545), y: horizon + 2 }, { x: R(w * 0.702), y: horizon + 2 },
-    { x: R(w * 0.75), y: base }, { x: R(w * 0.49), y: base },
-  ], accent, 0.11);
+    { x: R(w * 0.5), y: horizon + 2 }, { x: R(w * 0.75), y: horizon + 2 },
+    { x: R(w * 0.81), y: base }, { x: R(w * 0.45), y: base },
+  ], accent, 0.06);
   poly(g, [
-    { x: R(w * 0.585), y: horizon + 3 }, { x: R(w * 0.665), y: horizon + 3 },
-    { x: R(w * 0.69), y: base }, { x: R(w * 0.57), y: base },
-  ], accent, 0.075);
+    { x: R(w * 0.56), y: horizon + 2 }, { x: R(w * 0.7), y: horizon + 2 },
+    { x: R(w * 0.75), y: base }, { x: R(w * 0.52), y: base },
+  ], accent, 0.1);
+  poly(g, [
+    { x: R(w * 0.595), y: horizon + 2 }, { x: R(w * 0.672), y: horizon + 2 },
+    { x: R(w * 0.705), y: base }, { x: R(w * 0.565), y: base },
+  ], accent, 0.16);
   // 抛光地面的窗影反光：一排横向短光（贴着光池走）
-  for (const [f, x0, len, a] of [[0.09, 0.62, 26, 0.17], [0.2, 0.6, 40, 0.13], [0.35, 0.63, 52, 0.1], [0.52, 0.58, 34, 0.07]]) {
+  for (const [f, x0, len, a] of [[0.09, 0.62, 26, 0.3], [0.2, 0.6, 40, 0.24], [0.35, 0.63, 52, 0.18], [0.52, 0.58, 34, 0.12]]) {
     fill(g, R(w * x0), horizon + R(dy * f), R(len), 1, accent, a);
   }
   // 竖屏：地面太深，铺一圈石嵌边（判决厅的地面分界），把大片空地板切成「庭内/庭外」
@@ -466,10 +528,11 @@ function marbleFloor(g, L, base) {
       fill(g, cxx - 2, iy2, 5, 2, C.groove, 0.34);
     }
   }
-  // 地平线的踢脚线：1px 受光 + 2px 阴影，把墙与地分开
-  fill(g, 0, horizon - 1, w, 1, C.stoneLight, 0.6);
-  fill(g, 0, horizon, w, 2, C.void, 0.9);
-  fill(g, 0, horizon + 2, w, 1, C.stoneDark, 0.85);
+  // 踢脚线：1px 受光 + 2px 深影，墙与地必须在这里断开
+  fill(g, 0, horizon - 1, w, 1, C.stoneLight, 0.75);
+  fill(g, 0, horizon, w, 2, C.void, 0.95);
+  fill(g, 0, horizon + 2, w, 1, C.void, 0.6);
+  fill(g, 0, horizon + 3, w, 1, C.stoneDark, 0.9);
 }
 
 // 远排石栏杆：整排小栏柱，压在地平线上，给中景一个「远」的层次
@@ -477,9 +540,9 @@ function farRail(g, L) {
   const { w, horizon } = L;
   const y = horizon + R(L.h * 0.012);
   const rh = Math.max(6, R(L.h * 0.026));
-  fill(g, 0, y + rh, w, 2, C.void, 0.4);
-  fill(g, 0, y, w, 2, C.stoneDark, 1);
-  fill(g, 0, y, w, 1, C.stone, 0.6);
+  fill(g, 0, y + rh, w, 3, C.void, 0.7);
+  fill(g, 0, y, w, 2, C.void, 1);
+  fill(g, 0, y, w, 1, C.stone, 0.75);
   fill(g, 0, y + rh - 1, w, 1, C.void, 0.6);
   const step = R(w / 11);
   for (let x = R(step * 0.5); x < w; x += step) {
@@ -498,11 +561,11 @@ function columnShadows(g, L) {
     poly(g, [
       { x: cx - R(8 * ux), y: horizon + 1 }, { x: cx + R(8 * ux), y: horizon + 1 },
       { x: cx - R(18 * ux), y: horizon + 2 + len }, { x: cx - R(38 * ux), y: horizon + 2 + len },
-    ], C.void, 0.28);
+    ], C.void, 0.5);
     poly(g, [
       { x: cx - R(8 * ux), y: horizon + 1 }, { x: cx + R(2 * ux), y: horizon + 1 },
       { x: cx - R(28 * ux), y: horizon + 1 + R(len * 0.6) }, { x: cx - R(42 * ux), y: horizon + 1 + R(len * 0.6) },
-    ], C.void, 0.18);
+    ], C.void, 0.34);
   }
 }
 
@@ -512,8 +575,8 @@ function lawTablet(g, cx, baseY, topY, sw, ux) {
   const bodyTop = topY + R(6 * ux);
   const bodyH = baseY - R(8 * ux) - bodyTop;
   // 投在墙上的影（光从右窗来，影子在左）：把碑从暗墙上剥出来
-  fill(g, cx - half - R(7 * ux), bodyTop, R(9 * ux), bodyH, C.void, 0.35);
-  fill(g, cx - half - R(13 * ux), bodyTop + R(6 * ux), R(6 * ux), bodyH - R(6 * ux), C.void, 0.2);
+  fill(g, cx - half - R(7 * ux), bodyTop, R(9 * ux), bodyH, C.void, 0.7);
+  fill(g, cx - half - R(15 * ux), bodyTop + R(6 * ux), R(8 * ux), bodyH - R(6 * ux), C.void, 0.45);
   // 碑首：出檐一级（亮）→ 檐下阴影一级 → 平顶
   fill(g, cx - half - R(3 * ux), topY, sw + R(6 * ux), R(3 * ux), C.stone, 1);
   fill(g, cx - half - R(3 * ux), topY, sw + R(6 * ux), 1, C.stoneLight, 0.75);
@@ -546,105 +609,119 @@ function lawTablet(g, cx, baseY, topY, sw, ux) {
   fill(g, cx - half - R(5 * ux), baseY - R(4 * ux), sw + R(10 * ux), 1, C.stoneLight, 0.7);
 }
 
-// 一块判词碑：两级碑座 + 凹面碑身 + 阴刻行 + 三款碑首；kind===1 那块被撞歪（整体剪切）
+// 一块判词碑：碑身与碑首同宽，顶端逐行收窄（圆首 / 收尖 / 崩口），碑脚沉进地面
+// kind 0 = 近排（最大、整体歪 2–3px、圆首）/ 1 = 中排（正立完整、收尖）/ 2 = 远排（上缘崩口、只有近排六成高）
 function stele(g, x, baseY, w, h, ux, v, kind) {
-  const t = kind === 1 ? R(6 * ux) : 0;   // 剪切量：顶边向左错开，读作「歪了」
-  const top = baseY - h;
-  const topX = x - t;
-  const cw = w - t;                        // 碑身正面（矩形内芯，含在斜身里面）
-  // 落影 + 两级碑座（碑脚压黑，碑才站得住；歪的那块，碑座也跟着错开）
-  fill(g, x - R(9 * ux) - R(t / 2), baseY + 1, w + R(18 * ux), 2, C.void, 0.55);
-  fill(g, x - R(6 * ux) - R(t / 2), baseY - R(5 * v), w + R(12 * ux), R(5 * v), C.stoneDark, 1);
-  fill(g, x - R(6 * ux) - R(t / 2), baseY - R(5 * v), w + R(12 * ux), 1, C.stone, 0.95);
-  fill(g, x - R(6 * ux) - R(t / 2), baseY - R(5 * v), 1, R(5 * v), C.void, 0.55);
-  fill(g, x - R(8 * ux) - R(t / 2), baseY - R(2 * v), w + R(16 * ux), R(2 * v), C.void, 0.9);
-  fill(g, x - R(8 * ux) - R(t / 2), baseY - R(2 * v), w + R(16 * ux), 1, C.stoneLight, 0.45);
-  // 碑身：近排最亮，往后逐排压暗（空气透视）
-  if (t) {
-    poly(g, [
-      { x: topX, y: top }, { x: topX + w, y: top },
-      { x: x + w, y: baseY }, { x, y: baseY },
-    ], C.stone, 1);
-    fill(g, x, top, cw, h, C.stone, 1);
-    line(g, topX + w, top, x + w, baseY, C.stoneLight, 0.5);
-  } else {
-    fill(g, x, top, w, h, C.stone, 1);
-    fill(g, x + w - 1, top, 1, h, C.stoneLight, 0.9);
-    fill(g, x + w - 2, top, 1, h, C.stoneLight, 0.35);
-  }
-  if (kind > 0) fill(g, x, top, w - t, h, C.stoneDark, kind === 1 ? 0.22 : 0.34);
-  fill(g, x, top, 1, h, C.void, 0.6);
-  fill(g, x + 1, top, 1, h, C.stoneDark, 0.45);
-  fill(g, x, top, w - t, 1, C.stoneLight, kind === 0 ? 0.6 : 0.35);
-  fill(g, x, top + 1, w - t, 1, C.void, 0.3);
-  // 凹面：内缩 5px 的浅凹，读作「凿出来的碑面」而不是柜门
-  const ix = x + 5;
-  const iy = top + R(h * 0.14);
-  const iw = Math.max(6, cw - 10);
-  const ih = h - R(h * 0.26);
-  fill(g, ix, iy, iw, ih, C.stoneDark, 0.16);
-  fill(g, ix, iy, iw, 1, C.stoneDark, 0.55);
-  // 碑额：碑首下方刻一枚天平（相由「衡量」而出的那一眼）
-  let inkTop = iy + 4;
+  const tilt = kind === 0 ? Math.max(2, R(2.6 * ux)) : 0;   // 只有近排歪：碑顶比碑脚错开 2–3px
+  const sink = Math.max(2, R(2 * v));                       // 碑脚沉进地面 2–3px，不悬空
+  const bottom = baseY + sink;
+  const top = bottom - h;
+  const crownH = kind === 0 ? 6 : kind === 1 ? 8 : 0;                        // 碑首 = 碑身顶端逐行收窄的那几行，不是盖板
+  const bodyTop = top + crownH;
+  const bodyH = bottom - bodyTop;
+  const dim = kind === 0 ? 0.34 : kind === 1 ? 0.46 : 0.52; // 空气透视：越远越暗
+  // 该高度处的横向错位：碑脚不动，越往上越偏（只有近排用得上）
+  const sk = (y) => (tilt ? Math.max(0, Math.min(tilt, R((tilt * (bottom - y)) / Math.max(1, h)))) : 0);
+  const bt = x + sk(bodyTop);                               // 碑身顶部左边
+  const lean = [
+    { x: bt, y: bodyTop }, { x: bt + w, y: bodyTop },
+    { x: x + w, y: bottom }, { x, y: bottom },
+  ];
+  // 落地影：先在地上压一道，碑才不是贴上去的（光从右窗来，影子往左偏）
+  fill(g, x - Math.max(1, R(7 * ux)), baseY + 1, w + Math.max(3, R(14 * ux)), Math.max(2, R(3 * v)), C.void, 0.8);
+
+  // 碑身：rect 打底保证实心，歪的那块再用同色梯形把顶端推出 2–3px
+  fill(g, x, bodyTop, w, bodyH, C.stone, 1);
+  if (tilt) poly(g, lean, C.stone, 1);
+  // 整碑压暗一档：碑在亮地板上是「暗块」，轮廓靠 1px 棱线读，不靠本体明度
+  fill(g, x, bodyTop, w, bodyH, C.stoneDark, dim);
+  if (tilt) poly(g, lean, C.stoneDark, dim);
+  // 左右各 1px 竖棱拉出厚度：左棱压到近实黑，右棱接窗光
+  line(g, bt, bodyTop, x, bottom, C.void, 0.9);
+  line(g, bt + w - 1, bodyTop, x + w - 1, bottom, C.stoneLight, 0.95);
+
+  // 碑面：内缩的浅凹（只比碑身暗一点点 + 上沿一道薄影）——四边描线会读成柜门
+  const pad = Math.max(4, R(5 * ux));
+  const iy = bodyTop + Math.max(3, R(bodyH * 0.15));
+  const ih = Math.max(6, bodyH - Math.max(6, R(bodyH * 0.3)));
+  const iw = Math.max(6, w - pad * 2);
+  const ix = x + pad + sk(iy + R(ih / 2));
+  fill(g, ix, iy, iw, ih, C.stoneDark, 0.34);
+  fill(g, ix, iy, iw, 1, C.void, 0.45);
+  fill(g, ix, iy + ih - 1, iw, 1, C.stone, 0.22);
+  // 碑额：6×6 的小星纹（菱形 + 心点）——横条加短竖在 1x 下就是「拉手」
+  let inkTop = iy + 3;
   if (kind < 2) {
-    const es = Math.max(3, R(iw * 0.16));
-    balanceGlyph(g, ix + R(iw / 2), iy + 5, es, C.ink, 0.8);
-    fill(g, ix + R(iw / 2) - es, iy + 9, es * 2 + 1, 1, C.white, 0.18);
-    inkTop = iy + 13;
+    const ex = ix + R(iw / 2);
+    const ey = iy + 4;
+    poly(g, [{ x: ex - 2, y: ey + 2 }, { x: ex, y: ey }, { x: ex + 2, y: ey + 2 }, { x: ex, y: ey + 5 }], C.ink, 0.9);
+    fill(g, ex, ey + 2, 1, 1, C.white, 0.3);
+    inkTop = iy + 9;
   }
-  // 阴刻：一行行错落的横刻痕（刻痕 = 暗口 + 下唇受光），读作刻满判词的碑面
-  let row = 0;
-  for (let yy = inkTop; yy + 1 < iy + ih - 3; yy += 4) {
-    const indent = [1, 0, 2, 1, 0][row % 5];
-    const cut = [0, 1, 0, 2, 1][row % 5];
-    const rx = ix + R(iw * 0.06) + indent;
-    const rw = Math.max(4, iw - R(iw * 0.12) - cut);
-    fill(g, rx, yy, rw, 1, C.ink, 0.85);
-    fill(g, rx, yy + 1, rw, 1, C.white, 0.15);
-    row += 1;
+  // 碑文：3–5 行 1px 阴刻，每行断成 2–3 段（长短错落）——通栏等距横线会读成抽屉缝
+  const textRows = kind === 0 ? 5 : kind === 1 ? 4 : 3;
+  const rowStepY = Math.max(5, R(ih / (textRows + 1.1)));
+  const chunkPat = [[0.86, 0.1], [0.52, 0.34], [0.72, 0.2], [0.44, 0.42], [0.62, 0.26]];
+  for (let r = 0; r < textRows; r++) {
+    const yy = inkTop + 1 + r * rowStepY;
+    if (yy + 1 > iy + ih - 2) break;
+    const pat = chunkPat[(r + kind) % 5];
+    const indent = r === 0 ? R(iw * 0.18) : R(iw * 0.08);
+    const avail = iw - indent - R(iw * 0.1);
+    const w1 = Math.max(3, R(avail * pat[0]));
+    fill(g, ix + indent, yy, w1, 1, C.ink, 0.9);
+    if (r < textRows - 1 || kind !== 2) {
+      const w2 = Math.max(2, R(avail * pat[1]));
+      const gap = Math.max(2, R(iw * 0.06));
+      if (indent + w1 + gap + w2 < iw - 1) fill(g, ix + indent + w1 + gap, yy, w2, 1, C.ink, 0.9);
+    }
+    fill(g, ix + indent, yy + 1, w1, 1, C.stone, 0.22);   // 刻线口下沿的返光
   }
-  // 碑首三款轮廓：近排尖顶+宝顶 / 中排平檐 / 远排斜顶
+  // 碑首：与碑身同宽、逐行收窄，直接从碑身顶上长出来（没有外檐、盖板、顶钮）
   if (kind === 0) {
-    // 圆首碑：碑首是半圆（与左右尖拱高窗刻意不同形，远看不会认成窗）
-    poly(g, [
-      { x: topX - 2, y: top + 1 }, { x: topX - 2, y: top - R(w * 0.1) },
-      { x: topX + R(w * 0.16), y: top - R(w * 0.32) },
-      { x: topX + R(w * 0.5), y: top - R(w * 0.4) },
-      { x: topX + R(w * 0.84), y: top - R(w * 0.32) },
-      { x: topX + w + 2, y: top - R(w * 0.1) },
-      { x: topX + w + 2, y: top + 1 },
-    ], C.stone, 1);
-    fill(g, topX + R(w * 0.2), top - R(w * 0.32) + 1, R(w * 0.6), 1, C.stoneLight, 0.6);
-    fill(g, topX + R(w * 0.5) - 2, top - R(w * 0.4), R(w * 0.1), 2, C.stoneLight, 0.8);
-    fill(g, topX - 2, top - 1, w + 4, 1, C.stoneDark, 0.75);
+    const arc = [0.94, 0.86, 0.74, 0.6, 0.44, 0.24];
+    for (let k = 0; k < arc.length; k++) {
+      const cw2 = Math.max(2, R(w * arc[k]));
+      const cxx = x + sk(bodyTop - k) + R((w - cw2) / 2);
+      const cy = bodyTop - 1 - k;
+      fill(g, cxx, cy, cw2, 1, C.stone, 1);
+      fill(g, cxx, cy, cw2, 1, C.stoneDark, dim);
+      fill(g, cxx + cw2 - 1, cy, 1, 1, C.stoneLight, 0.7);
+    }
   } else if (kind === 1) {
-    fill(g, topX - 2, top - 2, w + 4, 2, C.stone, 1);
-    fill(g, topX - 2, top - 2, w + 4, 1, C.stoneLight, 0.6);
-    fill(g, topX + R(w * 0.12), top - 5, R(w * 0.76), 3, C.stone, 1);
-    fill(g, topX + R(w * 0.12), top - 5, R(w * 0.76), 1, C.stoneLight, 0.45);
-    fill(g, topX + R(w * 0.34), top - 7, R(w * 0.32), 2, C.stoneDark, 0.95);
+    // 尖首：四行逐行收窄到 3px（三行收不尖，1x 下和圆首分不开）
+    const tip = [0.74, 0.5, 0.26, 0.08];
+    for (let k = 0; k < tip.length; k++) {
+      const cw2 = Math.max(2, R(w * tip[k]));
+      const cxx = x + R((w - cw2) / 2);
+      const cy = bodyTop - 2 - k * 2;
+      fill(g, cxx, cy, cw2, 2, C.stone, 1);
+      fill(g, cxx, cy, cw2, 2, C.stoneDark, dim);
+      fill(g, cxx + cw2 - 1, cy, 1, 2, C.stoneLight, 0.6);
+    }
   } else {
-    // 断碑：碑首不是造型，是崩掉的——锯齿状裂口 + 一道斜裂缝
-    poly(g, [
-      { x: topX - 2, y: top + 1 }, { x: topX + R(w * 0.18), y: top - 5 },
-      { x: topX + R(w * 0.34), y: top - 2 }, { x: topX + R(w * 0.52), y: top - 7 },
-      { x: topX + R(w * 0.66), y: top - 3 }, { x: topX + R(w * 0.82), y: top - 6 },
-      { x: topX + w + 2, y: top + 1 },
-    ], C.stone, 1);
-    line(g, topX + R(w * 0.18), top - 5, topX + R(w * 0.34), top - 2, C.stoneLight, 0.6);
-    line(g, topX + R(w * 0.52), top - 7, topX + R(w * 0.66), top - 3, C.stoneLight, 0.6);
-    line(g, topX + R(w * 0.72), top + 1, topX + R(w * 0.58), top + R(h * 0.3), C.void, 0.5);
+    // 断碑：碑首不是造型，是崩掉的——顶上只剩几枚高低不齐的残齿，缺口露出黑墙
+    const teeth = [[0.04, 0.2, 5], [0.3, 0.22, 3], [0.58, 0.2, 6], [0.82, 0.14, 3]];
+    for (const [fx, fw, fh] of teeth) {
+      const tx = x + Math.max(0, R(w * fx));
+      const tw = Math.max(2, R(w * fw));
+      const th = Math.max(2, R(fh * v));
+      fill(g, tx, bodyTop - th, tw, th, C.stone, 1);
+      fill(g, tx, bodyTop - th, tw, th, C.stoneDark, dim + 0.08);
+      fill(g, tx, bodyTop - th, tw, 1, C.stoneLight, 0.45);
+    }
+    line(g, x + R(w * 0.62), bodyTop, x + R(w * 0.5), bodyTop + R(bodyH * 0.35), C.void, 0.5);
   }
-  // 蜡印：判词已落款的证据（只在歪掉的那块）
+  // 蜡印：不放在碑面正中（正中红点读作把手），压在碑脚右下角
   if (kind === 1) {
-    const sx = ix + R(iw * 0.6);
-    const sy = iy + R(ih * 0.62);
-    fill(g, sx, sy, 7, 7, C.bloodDark, 0.95);
-    fill(g, sx + 1, sy + 1, 5, 5, C.blood, 1);
-    fill(g, sx + 2, sy + 2, 2, 2, C.bloodDark, 0.9);
-    fill(g, sx + 3, sy + 6, 1, 2, C.blood, 0.7);
+    const sx = x + w - Math.max(4, R(6 * ux));
+    const sy = bottom - Math.max(4, R(6 * v));
+    disc(g, sx, sy, 2, C.bloodDark, 0.95);
+    disc(g, sx, sy, 1, C.blood, 1);
+    fill(g, sx - 1, sy - 4, 1, 2, C.bloodDark, 0.85);   // 蜡泪
   }
-  fill(g, x - R(5 * ux), baseY - 4, w + R(10 * ux), 1, C.void, 0.3);
+  // 碑脚：地面线上补 1px 受光；碑底已经沉进地面，不再另做台座
+  fill(g, x - Math.max(1, R(2 * ux)), bottom - 1, w + Math.max(2, R(4 * ux)), 1, C.stoneLight, 0.3);
 }
 
 // 倒伏的判词碑：横躺在地、断口朝右，法槌头还压在断口上——「这里审判过」
@@ -677,11 +754,14 @@ function fallenStele(g, x, baseY, w, h, ux, v) {
   const gy = baseY - R(9 * v);
   fill(g, gx - 1, gy - 1, R(13 * ux) + 2, R(9 * v) + 2, C.void, 0.45);
   fill(g, gx, gy, R(12 * ux), R(9 * v), C.brass, 1);
-  fill(g, gx, gy, R(12 * ux), R(2 * v), C.brassLight, 0.65);
+  fill(g, gx, gy, R(12 * ux), R(2 * v), C.brassLight, 0.7);              // 槌头顶面
+  fill(g, gx + R(2 * ux), gy + R(2 * v), 1, R(5 * v), C.brassLight, 0.35); // 槌头棱线
   fill(g, gx, gy + R(9 * v) - 1, R(12 * ux), 1, C.brassDark, 1);
+  fill(g, gx, gy + R(4 * v), R(12 * ux), 1, C.brassDark, 0.55);           // 铜箍
   fill(g, gx + R(12 * ux), gy + R(3 * v), R(10 * ux), R(2 * v), C.brassDark, 1);
-  fill(g, gx + R(12 * ux), gy + R(3 * v), R(10 * ux), 1, C.brass, 0.8);
-  fill(g, gx + R(21 * ux), gy + R(3 * v), R(2 * ux), R(2 * v), C.ink, 1);
+  fill(g, gx + R(12 * ux), gy + R(3 * v), R(10 * ux), 1, C.brass, 0.9);   // 柄受光
+  fill(g, gx + R(20 * ux), gy + R(2 * v), R(3 * ux), R(4 * v), C.brassDark, 1);
+  fill(g, gx + R(20 * ux), gy + R(2 * v), R(3 * ux), 1, C.brassLight, 0.6);
   // 倒下的碑首（斜靠在地上，露出檐口）
   poly(g, [
     { x: x - R(12 * ux), y: baseY }, { x: x - R(4 * ux), y: baseY - R(7 * v) },
@@ -703,6 +783,7 @@ function judgeBench(g, L, ground, v, ux) {
   // 法官高背座（先铺一圈暗边 + 投影，把剪影从墙上剥出来）
   fill(g, cx - R(chairW / 2) - R(3 * ux), chairTop - R(3 * v), chairW + R(6 * ux), R(31 * v) + R(3 * v), C.void, 0.55);
   fill(g, cx - R(chairW / 2), chairTop, chairW, R(30 * v), C.stone, 0.95);
+  fill(g, cx - R(chairW / 2), chairTop, chairW, R(30 * v), C.void, 0.3);
   fill(g, cx - R(chairW / 2), chairTop, R(2 * ux), R(30 * v), C.stoneLight, 0.55);
   fill(g, cx + R(chairW / 2) - R(2 * ux), chairTop, R(2 * ux), R(30 * v), C.void, 0.4);
   fill(g, cx - R(chairW / 2), chairTop, chairW, 1, C.stoneLight, 0.4);
@@ -720,6 +801,7 @@ function judgeBench(g, L, ground, v, ux) {
 
   // 桌板与桌沿
   fill(g, cx - R(deskW / 2), deskTop, deskW, deskH, C.stone, 1);
+  fill(g, cx - R(deskW / 2), deskTop + 1, deskW, deskH - 1, C.void, 0.3);
   fill(g, cx - R(deskW / 2), deskTop, deskW, 1, C.stoneLight, 0.85);
   fill(g, cx + R(deskW * 0.12), deskTop, R(deskW * 0.3), 1, accent, 0.22);
   fill(g, cx - R(deskW / 2), deskTop + deskH - 1, deskW, 1, C.void, 0.5);
@@ -735,9 +817,13 @@ function judgeBench(g, L, ground, v, ux) {
     fill(g, px, py, pw, ph, C.stoneDark, 0.95);
     fill(g, px, py, pw, 1, C.stoneLight, 0.4);
     fill(g, px, py + ph - 1, pw, 1, C.void, 0.55);
-    fill(g, px + 3, py + R(4 * v), pw - 6, 1, C.groove, 0.45);
-    fill(g, px + 3, py + R(7 * v), pw - 10, 1, C.groove, 0.3);
-    if (i === 1) balanceGlyph(g, px + R(pw / 2), py + R(6 * v), R(4 * ux), C.groove, 0.55);
+    // 台正面是三块凹嵌板：只有正中一块刻天平徽——三块都刻徽/加横条都会读成三只抽屉
+    if (i === 1) {
+      balanceGlyph(g, px + R(pw / 2), py + R(6 * v), R(3.6 * ux), C.groove, 0.55);
+    } else {
+      fill(g, px + R(pw * 0.3), py + R(5 * v), R(pw * 0.4), 1, C.stone, 0.22);
+      fill(g, px + R(pw * 0.36), py + R(7 * v), R(pw * 0.28), 1, C.stone, 0.16);
+    }
   }
 
   // 三级台阶
@@ -759,6 +845,11 @@ function judgeBench(g, L, ground, v, ux) {
   gavel(g, cx + R(18 * ux), deskTop - 7);
   candelabrum(g, cx - R(48 * ux), deskTop, v);
   candelabrum(g, cx + R(52 * ux), deskTop, v);
+  // 案面被烛火烘出两小块暖光（冷庭里唯一的暖，面积要小）
+  for (const dx of [-48, 52]) {
+    fill(g, cx + R((dx - 9) * ux), deskTop + 1, R(18 * ux), 2, C.arcane, 0.14);
+    fill(g, cx + R((dx - 5) * ux), deskTop + 1, R(10 * ux), 1, C.arcaneLight, 0.18);
+  }
 
   // 两侧铜栏（审判台的「栏杆」，与近景石栏区分材质）
   for (const side of [-1, 1]) {
@@ -905,6 +996,9 @@ function recordStack(g, x, baseY, v, ux) {
 // 三臂烛台（未点燃）：冷庭只由高窗照明，烛台是「等待开庭」的静物
 function candelabrum(g, x, baseY, v) {
   const hh = R(8 * v);
+  // 暖光晕：冷庭里只有这一圈暖（两层硬边，不做模糊）
+  fill(g, x - R(10 * v), baseY - hh - R(16 * v), R(21 * v), R(10 * v), C.arcane, 0.05);
+  fill(g, x - R(6 * v), baseY - hh - R(13 * v), R(13 * v), R(7 * v), C.arcane, 0.08);
   fill(g, x - R(4 * v), baseY - R(2 * v), R(9 * v), R(2 * v), C.brassDark, 1);
   fill(g, x - 1, baseY - hh, 2, hh - R(2 * v), C.brassDark, 1);
   fill(g, x - 1, baseY - hh, 1, hh - R(2 * v), C.brass, 0.75);
@@ -914,13 +1008,17 @@ function candelabrum(g, x, baseY, v) {
     fill(g, cx - 1, baseY - hh - R(3 * v), 3, R(2 * v), C.brassDark, 1);
     fill(g, cx, baseY - hh - R(8 * v), 2, R(5 * v), C.parchment, 0.8);
     fill(g, cx, baseY - hh - R(8 * v), 1, R(5 * v), C.white, 0.28);
-    fill(g, cx, baseY - hh - R(10 * v), 1, R(2 * v), C.void, 0.95);
+    fill(g, cx, baseY - hh - R(11 * v), 1, R(3 * v), C.arcane, 0.95);
+    fill(g, cx - 1, baseY - hh - R(13 * v), 3, 1, C.arcaneLight, 0.3);
   }
   fill(g, x - 1, baseY - hh - R(4 * v), 1, R(2 * v), C.parchment, 0.5);
 }
 
 // 法槌：铜头 + 木柄，摊在案上
 function gavel(g, x, y) {
+  // 法槌是案上第三处暖点：铜头外一圈暖光晕
+  fill(g, x + 2, y - 3, 20, 12, C.arcane, 0.05);
+  fill(g, x + 6, y - 1, 13, 8, C.arcane, 0.06);
   fill(g, x, y + 3, 12, 2, C.brassDark, 1);
   fill(g, x, y + 3, 12, 1, C.brass, 0.55);
   fill(g, x + 8, y, 9, 6, C.brassDark, 1);
@@ -950,6 +1048,8 @@ function floorMedallion(g, cx, cy, v) {
 // 落地烛架（竖屏）：石座 + 铜柱 + 三支未点的细烛
 function floorLamp(g, x, baseY, v) {
   const hh = R(22 * v);
+  fill(g, x - R(9 * v), baseY, R(19 * v), 2, C.void, 0.55);        // 接地影
+  fill(g, x - R(8 * v), baseY - 2, R(17 * v), 2, C.stoneDark, 1);  // 头重脚轻的烛架得有个实底
   fill(g, x - R(7 * v), baseY - R(2 * v), R(15 * v), R(2 * v), C.stoneDark, 1);
   fill(g, x - R(4 * v), baseY - R(5 * v), R(9 * v), R(3 * v), C.stone, 1);
   fill(g, x - R(4 * v), baseY - R(5 * v), R(9 * v), 1, C.stoneLight, 0.55);

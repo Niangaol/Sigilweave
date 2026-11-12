@@ -1,9 +1,11 @@
 // 第 IV 幕「沉钟书库」——三层静态布景。
 // 构图（横屏 480×270，地平线 132，碑座 186 起）：
-//   远景 0–132：石墙错缝 + 尖拱壁龛 + 高窗（全幕唯一光源）+ 两排高书架（外排高远、内排近大）+ 吊烛台
-//   中景 132–186：石板地面与石缝 + 中央走道 + 铜钟吊在木梁下（钟顶 seal、钟口 gate）+ 书梯
-//                 + 翻飞书页 + 地板书堆三排 + 摊开书的阅读台
-//   近景 186 起：左右前景书架压边 + 飘落纸页 + 烛光雾
+//   远景 0–132：石墙错缝 + 尖拱壁龛 + 高窗（全幕唯一光源）+ 两排高书架（外排高远、内排近大，
+//                远近三档明度，柜体不贴画布边）+ 吊烛台
+//   中景 132–186：石板地面与石缝 + 中央暗血织毯（近宽远窄、磨损缺口）+ 铜钟吊在钟架横梁下
+//                （整体抬到地平线以上，落地影只落在石板上）+ 书梯 + 翻飞书页 + 地板书堆三排
+//                 + 摊开书的阅读台 + 台角残烛
+//   近景 186 起：左右石立柱 + 顶部半拱拱腹围成的画框（从拱下看进去）+ 内侧前景书架 + 飘落纸页 + 烛光雾
 // 材质线全部依附实体：书脊烫线、隔板木纹、铜钟铸缝与铜锈、纸页边、石缝；浮尘只落在窗光柱里。
 import {
   fill, pointedArch, ellipseRing, chain, candle, beam, silhouette, cracks, disc,
@@ -32,18 +34,26 @@ const groundOf = (L) => L.h - (L.tall ? 104 : 84); // 碑座上沿 = 最近一�
 const MOVES = [C.bloodDark, C.mossTileLit, C.runeDim]; // 书脊三色：暗红 / 苔绿 / 冷蓝
 
 // 书架单元：柜体 + 逐层隔板 + 成簇书脊（三色错落，缺书处留黑洞）。
+// tier 是纵深档位：0 远排（背板沉、书脊发灰）/ 1 中排 / 2 近排（受光棱与铜隔板更亮），
+// 三档明度差让四座书架读成「由远及近」的排，而不是一堵墙。
 // cap 控制单个书架的书脊总数，避免竖屏高书架把预算吃光。
-function shelfUnit(g, { x, y, w, h, rowH, seed, bookW, bookH, cap = 60, alpha = 1 }) {
-  fill(g, x, y, w, h, C.void, 0.9 * alpha);
-  fill(g, x + 4, y, w - 8, h, C.stoneDark, 0.35 * alpha); // 柜内背板稍亮，书脊才跳得出来
+function shelfUnit(g, { x, y, w, h, rowH, seed, bookW, bookH, cap = 60, alpha = 1, tier = 1 }) {
+  const bodyA = [0.94, 0.9, 0.86][tier];
+  const backC = tier === 0 ? C.void : C.stoneDark;
+  const backA = [0.45, 0.35, 0.55][tier];
+  const bookA = [0.72, 0.95, 1][tier];
+  const litA = [0.18, 0.3, 0.5][tier];
+  fill(g, x, y, w, h, C.void, bodyA * alpha);
+  fill(g, x + 4, y, w - 8, h, backC, backA * alpha); // 柜内背板：远排更沉，近排稍亮
   fill(g, x, y, 4, h, C.stoneDark, 0.98 * alpha);
-  fill(g, x + 4, y, 1, h, C.stoneLight, 0.3 * alpha);
+  fill(g, x + 4, y, 1, h, C.stoneLight, litA * alpha);
   fill(g, x + w - 4, y, 4, h, C.stoneDark, 0.98 * alpha);
-  fill(g, x + w - 5, y, 1, h, C.stoneLight, 0.22 * alpha);
+  fill(g, x + w - 5, y, 1, h, C.stoneLight, litA * 0.75 * alpha);
 
   const levels = Math.max(2, Math.floor(h / rowH));
   const rnd = seq(seed);
   let total = 0;
+  let lastCol = -1; // 相邻两本不同色，书脊才成簇而不是整片同色
   for (let i = 0; i < levels && total < cap; i++) {
     const boardY = y + (i + 1) * rowH - 2;
     if (boardY > y + h - 1) break;
@@ -54,9 +64,12 @@ function shelfUnit(g, { x, y, w, h, rowH, seed, bookW, bookH, cap = 60, alpha = 
       for (let b = 0; b < cluster && bx < x + w - 8 && total < cap; b++) {
         const bw = Math.max(2, R(bookW * (0.75 + rnd() * 0.6)));
         const bh = Math.max(3, Math.min(maxH, R(bookH * (0.5 + rnd() * 0.7))));
-        const col = MOVES[Math.floor(rnd() * 3)];
+        let ci = Math.floor(rnd() * 3);
+        if (ci === lastCol) ci = (ci + 1 + Math.floor(rnd() * 2)) % 3;
+        lastCol = ci;
+        const col = MOVES[ci];
         const bw2 = Math.min(bw, x + w - 6 - bx);
-        fill(g, bx, boardY - bh, bw2, bh, col, 0.95 * alpha);
+        fill(g, bx, boardY - bh, bw2, bh, col, bookA * alpha);
         fill(g, bx, boardY - bh, bw2, 1, C.stoneLight, 0.34 * alpha);      // 书脊顶受光
         if (rnd() > 0.7) fill(g, bx, boardY - bh + 2, 1, Math.max(1, bh - 4), C.tan, 0.35 * alpha); // 书脊烫线
         if (rnd() > 0.9) fill(g, bx, boardY - bh + 3, bw2, 1, C.parchment, 0.3 * alpha);             // 纸口标签
@@ -65,9 +78,10 @@ function shelfUnit(g, { x, y, w, h, rowH, seed, bookW, bookH, cap = 60, alpha = 
       }
       bx += 2 + Math.floor(rnd() * 4); // 簇间缺书，露出柜体黑洞
     }
-    // 隔板最后画：书脊压在板下沿，板面 + 上棱受光 + 木纹
-    fill(g, x, boardY, w, 2, C.brassDark, 0.95 * alpha);
-    fill(g, x, boardY, w, 1, C.tan, 0.34 * alpha);
+    // 隔板最后画：书脊压在板下沿，板面 + 上棱受光 + 木纹 + 板下 1px 阴影
+    fill(g, x, boardY, w, 2, tier === 0 ? C.ink : C.brassDark, 0.95 * alpha);
+    fill(g, x, boardY, w, 1, C.tan, [0.18, 0.34, 0.44][tier] * alpha);
+    fill(g, x, boardY + 2, w, 1, C.void, 0.5 * alpha);
     if (i % 2 === 0) fill(g, x + 6, boardY + 1, R(w * 0.5), 1, C.ink, 0.5 * alpha);
     fill(g, x, y + i * rowH, w, 1, C.ink, 0.6 * alpha);
   }
@@ -79,11 +93,12 @@ function shelfUnit(g, { x, y, w, h, rowH, seed, bookW, bookH, cap = 60, alpha = 
 }
 
 // 飘页：四边不齐的硬边纸片 + 折角 + 两行字，tilt 控制倾斜方向。
-function looseLeaf(g, { x, y, w, h, tilt = 1, alpha = 1 }) {
+function looseLeaf(g, { x, y, w, h, tilt = 1, alpha = 1, shadow = false }) {
   const dx = Math.max(2, R(w * 0.35));
   const pts = tilt >= 0
     ? [{ x, y: y + R(h * 0.2) }, { x: x + w, y }, { x: x + w, y: y + R(h * 0.8) }, { x, y: y + h }]
     : [{ x, y }, { x: x + w, y: y + R(h * 0.22) }, { x: x + w, y: y + h }, { x, y: y + R(h * 0.8) }];
+  if (shadow) silhouette(g, pts.map(p => ({ x: p.x + 2, y: p.y + 2 })), C.void, 0.4 * alpha);
   silhouette(g, pts, C.parchment, alpha);
   silhouette(g, [
     { x: x + w - dx, y: y + R(h * 0.08) },
@@ -115,7 +130,7 @@ function bookStack(g, { x, baseY, count, u, seed, alpha = 1 }) {
 }
 
 // 阅读台：木桌 + 摊开的书（两页斜面、中缝、三行字）。
-function readingDesk(g, cx, baseY, u) {
+function readingDesk(g, cx, baseY, u, accent) {
   const topW = R(56 * u);
   const topH = Math.max(3, R(5 * u));
   const topY = baseY - R(24 * u);
@@ -124,9 +139,9 @@ function readingDesk(g, cx, baseY, u) {
   for (const lx of [cx - R(topW / 2) + R(4 * u), cx + R(topW / 2) - R(4 * u) - legW]) {
     fill(g, lx, topY + topH, legW, legH, C.brassDark, 1);
     fill(g, lx, topY + topH, 1, legH, C.tan, 0.3);
-    fill(g, lx - 1, baseY - 2, legW + 2, 2, C.inkDark, 0.85);
+    fill(g, lx - 1, baseY - 2, legW + 2, 2, C.ink, 0.85);
   }
-  fill(g, cx - R(topW / 2) + R(6 * u), baseY - R(7 * u), topW - R(12 * u), 2, C.inkDark, 0.8);
+  fill(g, cx - R(topW / 2) + R(6 * u), baseY - R(7 * u), topW - R(12 * u), 2, C.ink, 0.8);
   fill(g, cx - R(topW / 2), topY, topW, topH, C.brassDark, 1);
   fill(g, cx - R(topW / 2), topY, topW, 1, C.tan, 0.5);
   fill(g, cx - R(topW / 2), topY + topH - 1, topW, 1, C.ink, 0.7);
@@ -154,7 +169,26 @@ function readingDesk(g, cx, baseY, u) {
   }
   fill(g, bx, by, 1, R(bookH * 0.55), C.bone, 0.6);
   fill(g, bx + bookW - 1, by, 1, R(bookH * 0.55), C.bone, 0.6);
+  // 桌上残烛：阅读台自己的一点光源（幕色 accent），让「有人刚离开」有落点
+  const cdx = cx + R(topW * 0.36);
+  fill(g, cdx - 2, topY - 2, 5, 2, C.brassDark, 1);
+  candle(g, {
+    x: cdx, baseY: topY - 2, h: Math.max(4, R(6 * u)),
+    wax: C.bone, flame: accent, holder: C.brassDark, alpha: 0.92,
+  });
   fill(g, cx - R(topW / 2) - 1, baseY, topW + 2, 1, C.void, 0.55); // 桌脚阴影
+}
+
+// 短吊链：每节 2×3，隔节换横向 3×1 环——别用 1px 长直线（1x 下会被读成拉丝）
+function shortChain(g, x, yTop, yBot, color, alpha) {
+  let y = R(yTop), i = 0;
+  const yEnd = R(yBot);
+  for (; y < yEnd; y += 3) {
+    const hh = Math.max(1, Math.min(3, yEnd - y));
+    if (i % 2 === 0) fill(g, x, y, 2, hh, color, alpha);
+    else fill(g, x - 1, y, 3, 1, color, alpha);
+    i += 1;
+  }
 }
 
 export function back(g, L) {
@@ -188,26 +222,28 @@ export function back(g, L) {
     color: C.stoneLight, alpha: 0.18, segs: 16,
   });
 
-  // 两排高书架：外排（高、小书）/ 内排（近、大书），左右各一，中央让给壁龛
+  // 两排高书架：外排（高、小书、发灰）/ 内排（近、大书、受光），左右各一，中央让给壁龛。
+  // 柜体统一内缩 pad：书架顶到画布边缘会被读成「墙」，留一条墙缝才读得出是书架。
+  const pad = Math.max(4, R(6 * bv));
   const farY = R(horizon * 0.18);
   const farW = R(w * 0.30);
   shelfUnit(g, {
-    x: 0, y: farY, w: farW, h: horizon - farY, rowH: R(22 * bv), seed: 101,
-    bookW: R(2 * bh), bookH: R(9 * bv), cap: L.tall ? 96 : 60,
+    x: pad, y: farY, w: farW, h: horizon - farY, rowH: R(22 * bv), seed: 101,
+    bookW: R(2 * bh), bookH: R(9 * bv), cap: L.tall ? 96 : 60, tier: 0,
   });
   shelfUnit(g, {
-    x: w - farW, y: farY, w: farW, h: horizon - farY, rowH: R(22 * bv), seed: 202,
-    bookW: R(2 * bh), bookH: R(9 * bv), cap: L.tall ? 96 : 60,
+    x: w - farW - pad, y: farY, w: farW, h: horizon - farY, rowH: R(22 * bv), seed: 202,
+    bookW: R(2 * bh), bookH: R(9 * bv), cap: L.tall ? 96 : 60, tier: 0,
   });
   const nearY = R(horizon * 0.46);
   const nearW = R(w * 0.19);
   shelfUnit(g, {
-    x: 0, y: nearY, w: nearW, h: horizon - nearY, rowH: R(20 * bv), seed: 303,
-    bookW: R(3 * bh), bookH: R(14 * bv), cap: 40,
+    x: pad + 2, y: nearY, w: nearW, h: horizon - nearY, rowH: R(20 * bv), seed: 303,
+    bookW: R(3 * bh), bookH: R(14 * bv), cap: 40, tier: 2,
   });
   shelfUnit(g, {
-    x: w - nearW, y: nearY, w: nearW, h: horizon - nearY, rowH: R(20 * bv), seed: 404,
-    bookW: R(3 * bh), bookH: R(14 * bv), cap: 40,
+    x: w - nearW - pad - 2, y: nearY, w: nearW, h: horizon - nearY, rowH: R(20 * bv), seed: 404,
+    bookW: R(3 * bh), bookH: R(14 * bv), cap: 40, tier: 2,
   });
 
   // 壁龛两侧的竖向石边框（书架画完再补，壁龛才不会被吃掉）
@@ -353,23 +389,48 @@ export function mid(g, L) {
       { x: x1 + 1, y: ground }, { x: x1, y: ground },
     ], C.groove, 0.1);
   }
-  // 中央走道：逐行收分的织毯（硬边透视，边缘 1px 一档），铜线滚边 + 稀疏织纹 + 流苏
-  const stepY = Math.max(3, R(floorH / (L.tall ? 26 : 14)));
-  for (let yy = horizon + 1; yy < ground; yy += stepY) {
-    const t = (yy - horizon) / floorH;
-    const ww = R(w * (0.085 + 0.075 * t));
-    const x = cx - R(ww / 2);
-    const hh = Math.min(stepY, ground - yy);
-    fill(g, x, yy, ww, hh, C.bloodDark, 0.5);
-    fill(g, x, yy, 1, hh, C.brassDark, 0.6);       // 铜线滚边
-    fill(g, x + ww - 1, yy, 1, hh, C.brassDark, 0.6);
-    const k = Math.floor((yy - horizon) / stepY);
-    if (k % 3 === 0) fill(g, x + 2, yy + 1, ww - 4, 1, C.blood, 0.18);   // 稀疏织纹
-    if (k % 4 === 0) fill(g, x + R(ww / 2), yy + 1, 1, 1, C.brass, 0.25); // 毯心铜点
+  // 中央走道：一整块平铺的透视梯形毯（一次多边形 fill，不再逐排收分成台阶）。
+  // 起点退到地平线下方 14px 之后：钟的落地影必须落在石板上，毯不能盖住影子。
+  const rugTop = horizon + Math.max(14, R(18 * u));
+  const rugH = Math.max(8, ground - rugTop);
+  const rugWTop = Math.max(12, R(w * 0.055));
+  const rugWBot = Math.max(18, R(w * 0.15));
+  const rugHalf = (t) => R((rugWTop + (rugWBot - rugWTop) * t) / 2);
+  const rugPts = [
+    { x: cx - R(rugWTop / 2), y: rugTop },
+    { x: cx + R(rugWTop / 2), y: rugTop },
+    { x: cx + R(rugWBot / 2), y: ground },
+    { x: cx - R(rugWBot / 2), y: ground },
+  ];
+  // 毯下先垫一层暗底：地板石板缝会从半透明毯面透出来，读成一级级台阶
+  silhouette(g, rugPts, C.void, 0.68);
+  silhouette(g, rugPts, C.bloodDark, 0.42);
+  // 横向织纹只留极淡的 1px（纬线），间隔 10–14px，跟着梯形收分
+  const weftStep = Math.max(10, R(12 * u));
+  for (let yy = rugTop + weftStep; yy < ground - 2; yy += weftStep) {
+    const t = (yy - rugTop) / rugH;
+    const ww = Math.max(6, rugHalf(t) * 2 - 2);
+    fill(g, cx - R(ww / 2), yy, ww, 1, C.blood, 0.1);
   }
-  const endW = R(w * 0.16);
-  for (let fx = cx - R(endW / 2); fx < cx + R(endW / 2); fx += 3) {
-    fill(g, fx, ground - 1, 1, 2, C.brassDark, 0.4);                      // 流苏
+  // 左右各 1px 边线，按段跟随斜边（不用整块深色缝）
+  const edgeStep = Math.max(6, R(8 * u));
+  for (let yy = rugTop; yy < ground; yy += edgeStep) {
+    const t = Math.min(1, (yy - rugTop) / rugH);
+    const half = rugHalf(t);
+    const hh = Math.min(edgeStep, ground - yy);
+    fill(g, cx - half, yy, 1, hh, C.blood, 0.3);
+    fill(g, cx + half - 1, yy, 1, hh, C.blood, 0.3);
+  }
+  // 磨损缺口：两处贴边剪掉（2×2 / 3×2），露出石板才像用旧的毯
+  for (const [nt, nside, nw] of [[0.34, -1, 3], [0.7, 1, 2]]) {
+    const ny = rugTop + R(rugH * nt);
+    const half = rugHalf(nt);
+    fill(g, nside < 0 ? cx - half : cx + half - nw, ny, nw, 2, C.stoneDark, 0.92);
+  }
+  // 近端流苏：3–4 根，长短略参差
+  for (let i = 0; i < 4; i++) {
+    const tx = cx + R(rugWBot * [-0.34, -0.11, 0.13, 0.35][i]);
+    fill(g, tx, ground - 1, i % 2 === 0 ? 1 : 2, i % 3 === 0 ? 2 : 1, C.blood, 0.3);
   }
   // 地面靠碑座一侧收边：压暗两行 + 一道石沿受光，读作「地板到此为止」
   fill(g, 0, ground - 2, w, 2, C.void, 0.45);
@@ -379,12 +440,12 @@ export function mid(g, L) {
   cracks(g, {
     x: R(w * 0.63), y: horizon + 3,
     len: Math.min(40, Math.max(10, R(floorH * 0.55))), seed: 47,
-    color: C.inkDark, alpha: 0.9, branches: 1, drift: 4,
+    color: C.ink, alpha: 0.9, branches: 1, drift: 4,
   });
   cracks(g, {
     x: R(w * 0.19), y: horizon + R(floorH * 0.5),
     len: Math.min(26, Math.max(8, R(floorH * 0.3))), seed: 91,
-    color: C.inkDark, alpha: 0.75, branches: 1, drift: 3,
+    color: C.ink, alpha: 0.75, branches: 1, drift: 3,
   });
 
   // 窗光落地：钟下一圈硬边光池（唯一亮区）
@@ -399,7 +460,7 @@ export function mid(g, L) {
   bookStack(g, { x: R(w * 0.30), baseY: ground, count: 6, u, seed: 73 });
 
   // 阅读台（摊开书）
-  readingDesk(g, R(w * 0.735), ground, u);
+  readingDesk(g, R(w * 0.735), ground, u, accent);
 
   // 书梯
   bookLadder(g, L, ground);
@@ -425,91 +486,106 @@ export function mid(g, L) {
     w: Math.max(6, R(8 * u)), h: Math.max(3, R(5 * u)), tilt: -1, alpha: 0.85,
   });
 
-  // 中央铜钟：吊在木梁下，钟顶贴 seal 锚点，钟口落在 gate 锚点
+  // 中央铜钟：吊在钟架横梁下，整体抬到地平线以上（钟口离地 6px），
+  // 落地影只落在石板上——钟口不再压着织毯，才不会被读成一顶「金色帐篷」。
   const seal = L.anchors.seal;
-  const gate = L.anchors.gate;
-  const beamY = seal.y - R(13 * u);
-  beam(g, {
-    x: R(w * 0.29), y: beamY, w: R(w * 0.42), h: Math.max(4, R(7 * u)),
-    color: C.ink, light: C.brassDark, alpha: 0.98,
-  });
-  fill(g, R(w * 0.29), beamY, R(w * 0.42), 1, C.tan, 0.45);          // 梁面受光
-  fill(g, R(w * 0.29), beamY + Math.max(4, R(7 * u)) - 1, R(w * 0.42), 1, C.void, 0.7);
-  for (const bxx of [R(w * 0.31), R(w * 0.69)]) {
-    fill(g, bxx - 2, beamY - 3, 6, 4, C.stoneDark, 1);                // 梁托
-    fill(g, bxx - 2, beamY - 3, 6, 1, C.tan, 0.35);
-    chain(g, {
-      x: bxx, y: R(horizon * 0.06), h: beamY - R(horizon * 0.06),
-      color: C.stoneLight, alpha: 0.35, linkH: Math.max(4, R(6 * u)),
-    });
-  }
-  // 铁箍两道（贴梁，木梁才像被吊住的）
-  for (const sx of [R(w * 0.36), R(w * 0.64)]) {
-    fill(g, sx, beamY, 3, Math.max(4, R(7 * u)), C.brassDark, 0.95);
-    fill(g, sx, beamY, 1, Math.max(4, R(7 * u)), C.tan, 0.3);
-  }
-
-  const bellBot = gate.y;
-  const bs = Math.min(1.7, (bellBot - seal.y) / 44); // 上限 1.7：竖屏靠加长吊链，不把钟拉宽
-  const bellH = R(44 * bs);
+  const bellBot = horizon - 6;
+  const bellH = Math.max(34, R(45 * u));            // 本幕唯一主物，再放大 10–15%
   const bellTop = bellBot - bellH;
-  const mouthW = R(38 * bs);
-  const topW = R(18 * bs);
+  const mouthW = Math.max(22, R(bellH * 0.92));
+  const topW = Math.max(8, R(bellH * 0.26));
+  const lipH = Math.max(2, Math.min(4, R(3 * u)));
+  const lipW = mouthW + 2;
+  // 横梁只比钟口宽出「两侧各 24–30u」：短梁才像钟架，通栏长杆会被读成一根拉丝
+  const beamW = mouthW + 2 * Math.max(24, R(28 * u));
+  const beamX = cx - R(beamW / 2);
+  const beamH = Math.max(3, R(4 * u));
+  const beamY = bellTop - Math.max(10, R(12 * u));
 
-  // 钟后一层极淡的幕色背光：让「高窗透下来」这件事在钟身上成立
-  fill(g, seal.x - R(mouthW * 0.85), bellTop - Math.max(4, R(6 * u)), R(mouthW * 1.7),
-    bellH + Math.max(6, R(10 * u)), accent, 0.045);
+  // 钟架横梁：梁身深铜，只有下沿 1px 亮金；两端牛腿石托 + 到顶吊链
+  fill(g, beamX, beamY, beamW, beamH, C.brassDark, 0.9);
+  fill(g, beamX, beamY, beamW, 1, C.ink, 0.75);                             // 梁顶背光
+  fill(g, beamX, beamY + beamH - 1, beamW, 1, C.brass, 0.5);                // 下沿受光
+  for (const cside of [-1, 1]) {
+    const cbw = Math.max(8, R(9 * u));
+    const cbx = cside < 0 ? beamX : beamX + beamW - cbw;
+    const cbh = Math.max(4, R(5 * u));
+    fill(g, cbx, beamY + beamH, cbw, cbh, C.stoneDark, 0.95);              // 牛腿石托
+    fill(g, cbx, beamY + beamH, cbw, 1, C.stoneLight, 0.32);               // 托面受光
+    fill(g, cbx, beamY + beamH + cbh - 1, cbw, 1, C.void, 0.5);            // 托底暗缝
+  }
+  for (const bxx of [seal.x - R(beamW * 0.3), seal.x + R(beamW * 0.3)]) {
+    fill(g, bxx - 1, beamY - 1, 3, beamH + 2, C.brassDark, 0.95);           // 铁箍
+    fill(g, bxx - 1, beamY, 1, beamH, C.tan, 0.3);
+    shortChain(g, bxx, 0, Math.max(2, beamY - 1), C.stoneLight, 0.3);       // 到顶吊链
+  }
 
-  // 吊环 + 铁链（从梁底到钟顶，一行一行看得见）
-  chain(g, {
-    x: seal.x, y: beamY + Math.max(4, R(7 * u)), h: Math.max(3, bellTop - beamY - Math.max(4, R(7 * u))),
-    color: C.stoneLight, alpha: 0.55, linkH: Math.max(3, R(4 * bs)),
-  });
-  ellipseRing(g, seal.x, bellTop - R(3 * bs), R(5 * bs), Math.max(2, R(2 * bs)), C.brassDark, 0.9);
-  fill(g, seal.x - Math.max(2, R(topW * 0.3)), bellTop - R(2 * bs), Math.max(4, R(topW * 0.6)), Math.max(2, R(3 * bs)), C.brassDark, 1);
+  // 钟轭横条 + 吊环 + 2–3 节短链（每节 2×3 交替方向，不是 1px 长直线）
+  const yokeW = Math.max(8, R(mouthW * 0.36));
+  const yokeH = Math.max(2, R(2 * u));
+  const yokeY = bellTop - yokeH;
+  fill(g, seal.x - R(yokeW / 2), yokeY, yokeW, yokeH, C.brassDark, 1);   // 钟轭（木/铜横木）
+  fill(g, seal.x - R(yokeW / 2), yokeY, yokeW, 1, C.tan, 0.45);
+  fill(g, seal.x - R(yokeW / 2), yokeY + yokeH - 1, yokeW, 1, C.ink, 0.7);
+  const ringY = yokeY - Math.max(2, R(2 * u));
+  ellipseRing(g, seal.x, ringY, Math.max(2, R(2.6 * u)), 1, C.brassDark, 0.95);
+  shortChain(g, seal.x, beamY + beamH, ringY - 1, C.brassDark, 0.95);
 
-  // 钟体：13 段凹弧收分（吊钟轮廓），左侧受光 / 右缘背光，铸缝与铜锈贴钟身
-  const nBand = 15;
+  // 钟体：深铜剪影。主体 C.brassDark 一档到底，只在左棱留 C.brass 一道、
+  // 内侧 1px C.brassLight 高光；轮廓是「肩收—腰直—口沿外撇」的钟形，不是梯形或金块。
+  const nBand = Math.max(10, Math.min(16, R(bellH / 2.4)));
   for (let i = 0; i < nBand; i++) {
     const t0 = i / nBand;
     const t1 = (i + 1) / nBand;
     const y = bellTop + R(bellH * t0);
     const hh = Math.max(1, bellTop + R(bellH * t1) - y);
-    // 凹弧轮廓：钟肩收窄 → 钟腰最细 → 近口沿急剧外撇
-    let ww = R(topW + (mouthW - topW) * (0.06 + 0.94 * Math.pow(Math.max(0, t1 - 0.16) / 0.84, 2.6)));
-    if (t1 < 0.1) ww = R(ww * 0.8);
+    const f = t1 < 0.18 ? 0.04 + 0.11 * (t1 / 0.18) : 0.16 + 0.84 * Math.pow((t1 - 0.18) / 0.82, 2.6);
+    const ww = Math.max(6, R(topW + (mouthW - topW) * f));
     const wx = seal.x - R(ww / 2);
-    fill(g, wx, y, ww, hh, C.brassDark, 1);                            // 青铜底
-    fill(g, wx, y, Math.max(1, R(ww * 0.22)), hh, C.brass, 0.5);       // 左侧受光面
-    fill(g, wx, y, 1, hh, C.brassLight, 0.45);                         // 高光边
-    fill(g, seal.x + R(ww / 2) - Math.max(1, R(ww * 0.16)), y, Math.max(1, R(ww * 0.16)), hh, C.ink, 0.55); // 右缘背光
-    if (i === 3 || i === 9) fill(g, wx, y, ww, 1, C.brassLight, 0.5);   // 钟腰凸带
-    if (i === 6) fill(g, wx, y, ww, 1, C.ink, 0.5);                     // 铸缝
-    if (i === 8) fill(g, wx + 1, y, Math.max(1, R(ww * 0.45)), 1, accent, 0.32); // 幕色冷光
+    fill(g, wx, y, ww, hh, C.brassDark, 1);                                    // 深铜主体
+    fill(g, wx + R(ww * 0.6), y, Math.max(1, R(ww * 0.4)), hh, C.ink, 0.45);   // 右侧转暗
+    fill(g, wx, y, 1, hh, C.brass, 0.9);                                       // 左棱：唯一的亮金
+    fill(g, wx + 1, y, 1, hh, C.brassLight, 0.42);                             // 内侧 1px 高光
+    fill(g, wx + 2, y, 1, hh, C.brass, 0.22);                                  // 高光外一档过渡
+    fill(g, wx, y, ww, hh, C.ink, 0.1);                                        // 整体压一档：沉铜不金
+    if (i === 2 || i === nBand - 3) fill(g, wx + 1, y, Math.max(1, ww - 2), 1, C.ink, 0.5); // 铸缝
+    if (i === R(nBand * 0.58)) fill(g, wx + 1, y, Math.max(1, R(ww * 0.5)), 1, C.brassLight, 0.24);
   }
-  // 钟口唇边（加宽两档 + 幕色口沿）
-  const lipW = R(mouthW * 1.12);
-  const lipX = seal.x - R(lipW / 2);
-  const lipH = Math.max(3, Math.min(6, R(5 * bs)));
-  fill(g, lipX, bellBot - lipH, lipW, lipH, C.brass, 0.8);
-  fill(g, lipX, bellBot - lipH, lipW, 1, C.brassLight, 0.75);
-  fill(g, lipX + 2, bellBot - lipH + 1, lipW - 4, Math.max(1, lipH - 2), C.ink, 0.45); // 钟口内腔
-  fill(g, lipX, bellBot - 1, lipW, 1, C.ink, 0.9);
-  for (const dx of [-10, 0, 10]) fill(g, seal.x + R(dx * bs), bellBot - R(5 * bs) + 1, 1, 1, C.brassLight, 0.7);
-  fill(g, lipX, bellBot, lipW, 1, C.void, 0.85);
-  fill(g, lipX + 1, bellBot - 2, lipW - 2, 1, accent, 0.45);
-  // 钟舌与钟绳：绳一直垂到地面，成为中轴
-  fill(g, seal.x - Math.max(1, R(2 * bs)), bellBot - R(3 * bs), Math.max(2, R(4 * bs)), R(9 * bs), C.inkDark, 0.95);
-  disc(g, seal.x, bellBot + R(7 * bs), Math.max(2, R(3 * bs)), C.brassDark, 0.95);
-  fill(g, seal.x - R(22 * u), ground - 2, R(44 * u), 2, C.void, 0.4);
-  fill(g, seal.x - 1, bellBot + R(9 * bs), 2, Math.max(4, ground - bellBot - R(9 * bs)), C.parchment, 0.55);
-  fill(g, seal.x - 3, bellBot + R(20 * bs), 7, 2, C.brassDark, 0.75);  // 绳结
-  fill(g, seal.x - 2, ground - 3, 5, 2, C.brassDark, 0.65);
-  // 铜锈只贴铜件
-  fill(g, seal.x - R(lipW * 0.3), bellBot - R(9 * bs), 2, 1, C.rot, 0.5);
-  fill(g, seal.x + R(lipW * 0.18), bellBot - R(14 * bs), 1, 2, C.rot, 0.4);
-  fill(g, seal.x + R(lipW * 0.28), bellBot - R(5 * bs), 2, 1, C.sage, 0.35);
-  fill(g, seal.x - R(lipW * 0.2), bellBot - R(18 * bs), 1, 1, C.sage, 0.3);
+
+  // 钟口内壁：逐行收在钟身轮廓之内（宽度随钟身收分），不是一块伸出钟外的黑影
+  const mouthTop = bellBot - lipH - Math.max(5, R(7 * u));
+  for (let yy = mouthTop; yy < bellBot - lipH; yy++) {
+    const tt = (yy - bellTop) / bellH;
+    const ff = tt < 0.18 ? 0.04 + 0.11 * (tt / 0.18) : 0.16 + 0.84 * Math.pow((tt - 0.18) / 0.82, 2.6);
+    const bw = topW + (mouthW - topW) * ff;
+    const cw = Math.max(3, R(bw * 0.7));
+    fill(g, seal.x - R(cw / 2), yy, cw, 1, C.void, 0.95);
+  }
+  // 唇边只比钟身宽 2px；[bellBot-lipH, bellBot) 这一段把暗腔封死——是钟口，不是底座
+  fill(g, seal.x - R(lipW / 2), bellBot - lipH, lipW, lipH, C.brassDark, 1);
+  fill(g, seal.x - R(lipW / 2), bellBot - lipH, 1, lipH, C.brass, 0.45); // 只留左 1px 受光，别把唇边画成托板
+  fill(g, seal.x - R(lipW / 2), bellBot - 1, lipW, 1, C.ink, 0.75);
+
+  // 钟舌：钟内 1px 吊索 + 2×4 锤，从钟口的暗腔里露出来
+  const clapH = Math.max(3, R(4 * u));
+  const clapBot = bellBot - lipH;
+  fill(g, seal.x, mouthTop, 1, Math.max(2, clapBot - clapH - mouthTop), C.brassDark, 0.95);
+  fill(g, seal.x - 1, clapBot - clapH, 2, clapH, C.brassDark, 1);
+  fill(g, seal.x - 1, clapBot - clapH, 2, 1, C.brass, 0.4);
+
+  // 落地影：压在地平线下的石板上（织毯从 horizon+14 才起步，影子绝不落在红毯上）
+  fill(g, seal.x - R(lipW * 0.6), horizon + 1, R(lipW * 1.2), 3, C.void, 0.45);
+  fill(g, seal.x - R(lipW * 0.35), horizon + 4, R(lipW * 0.7), 2, C.void, 0.4);
+
+  // 铜锈只贴铜件（钟身与唇边），不落地
+  for (const [ox, oy, ow, oh, cc, aa] of [
+    [-0.3, 0.42, 2, 2, C.rot, 0.45],
+    [0.24, 0.6, 1, 2, C.rot, 0.4],
+    [-0.12, 0.78, 2, 1, C.sage, 0.3],
+    [0.3, 0.3, 1, 1, C.sage, 0.28],
+  ]) {
+    fill(g, seal.x + R(mouthW * ox), bellTop + R(bellH * oy), ow, oh, cc, aa);
+  }
 
   // 翻飞书页 5 张（静态固定坐标，深浅错落）
   const leaves = [
@@ -522,7 +598,7 @@ export function mid(g, L) {
   for (const [fx, fy, fw, fh, tilt] of leaves) {
     looseLeaf(g, {
       x: R(w * fx), y: R(horizon * fy),
-      w: Math.max(4, R(fw * u)), h: Math.max(3, R(fh * u)), tilt, alpha: 0.97,
+      w: Math.max(4, R(fw * u)), h: Math.max(3, R(fh * u)), tilt, alpha: 0.97, shadow: true,
     });
   }
   // 地上散页与碎书（近地平线的杂物，别让地面空着）
@@ -540,41 +616,79 @@ export function mid(g, L) {
   for (const [dx, dy] of dust) fill(g, R(w * dx), R(horizon + (ground - horizon) * (dy - 0.2)), 1, 1, accent, 0.32);
 }
 
-// 前景书架压边：只占左右两壁，书脊更大更近，绝不铺地。
+// 前景压边：外侧一根通高石立柱 + 内侧半截书架 + 顶部阶梯拱腹，
+// 三件合起来是「从拱下过道看进去」的画框（内缩一截，别把画布边当墙）。
 function foreShelf(g, L, side, yTop) {
-  const { w, horizon } = L;
+  const { w, horizon, accent } = L;
   const u = tallU(L);
-  const towerW = R(42 * u);
-  const x0 = side > 0 ? 0 : w - towerW;
+  const jambW = Math.max(14, R(16 * u));
+  const shelfW = Math.max(20, R(30 * u));
+  const towerW = jambW + shelfW;
   const h = L.h - yTop;
-  fill(g, x0, yTop, towerW, h, C.void, 0.97);
-  const innerX = side > 0 ? x0 + towerW - 2 : x0;
-  fill(g, innerX, yTop, 2, h, C.stoneDark, 0.95);
-  fill(g, side > 0 ? innerX + 2 : innerX - 1, yTop, 1, h, C.stoneLight, 0.2);
+  const jambX = side > 0 ? 0 : w - jambW;
+  const shelfX = side > 0 ? jambW : w - towerW;
+
+  // 石立柱：通高剪影，朝内一侧 3px 暗面 + 1px 受光棱 + 石缝 + 三只铁栓眼
+  fill(g, jambX, yTop, jambW, h, C.void, 0.95);
+  fill(g, jambX, yTop, jambW - 3, h, C.stoneDark, 0.42);                  // 柱身是暗石，不是黑洞
+  fill(g, jambX, yTop, jambW, 2, C.stoneDark, 0.95);                      // 柱头
+  fill(g, side > 0 ? jambW - 3 : jambX, yTop, 3, h, C.stoneDark, 0.7);    // 内侧暗面
+  fill(g, side > 0 ? jambW - 1 : jambX, yTop, 1, h, C.stoneLight, 0.5);   // 受光棱
+  for (let jy = yTop + R(h * 0.22); jy < L.h; jy += Math.max(18, R(30 * u))) {
+    fill(g, jambX + 1, jy, jambW - 2, 1, C.void, 0.55);                   // 砌石缝
+  }
+  for (const ty of [yTop + R(h * 0.16), yTop + R(h * 0.5), yTop + R(h * 0.84)]) {
+    const bx = jambX + R(jambW * 0.42);
+    fill(g, bx, ty, 2, 2, C.brassDark, 0.85);
+    fill(g, bx, ty, 2, 1, C.brass, 0.25);
+  }
+
+  // 内侧书架：书脊三色错落，层板下压 1px 阴影（近景，最亮的一档）
+  const bookL = shelfX + 2;
+  const bookR = shelfX + shelfW - 3;
   const rnd = seq(side > 0 ? 53 : 59);
   const spacing = Math.max(28, R(52 * u));
   let by = yTop + spacing - 3;
   let guard = 0;
   while (by < L.h - 2 && guard < 10) {
     const maxBH = spacing - 8;
-    let bx = x0 + 2;
-    const limit = x0 + towerW - 4;
-    while (bx < limit) {
+    let bx = bookL;
+    while (bx < bookR) {
       const bw = Math.max(3, R(6 * u * (0.7 + rnd() * 0.6)));
       const bh = Math.max(6, R(maxBH * (0.45 + rnd() * 0.5)));
       const col = MOVES[Math.floor(rnd() * 3)];
-      const bw2 = Math.min(bw, limit - bx);
+      const bw2 = Math.min(bw, bookR - bx);
+      if (bw2 <= 0) break;
       fill(g, bx, by - bh, bw2, bh, col, 0.98);
       fill(g, bx, by - bh, bw2, 1, C.stoneLight, 0.34);
+      fill(g, bx, by - bh, 1, bh, C.void, 0.35);   // 书缝投影
       bx += bw + 1;
     }
-    fill(g, x0, by, towerW, 3, C.brassDark, 0.98);
-    fill(g, x0, by, towerW, 1, C.tan, 0.24);
+    fill(g, shelfX, by, shelfW, 3, C.brassDark, 0.98);
+    fill(g, shelfX, by, shelfW, 1, C.tan, 0.24);
+    fill(g, shelfX, by + 3, shelfW, 1, C.void, 0.6);
     by += spacing;
     guard += 1;
   }
-  fill(g, x0, horizon, towerW, Math.max(3, R(6 * u)), C.void, 0.35);
-  fill(g, x0, L.h - Math.max(4, R(6 * u)), towerW, Math.max(4, R(6 * u)), C.void, 0.5);
+
+  // 顶部阶梯拱腹：从立柱向场内逐级收薄，每级下沿 1px 石色受光——读作拱，不读作天花板
+  const archW = R(Math.min(52 * u, 68));
+  const stepW = Math.max(4, R(archW / 4));
+  for (let i = 0; i < 4; i++) {
+    const ah = Math.min(44, Math.max(4, R((4 - i) * 9 * u)));
+    const ax = side > 0 ? jambW + i * stepW : w - jambW - (i + 1) * stepW;
+    fill(g, ax, 0, stepW, ah, C.stoneDark, 0.95);
+    fill(g, ax, 0, stepW, Math.max(1, R(ah * 0.3)), C.void, 0.5);       // 拱腹上部压暗
+    fill(g, ax, ah - 1, stepW, 1, C.stoneLight, 0.26);                  // 拱腹下沿受光
+    fill(g, ax, ah - 2, stepW, 1, C.stone, 0.5);
+    // 朝场内的立面被中央高窗扫到一档幕色（光源只有窗，别整片染色）
+    fill(g, side > 0 ? ax + stepW - 1 : ax, 0, 1, ah, accent, 0.14);
+    fill(g, side > 0 ? ax + stepW - 2 : ax + 1, 0, 1, ah, C.void, 0.45);
+  }
+
+  // 柱脚与地平线处的暗带，让前景压在画面里而不是浮着
+  fill(g, jambX, horizon, towerW, Math.max(3, R(6 * u)), C.void, 0.35);
+  fill(g, jambX, L.h - Math.max(4, R(6 * u)), towerW, Math.max(4, R(6 * u)), C.void, 0.5);
 }
 
 export function fore(g, L) {
@@ -587,9 +701,9 @@ export function fore(g, L) {
   foreShelf(g, L, -1, yTop);
 
   // 飘落纸页（前景更大，压住中景边缘）
-  looseLeaf(g, { x: R(w * 0.34), y: R(horizon * 0.78), w: Math.max(8, R(10 * u)), h: Math.max(10, R(13 * u)), tilt: 1, alpha: 0.98 });
-  looseLeaf(g, { x: R(w * 0.62), y: R(horizon * 0.52), w: Math.max(7, R(9 * u)), h: Math.max(9, R(12 * u)), tilt: -1, alpha: 0.98 });
-  looseLeaf(g, { x: R(w * 0.70), y: R(horizon * 0.96), w: Math.max(8, R(11 * u)), h: Math.max(10, R(14 * u)), tilt: 1, alpha: 0.95 });
+  looseLeaf(g, { x: R(w * 0.34), y: R(horizon * 0.78), w: Math.max(8, R(10 * u)), h: Math.max(10, R(13 * u)), tilt: 1, alpha: 0.98, shadow: true });
+  looseLeaf(g, { x: R(w * 0.62), y: R(horizon * 0.52), w: Math.max(7, R(9 * u)), h: Math.max(9, R(12 * u)), tilt: -1, alpha: 0.98, shadow: true });
+  looseLeaf(g, { x: R(w * 0.70), y: R(horizon * 0.96), w: Math.max(8, R(11 * u)), h: Math.max(10, R(14 * u)), tilt: 1, alpha: 0.95, shadow: true });
 
   // 烛光雾：贴地面的几条低雾 + 钟下的幕色光雾（只上光源，不整片染色）
   fill(g, 0, ground - R(16 * u), w, Math.max(2, R(3 * u)), C.fog, 0.05);

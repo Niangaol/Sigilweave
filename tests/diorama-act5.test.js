@@ -75,8 +75,9 @@ describe('第 V 幕 衡律法庭', () => {
 
   it('辨识标记：四根柱廊、天平横梁 + 双盘（一高一低）、三块判词碑三排', () => {
     const back = run('back', 480, 270);
-    // 柱身：高 ≥80 的宽色块，四根且 x 互不相同
-    const shafts = back.ops.filter(o => o.t === 'r' && o.c === C.stone && o.w >= 8 && o.h >= 80);
+    // 柱身：高 ≥80 的宽色块，四根且 x 互不相同（第 4 轮起柱身是 stoneDark 剪影，
+    // 受光棱只留 1px——整根 stone 会把画面拉回淡紫）
+    const shafts = back.ops.filter(o => o.t === 'r' && o.c === C.stoneDark && o.w >= 8 && o.h >= 80);
     expect(shafts.length).toBeGreaterThanOrEqual(4);
     expect(new Set(shafts.map(o => o.x)).size).toBeGreaterThanOrEqual(4);
 
