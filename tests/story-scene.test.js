@@ -32,8 +32,15 @@ import { buildOpeningTimeline } from '../src/data/story.js';
 
 function makeGraphics() {
   const g = {
-    clear: () => g, fillStyle: () => g, fillRect: () => g, lineStyle: () => g,
-    lineBetween: () => g, strokePoints: () => g, fillPoints: () => g, setDepth: () => g,
+    ops: 0, clears: 0,
+    clear: () => { g.clears++; return g; },
+    fillStyle: () => { g.ops++; return g; },
+    fillRect: () => { g.ops++; return g; },
+    lineStyle: () => { g.ops++; return g; },
+    lineBetween: () => { g.ops++; return g; },
+    strokePoints: () => { g.ops++; return g; },
+    fillPoints: () => { g.ops++; return g; },
+    setDepth: () => g, setAlpha: () => g, setY: () => g, setPosition: () => g, setScale: () => g,
   };
   return g;
 }
@@ -140,6 +147,39 @@ describe('StoryScene 开场状态机', () => {
     advance(scene, 33000);
     expect(scene.shotIndex).toBe(5);
     expect(scene.titleText.alpha).toBeGreaterThan(0);
+  });
+});
+
+describe('StoryScene 静态布景只画一次', () => {
+  it('create 后三层静态布景已绘制，播放中不再重画', () => {
+    const { scene } = makeHarness();
+    for (const g of [scene.backG, scene.midG, scene.foreG]) {
+      expect(g, '静态层存在').toBeTruthy();
+      expect(g.ops).toBeGreaterThan(20);
+    }
+    const before = [scene.backG.ops, scene.midG.ops, scene.foreG.ops];
+    advance(scene, 2400);
+    expect([scene.backG.ops, scene.midG.ops, scene.foreG.ops]).toEqual(before);
+    expect(scene.stageG.ops).toBeGreaterThan(0);
+    expect(scene.stageG.clears).toBeGreaterThan(40);
+  });
+
+  it('切镜时静态层按镜头换景重画一次，不是每帧重画', () => {
+    const { scene } = makeHarness();
+    const start = scene.backG.ops;
+    advance(scene, 6000);
+    expect(scene.shotIndex).toBe(1);
+    const atShot = scene.backG.ops;
+    expect(atShot).not.toBe(start);
+    advance(scene, 3000);
+    expect(scene.backG.ops).toBe(atShot);
+  });
+
+  it('结局模式同样预绘制三层并复用', () => {
+    const { scene } = makeHarness({ mode: 'ending', stats: { victory: false, __cine: true } });
+    for (const g of [scene.backG, scene.midG, scene.foreG]) expect(g.ops).toBeGreaterThan(20);
+    advance(scene, 2000);
+    expect(scene.shotIndex).toBe(0);
   });
 });
 

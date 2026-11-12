@@ -18,20 +18,18 @@ const check = (name, pass, detail) => {
 };
 
 // 注入一组完整三幕跑分并强制第三幕通幕（机制同 cutscene-shot.mjs §7；真实游玩用真数据）
+const VICTORY_KILLS = [140, 150, 160, 170, 180, 190, 200]; // 七幕，合计 1190
 const forceVictory = () => {
   const s = window.__SIGILWEAVE_BATTLE__;
-  s.run.reports = [
-    { act: 1, elapsedMs: 143000, kills: 312, triggers: 980, combos: 26, blocked: 4, peakRate: 0.8 },
-    { act: 2, elapsedMs: 201000, kills: 450, triggers: 1300, combos: 31, blocked: 6, peakRate: 0.9 },
-    { act: 3, elapsedMs: 166000, kills: 380, triggers: 1100, combos: 29, blocked: 5, peakRate: 0.85 },
-  ];
-  s.run.bossResolutions = {
-    'boss-1': { method: 'quiz' }, 'boss-2': { method: 'combat' }, 'boss-3': { method: 'quiz' },
-  };
+  s.run.reports = [140, 150, 160, 170, 180, 190, 200].map((kills, i) => ({
+    act: i + 1, elapsedMs: 143000 + i * 13000, kills, triggers: 900 + i * 90,
+    combos: 24 + i, blocked: 4, peakRate: 0.8,
+  }));
+  s.run.bossResolutions = Object.fromEntries(Array.from({ length: 7 }, (_, i) => ['boss-' + (i + 1), { method: i % 2 ? 'combat' : 'quiz' }]));
   s.kills = 312;
   s.shardCount = 19;
-  s.engine.now = 143000;
-  s.act = 3;
+  s.engine.now = 143000 + 6 * 13000;
+  s.act = 7;
   s.phase = 'bossDefeated';
   s.bossDefeated = true;
   s.completeAct();
@@ -98,7 +96,7 @@ try {
     victory: window.__SIGILWEAVE__?.scene.getScene('GameOverScene')?.data?.victory,
     kills: window.__SIGILWEAVE__?.scene.getScene('GameOverScene')?.data?.kills,
   }));
-  check('揭开后结算正常运行且为胜利面板、跑分透传', panel.status === 5 && panel.victory === true && panel.kills === 1142, JSON.stringify(panel));
+  check('揭开后结算正常运行且为胜利面板、跑分透传', panel.status === 5 && panel.victory === true && panel.kills === 1190, JSON.stringify(panel));
   await shot('07-victory-panel');
 
   // 5) 跳过：重开后宽限期后一键跳过整段结局，仍落到胜利结算

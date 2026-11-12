@@ -7,7 +7,9 @@ import {
   HEX, addText, getRenderScale, isPortrait, CANVAS_H_PORTRAIT, BASE_W, BASE_H, FONT_DISPLAY,
 } from '../ui/Palette.js';
 import { buildOpeningTimeline, buildEndingTimeline, shotAt, canSkipStory, STORY_MODES } from '../data/story.js';
-import { OPENING_STAGES, ENDING_STAGES, buildStars } from '../ui/story-art.js';
+import {
+  OPENING_STAGES, ENDING_STAGES, OPENING_STATIC, ENDING_STATIC, buildStars, storyLayout,
+} from '../ui/story-art.js';
 import { buildDust, drawDust, clamp01, easeOutCubic } from '../ui/cinematic-art.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
 import { startMusic, stopMusic, musicCue } from '../audio/CineMusic.js';
@@ -41,11 +43,20 @@ export default class StoryScene extends Phaser.Scene {
     cam.setZoom(getRenderScale());
     cam.centerOn(W / 2, H / 2);
 
-    this.stageG = this.add.graphics().setDepth(0);
-    this.dustG = this.add.graphics().setDepth(1);
+    // 三层纵深静态布景：每镜只画一次，播放期间只调 alpha；动态件全走 stageG。
+    this.layout = storyLayout(W, H);
+    this.staticSet = this.mode === 'ending' ? ENDING_STATIC : OPENING_STATIC;
+    this.backG = this.add.graphics().setDepth(0);
+    this.midG = this.add.graphics().setDepth(0.4);
+    this.foreG = this.add.graphics().setDepth(0.7);
+    this.stageG = this.add.graphics().setDepth(1);
+    this.dustG = this.add.graphics().setDepth(1.2);
     this.dust = buildDust(0x51c7, 40, W, H);
     this.stars = buildStars(0x9e37, 46, W, H);
     this.stages = this.mode === 'ending' ? ENDING_STAGES : OPENING_STAGES;
+    this.staticStage = null;
+    // create 阶段先画首镜静态，避免第一帧空场
+    this.paintStatic(this.timeline.shots[0].stage);
 
     const tall = isPortrait();
     this.subtitle = addText(this, W / 2, Math.round(H * (tall ? 0.62 : 0.86)), '', tall ? 11 : 10, HEX.parchment, {
@@ -84,6 +95,18 @@ export default class StoryScene extends Phaser.Scene {
     // stopMusic 杀掉——推迟到第一次 update（PAUSED 不跑 update，揭开后才启动）。
     if (this.mode === 'opening') startMusic('opening');
     this.publish('playing');
+  }
+
+  // 静态三层：一镜一次，clear 后按 back/mid/fore 重画；alpha 跟随本镜前 400ms 淡入。
+  paintStatic(stage) {
+    this.staticStage = stage;
+    const set = this.staticSet[stage];
+    if (!set) return;
+    const bands = [[this.backG, set.back], [this.midG, set.mid], [this.foreG, set.fore]];
+    for (const [g, fn] of bands) {
+      g.clear();
+      fn(g, this.layout);
+    }
   }
 
   onSkip(event) {
@@ -168,6 +191,7 @@ export default class StoryScene extends Phaser.Scene {
       this.subtitle.setText(cur.shot.subtitle);
       musicCue(cur.shot.cue);
     }
+    if (cur.shot.stage !== this.staticStage) this.paintStatic(cur.shot.stage);
     const accent = 0xc9a227;
     this.stageG.clear();
     this.stages[cur.shot.stage](this.stageG, {

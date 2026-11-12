@@ -36,7 +36,7 @@
     {
       "name": "揭开后结算正常运行且为胜利面板、跑分透传",
       "pass": true,
-      "detail": "{\"status\":5,\"victory\":true,\"kills\":1142}"
+      "detail": "{\"status\":5,\"victory\":true,\"kills\":1190}"
     },
     {
       "name": "结局跳过后结算正常运行（不软锁）",

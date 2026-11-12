@@ -580,3 +580,31 @@ async function shootAct(n) {
 - 任务 5 改碑座后，`tests/cutscene-choreo.test.js` 里的 card 替身仍是旧的扁平对象；只要保留 `titleChars/titleText/statValues/statBaseY/titleBaseY` 五个字段就不会红。
 - 任务 16 删掉 `drawStage` 后，`src/ui/cinematic-art.js` 里的 `drawStage` 与七个幕剪影函数会变成死代码；本计划**不删**（`tests/cinematic-art.test.js` 仍在测它们），只在文档里标注「已被 diorama 取代」。
 - 截图脚本依赖 `dist`，每次改完源码必须先 `npm run build` 再截图，否则拍到旧画面。
+
+---
+
+## 交付记录（2026-11-12 完成）
+
+20 个任务全部落地，按 phase 拆分提交：
+
+| 提交 | 内容 |
+| --- | --- |
+| `1b7e914` | T1–T6 + 第一幕样板：`diorama-kit.js`、`dioramas/` 注册表与七幕占位、三层静态舞台、碑座、指纹脚本、七幕画廊 |
+| `ea3fa05` | T13–T16：`cine-props` / 四类短过场事件 / 八类事件三拍 + 编舞事件驱动 |
+| `a1b2fa1` | 碑座容器偏移修复（`plinthLayout` 绝对坐标 → 容器局部坐标）+ 截图等到 hold 中段 |
+| `8b71458` | T7–T12：七幕返工（彩窗/星庭/法庭/破晓之座）+ 第 VII 幕藤色修正 |
+| 本轮 | T17–T19：`journey-static.js` 六段 + `story-art.js` 开场六镜/结局四镜重写 + 文档 10.6–10.8 与第十一节 |
+
+验收（2026-11-12 实跑）：`npx vitest run --configLoader native --pool threads` **67 文件 / 1245 项全绿**；`npx vite build --configLoader native` 通过；`cutscene-shot.mjs` 22 张、`story-shot.mjs` 14 张、`ending-shot.mjs` 9 张，三个脚本均 `ok: true`、0 pageerror。
+
+指纹（`docs/cutscene/signatures.json`）：detail 0.329/0.529/0.430/0.525/0.441/0.346/0.454（阈值 0.12）；buckets 28/42/35/87/62/51/39（阈值 18）；21 组两两距离 0.212–0.305（阈值 0.18）。
+
+任务 20 步骤完成情况：
+
+- [x] 步骤 1：全量测试 67 文件 / 1245 项全绿
+- [x] 步骤 2：`npx vite build --configLoader native` 通过
+- [x] 步骤 3：三个截图脚本全绿，ink/detail/buckets 与距离矩阵已抄进 `docs/过场动画.md` 10.7 与第十一节
+- [x] 步骤 4：竖屏复核（`14-portrait-act1.png`、`12-portrait-opening.png`、`08-portrait-ending-dawn.png`）与 150ms 跳过断言
+- [x] 步骤 5：第八节纪律已改为「静态预绘制 + 活动件」，新增九条纪律（10.8）
+- [x] 步骤 6：本轮提交
+
