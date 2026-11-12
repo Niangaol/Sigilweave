@@ -1,13 +1,14 @@
-// 过场编舞：每类过场的视觉编排。CutsceneScene 的状态机（盖场/换场/冻结/揭开/跳过）
-// 一行不动，这里只接管「画什么」：旧视觉基线 + 每类大胆层（运镜/碎裂/闪洪/动态排版）。
+// 过场编舞：每类过场只负责「活动件三拍」的调度，布景是 CutsceneScene 预绘制的静态三层。
+// CutsceneScene 的状态机（盖场/换场/冻结/揭开/跳过）一行不动。
 // 纪律：硬边整数坐标、种子确定、无渐变/模糊/Math.random；单帧四层合计 ≤700 指令。
-// 符环 runes 在编舞里关闭（8×drawGlyph 约 250 指令），把预算让给巨号/闪洪/碎裂等冲击层。
 import { C, pxRect, pxDiamond } from './Palette.js';
 import {
   clamp01, easeOutCubic, drawSeal, drawSparkBurst, drawDust,
-  drawShatter, drawFlood, drawWhipStreaks, drawIris, drawGlitchSlices, drawNumeral, strokeRing,
+  drawFlood, drawWhipStreaks, drawIris, drawGlitchSlices, strokeRing,
 } from './cinematic-art.js';
 import { sfx } from '../audio/Sfx.js';
+import { getShortEvent } from './cine-beats/short.js';
+import { getBattleEvent } from './cine-beats/battle.js';
 
 const easeOutBack = t => {
   const x = clamp01(t), c1 = 1.70158, c3 = c1 + 1;
@@ -22,18 +23,34 @@ export function createChoreo(kind, act) {
   function draw(scene, ctx) {
     const { phase, veil, accent, elapsed, tl } = ctx;
     const { W, H, cx, cy } = scene;
-    const stageA = clamp01((veil - 0.42) / 0.58);
+    const anchors = ctx.anchors || {};
+    const tint = ctx.tint ?? 0x241c3a;
     const holdT = Math.max(0, elapsed - tl.coverMs);
+    // holdP：盖场恒 0，hold 内按 hold 时长推进，揭开恒 1（结果拍残留不消失）
+    const holdP = phase.phase === 'hold' ? clamp01(holdT / Math.max(1, tl.holdMs))
+      : (phase.phase === 'reveal' || phase.phase === 'done') ? 1 : 0;
 
-    // ---- 舞台层：布景已由 CutsceneScene 的静态三层预绘制，这里只画「当类过场」的动态事件 ----
     scene.stageG.clear();
-    if (kind === 'act') {
-      drawNumeral(scene.stageG, { cx, cy, act, accent, alpha: 0.14 * stageA });
-    } else if (kind === 'death') {
+    scene.sealG.clear();
+    scene.fxG.clear();
+    scene.dustG.clear();
+
+    // ---- 事件三拍：布景静态，活动件由事件库画 ----
+    const ev = getShortEvent(kind) || getBattleEvent(kind);
+    if (ev) {
+      ev.draw(scene, {
+        w: W, h: H, holdP, phase: phase.phase, anchors, accent, tint,
+        seed: 0x51c7 + act * 131, act,
+      });
+    }
+
+    // ---- 类专属的屏幕级叠层（不属于单件道具，放事件之后）----
+    if (kind === 'death') {
       if (phase.phase === 'cover') drawIris(scene.stageG, { w: W, h: H, p: phase.p, color: C.bloodDark });
       else if (phase.phase === 'hold') drawGlitchSlices(scene.stageG, { w: W, h: H, t: elapsed, seed: act, color: C.blood });
       else if (phase.phase === 'reveal') drawIris(scene.stageG, { w: W, h: H, p: 1 - phase.p, color: C.bloodDark });
-    } else if (kind === 'clear' && phase.phase === 'reveal') {
+    }
+    if (kind === 'clear' && phase.phase === 'reveal') {
       // 12 列硬边百叶擦除，随揭开逐列收起
       const colW = Math.ceil(W / 12);
       for (let i = 0; i < 12; i++) {
@@ -42,49 +59,29 @@ export function createChoreo(kind, act) {
       }
     }
 
-    // ---- 中央符环：旧基线半径/透明度 + 每类冲击 ----
-    let radius = 210;
-    let sealAlpha = veil;
-    if (phase.phase === 'cover') radius = 340 - 130 * easeOutCubic(phase.p);
-    else if (phase.phase === 'hold') radius = 210 + Math.sin(elapsed * 0.0022) * 2;
-    else if (phase.phase === 'reveal') { radius = 210 + 360 * easeOutCubic(phase.p); sealAlpha = (1 - phase.p) * 0.9; }
-    else sealAlpha = 0;
-
-    if (phase.phase === 'hold') {
-      if (kind === 'act' && holdT < 220) radius += Math.round(22 * Math.sin((holdT / 220) * Math.PI));
-      if ((kind === 'boot' || kind === 'sigil' || kind === 'retry' || kind === 'return') && holdT < 160) {
-        radius += Math.round(16 * Math.sin((holdT / 160) * Math.PI));
+    // ---- 大符环：只有 victory 保留（其余类的环交给事件在锚点画小环）----
+    if (kind === 'victory' && phase.phase !== 'done') {
+      const mp = phase.phase === 'hold' ? clamp01(holdT / 450) : 1;
+      if (phase.phase === 'hold' && mp < 1) {
+        for (const i of [-1, 0, 1]) {
+          const ringCx = Math.round(cx + i * 108 * (1 - mp));
+          strokeRing(scene.sealG, ringCx, cy - 20, 40, accent, 0.5 * veil);
+          strokeRing(scene.sealG, ringCx, cy - 20, 28, C.brass, 0.4 * veil);
+        }
       }
-      if (kind === 'death') {
-        const beat = (elapsed % 900) / 900;
-        const thump = beat < 0.12 ? 1 : beat < 0.24 ? 0.35 : beat < 0.36 ? 0.8 : 0.25;
-        sealAlpha *= 0.6 + 0.4 * thump;
-      }
-    }
-
-    scene.sealG.clear();
-    if (kind === 'clear' && phase.phase === 'hold') {
-      const sp = clamp01(holdT / 500);
-      if (!shatterFired && sp > 0) { shatterFired = true; sfx.cineShatter?.(); }
-      drawSeal(scene.sealG, { cx, cy, r: 70, t: elapsed, accent, alpha: sealAlpha * (1 - sp) * 0.8, core: false, runes: false });
-      drawShatter(scene.sealG, { cx, cy, r: 70, p: sp, accent, seed: 0x51c7 + act * 131 });
-    } else if (kind === 'victory' && phase.phase === 'hold') {
-      const mp = clamp01(holdT / 450);
-      for (const i of [-1, 0, 1]) {
-        const ringCx = Math.round(cx + i * 108 * (1 - mp));
-        strokeRing(scene.sealG, ringCx, cy - 20, 40, accent, 0.5 * veil);
-        strokeRing(scene.sealG, ringCx, cy - 20, 28, C.brass, 0.4 * veil);
-      }
-      if (!shatterFired && mp >= 1) { shatterFired = true; sfx.cineShatter?.(); }
+      let radius = 210;
+      let sealAlpha = veil;
+      if (phase.phase === 'cover') radius = 340 - 130 * easeOutCubic(phase.p);
+      else if (phase.phase === 'hold') radius = 210 + Math.sin(elapsed * 0.0022) * 2;
+      else if (phase.phase === 'reveal') { radius = 210 + 360 * easeOutCubic(phase.p); sealAlpha = (1 - phase.p) * 0.9; }
       const punch = mp >= 1 && holdT < 670 ? Math.round(24 * Math.sin(((holdT - 450) / 220) * Math.PI)) : 0;
-      drawSeal(scene.sealG, { cx, cy, r: radius + punch, t: elapsed, accent, alpha: sealAlpha * 0.55, core: !scene.cardData, runes: false });
-    } else {
       drawSeal(scene.sealG, {
-        cx, cy, r: radius, t: elapsed, accent,
-        alpha: sealAlpha * (kind === 'victory' ? 0.55 : 0.8),
-        core: !scene.cardData, runes: false, spokes: kind === 'death' ? 8 : 12,
+        cx, cy, r: radius + punch, t: elapsed, accent,
+        alpha: sealAlpha * 0.55, core: !scene.cardData, runes: false,
       });
     }
+
+    // 揭开瞬间的白闪（每类一次）
     drawSparkBurst(scene.sealG, { cx, cy, t: elapsed, startT: tl.revealAt, accent, alpha: 1 });
     const revealMs = elapsed - tl.revealAt;
     if (revealMs >= 0 && revealMs < 140) {
@@ -92,8 +89,7 @@ export function createChoreo(kind, act) {
       pxRect(scene.sealG, 0, 0, W, H, kind === 'victory' ? C.brassLight : C.parchment, flash);
     }
 
-    // ---- 加性辉光层：甩镜/闪洪/合并核心 ----
-    scene.fxG.clear();
+    // ---- 加性辉光层：甩镜/闪洪 ----
     if (kind === 'act' && phase.phase === 'cover') {
       drawWhipStreaks(scene.fxG, { w: W, h: H, p: phase.p, dir: 1, color: accent });
     }
@@ -108,12 +104,13 @@ export function createChoreo(kind, act) {
       drawFlood(scene.fxG, { w: W, h: H, color: C.brass, alpha: 0.22 * (1 - (holdT - 450) / 70) });
       pxDiamond(scene.fxG, cx, cy, 30, C.brassLight, 0.5 * (1 - (holdT - 450) / 70), true);
     }
-    if ((kind === 'sigil' || kind === 'retry' || kind === 'return') && phase.phase === 'hold' && holdT < 40) {
-      drawFlood(scene.fxG, { w: W, h: H, color: accent, alpha: 0.1 * (1 - holdT / 40) });
+    // 契约钉碎裂的音效落在 clear 事件行动拍起点
+    if (kind === 'clear' && phase.phase === 'hold' && !shatterFired && holdT >= 0) {
+      shatterFired = true;
+      sfx.cineShatter?.();
     }
 
     // ---- 浮尘基线 ----
-    scene.dustG.clear();
     drawDust(scene.dustG, scene.dust, { h: H, t: elapsed, accent, alpha: veil });
 
     // ---- 卡片动效：旧基线淡入淡出 + 每类动态排版 ----

@@ -391,7 +391,10 @@ export default class CutsceneScene extends Phaser.Scene {
     }
 
     // 视觉全部交给每类编舞（舞台/符环/浮尘/卡片动效 + 大胆层）；状态机 below 不变
-    this.choreo.draw(this, { phase, veil, accent, tint, elapsed: this.elapsed, tl });
+    this.choreo.draw(this, {
+      phase, veil, accent, tint, elapsed: this.elapsed, tl,
+      act: this.options.act, anchors: this.diorama.anchors, dio: this.diorama,
+    });
 
     // 目标场景没就绪前绝不揭开/放行；提前 resume 会让随后 freezeTarget 把目标永久暂停（跳过路径曾踩到）
     if (this.elapsed >= tl.revealAt && this.targetReady) this.resumeTarget();

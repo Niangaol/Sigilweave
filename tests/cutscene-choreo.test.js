@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as choreoMod from '../src/ui/cutscene-choreo.js';
 import { buildTimeline, phaseAt, buildCard } from '../src/data/cinematics.js';
 import { buildDust, easeInOutCubic, clamp01 } from '../src/ui/cinematic-art.js';
+import { dioramaLayout } from '../src/ui/dioramas/registry.js';
 
 // 计数 stub：任何方法调用都计一条绘制指令，非有限坐标直接抛错
 function makeCounting() {
@@ -35,15 +36,18 @@ function makeScene(kind, act) {
     W: 480, H: 270, cx: 240, cy: 135,
     stageG: makeCounting(), sealG: makeCounting(), dustG: makeCounting(), fxG: makeCounting(),
     dust: buildDust(7, 44, 480, 270),
+    dio: dioramaLayout(act, 480, 270),
+    anchors: dioramaLayout(act, 480, 270).anchors,
     card, cardData: buildCard(kind, act, { elapsedMs: 123000, kills: 9, triggers: 20, combos: 2 }),
     options: { kind, act },
   };
 }
 
-function ctxAt(elapsed, tl) {
+function ctxAt(elapsed, tl, act = 1) {
   const phase = phaseAt(elapsed, tl);
   const cover = phase.phase === 'cover' ? phase.p : phase.phase === 'hold' ? 1 : phase.phase === 'reveal' ? 1 - phase.p : 0;
-  return { phase, veil: easeInOutCubic(cover), accent: 0xc9a227, tint: 0x241c3a, elapsed, tl };
+  const dio = dioramaLayout(act, 480, 270);
+  return { phase, veil: easeInOutCubic(cover), accent: 0xc9a227, tint: 0x241c3a, elapsed, tl, act, anchors: dio.anchors, dio };
 }
 
 const KINDS = ['boot', 'sigil', 'act', 'clear', 'death', 'victory', 'retry', 'return'];
@@ -71,7 +75,7 @@ describe('编舞绘制预算与确定性', () => {
         const s2 = makeScene(kind, act);
         const c1 = choreoMod.createChoreo(kind, act);
         const c2 = choreoMod.createChoreo(kind, act);
-        const ctx = ctxAt(elapsed, tl);
+        const ctx = ctxAt(elapsed, tl, act);
         c1.draw(s1, ctx);
         c2.draw(s2, ctx);
         const n1 = s1.stageG.count + s1.sealG.count + s1.dustG.count + s1.fxG.count;
