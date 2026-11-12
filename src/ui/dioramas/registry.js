@@ -16,12 +16,12 @@ export const BAND_BUDGET = { back: 1300, mid: 1300, fore: 900 };
 export const DIORAMAS = [
   null,
   { act: 1, id: 'graveyard', title: '荒废墓园', numeral: 'I', accent: 0xc9a227, tint: 0x332b4a, horizon: 0.4444, module: act1 },
-  { act: 2, id: 'swamp-church', title: '腐沼教堂', numeral: 'II', accent: 0x7cc9a8, tint: 0x2b3a20, horizon: 0.60, module: act2 },
-  { act: 3, id: 'star-court', title: '星陨王庭', numeral: 'III', accent: 0x7fd7ff, tint: 0x171b36, horizon: 0.58, module: act3 },
-  { act: 4, id: 'library', title: '沉钟书库', numeral: 'IV', accent: 0x9fb4d8, tint: 0x1a1e2e, horizon: 0.61, module: act4 },
-  { act: 5, id: 'court', title: '衡律法庭', numeral: 'V', accent: 0xcfd6e0, tint: 0x241f26, horizon: 0.63, module: act5 },
-  { act: 6, id: 'forge', title: '熔星锻炉', numeral: 'VI', accent: 0xff8a4d, tint: 0x2a1814, horizon: 0.64, module: act6 },
-  { act: 7, id: 'dawn-seat', title: '破晓之座', numeral: 'VII', accent: 0xffd98a, tint: 0x1a1630, horizon: 0.57, module: act7 },
+  { act: 2, id: 'swamp-church', title: '腐沼教堂', numeral: 'II', accent: 0x7cc9a8, tint: 0x2b3a20, horizon: 0.47, module: act2 },
+  { act: 3, id: 'star-court', title: '星陨王庭', numeral: 'III', accent: 0x7fd7ff, tint: 0x171b36, horizon: 0.46, module: act3 },
+  { act: 4, id: 'library', title: '沉钟书库', numeral: 'IV', accent: 0x9fb4d8, tint: 0x1a1e2e, horizon: 0.49, module: act4 },
+  { act: 5, id: 'court', title: '衡律法庭', numeral: 'V', accent: 0xcfd6e0, tint: 0x241f26, horizon: 0.50, module: act5 },
+  { act: 6, id: 'forge', title: '熔星锻炉', numeral: 'VI', accent: 0xff8a4d, tint: 0x2a1814, horizon: 0.50, module: act6 },
+  { act: 7, id: 'dawn-seat', title: '破晓之座', numeral: 'VII', accent: 0xffd98a, tint: 0x1a1630, horizon: 0.44, module: act7 },
 ];
 
 export function getDiorama(act) {

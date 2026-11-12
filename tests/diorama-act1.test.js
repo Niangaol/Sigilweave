@@ -69,8 +69,11 @@ describe('第 I 幕 荒废墓园', () => {
 
     const mid = run('mid', 1, 480, 270);
     const ground = mid.L.anchors.nail.y;
-    const stones = mid.ops.filter(o => o.t === 'r' && o.c === C.stone && o.h >= 12 && o.w >= 12 && o.a > 0.7);
+    // 碑体按纵深分三档明度（近 stoneLight / 中 stone / 远 stoneDark），三档都算"碑"
+    const stoneTones = [C.stoneLight, C.stone, C.stoneDark];
+    const stones = mid.ops.filter(o => o.t === 'r' && stoneTones.includes(o.c) && o.h >= 12 && o.w >= 12 && o.a > 0.7);
     expect(stones.length).toBeGreaterThanOrEqual(7);
+    expect(new Set(stones.map(o => o.c)).size).toBeGreaterThanOrEqual(3);
     const bases = new Set(stones.map(o => o.y + o.h));
     expect(bases.size).toBeGreaterThanOrEqual(2);
 

@@ -51,16 +51,38 @@ export const act = {
     const lord = anchors?.lord ?? { x: w / 2, y: h * 0.56 };
     const p = holdP;
     ambient(g, ctx, accent);
-    // 门缝：宽 1→6px，高 len 随幕
+    // 门缝：一条从门框里挤出来的细光（宽 1→3px），底边压在门槛上，不是悬空的光柱
     const t1 = easeOut(seg(p, 0, 0.25));
-    const slitW = Math.max(1, R(lerp(1, 6, t1)));
-    const doorH = Math.max(10, R(h * 0.18));
-    const gx = gate.x, gy = gate.y;
-    pxRect(g, R(gx - slitW / 2), R(gy - doorH), slitW, doorH, accent, 0.85);
-    pxRect(g, R(gx - slitW / 2 - 1), R(gy - doorH), slitW + 2, doorH, accent, 0.16);
-    // 地面上的光柱（越到结果越短）
-    const spill = R(lerp(0, 22, t1) * (p > 0.68 ? 0.7 : 1));
-    for (let i = 0; i < spill; i += 2) pxRect(g, R(gx - (6 - i * 0.05)), R(gy + i), R(12 - i * 0.1), 1, accent, 0.07);
+    const gx = gate.x;
+    const baseY = ctx.horizon ?? gate.y;
+    const doorH = Math.max(10, R((h - baseY) * 0.34));
+    const slitW = Math.max(1, R(lerp(1, 3, t1)));
+    const topY = R(baseY - doorH);
+    // 三层叠出"漏光"：外晕 → 主体 → 近白芯，避免一条纯色棒子
+    pxRect(g, R(gx - slitW / 2 - 2), topY + 2, slitW + 4, doorH - 4, accent, 0.1);
+    pxRect(g, R(gx - slitW / 2 - 1), topY + 1, slitW + 2, doorH - 2, accent, 0.28);
+    pxRect(g, R(gx - slitW / 2), topY, slitW, doorH, accent, 0.8);
+    pxRect(g, R(gx), topY + 1, 1, doorH - 2, C.arcaneLight, 0.55);
+    // 门板上的漏光边：两截横光，越窄越像缝隙
+    pxRect(g, R(gx - slitW / 2 - 3), R(topY + doorH * 0.3), slitW + 1, 1, accent, 0.28);
+    pxRect(g, R(gx + slitW / 2 + 1), R(topY + doorH * 0.55), slitW + 2, 1, accent, 0.22);
+    // 门槛前的地面光池：横向铺开，比光柱短
+    const poolW = R(lerp(6, 30, t1) * (p > 0.68 ? 0.85 : 1));
+    const poolH = Math.max(2, R(lerp(2, 7, t1)));
+    for (let i = 0; i < poolH; i++) {
+      const k = 1 - i / poolH;
+      pxRect(g, R(gx - poolW * 0.5 * k), R(baseY + i), Math.max(1, R(poolW * k)), 1, accent, 0.16 * (1 - i / poolH));
+    }
+    pxRect(g, R(gx - poolW * 0.5), R(baseY), poolW, 1, accent, 0.24);
+    // 三道光束从门缝斜落到地面（硬边 1px，读作体积光）
+    if (t1 > 0.35) {
+      const beam = seg(p, 0.2, 0.68);
+      for (let i = -1; i <= 1; i += 2) {
+        const bx = R(gx + i * (2 + beam * 10));
+        pxRect(g, bx, R(topY + doorH * 0.45), 1, R(baseY - topY - doorH * 0.45), accent, 0.05);
+      }
+      pxRect(g, R(gx), R(topY + doorH * 0.5), 1, R(baseY + 2 - (topY + doorH * 0.5)), accent, 0.06);
+    }
     // 契约主：行动拍现身（fade 0→1）
     const fade = easeOut(seg(p, 0.25, 0.5));
     if (fade > 0.02) {
@@ -70,8 +92,8 @@ export const act = {
     if (p >= 0.5) {
       const t = seg(p, 0.5, 0.68);
       const r = lerp(26, 40, t);
-      arcDots(scene.sealG, gx, gy, r, 12, accent, 0.5 * (1 - t * 0.4));
-      if (t > 0.5) arcDots(scene.sealG, gx, gy, r + 4, 12, accent, 0.2);
+      arcDots(scene.sealG, gx, baseY, r, 12, accent, 0.5 * (1 - t * 0.4));
+      if (t > 0.5) arcDots(scene.sealG, gx, baseY, r + 4, 12, accent, 0.2);
     }
     return { residue: this.residueAt(p) };
   },

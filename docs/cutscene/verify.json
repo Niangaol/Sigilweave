@@ -16,7 +16,13 @@
     "12-victory-card",
     "13-victory-panel",
     "14-portrait-act1",
-    "15-act3-card"
+    "16-act1-scene",
+    "16-act2-scene",
+    "16-act3-scene",
+    "16-act4-scene",
+    "16-act5-scene",
+    "16-act6-scene",
+    "16-act7-scene"
   ],
   "timings": [
     {
@@ -24,63 +30,63 @@
       "phase": "hold",
       "duration": 960,
       "act": 1,
-      "elapsed": 305
+      "elapsed": 317
     },
     {
       "kind": "sigil",
       "phase": "hold",
       "duration": 920,
       "act": 1,
-      "elapsed": 300
+      "elapsed": 318
     },
     {
       "kind": "act",
       "phase": "hold",
       "duration": 1460,
       "act": 1,
-      "elapsed": 323
+      "elapsed": 335
     },
     {
       "kind": "clear",
       "phase": "hold",
       "duration": 1420,
       "act": 1,
-      "elapsed": 322
+      "elapsed": 320
     },
     {
       "kind": "journey",
       "phase": "hold",
       "duration": 5840,
       "act": 2,
-      "elapsed": 321
+      "elapsed": 335
     },
     {
       "kind": "death",
       "phase": "hold",
       "duration": 1120,
       "act": 2,
-      "elapsed": 384
+      "elapsed": 390
     },
     {
       "kind": "retry",
       "phase": "hold",
       "duration": 920,
       "act": 1,
-      "elapsed": 305
+      "elapsed": 301
     },
     {
       "kind": "victory",
       "phase": "hold",
       "duration": 1600,
-      "act": 3,
-      "elapsed": 360
+      "act": 7,
+      "elapsed": 370
     },
     {
       "kind": "return",
       "phase": "hold",
       "duration": 920,
-      "act": 3,
-      "elapsed": 301
+      "act": 7,
+      "elapsed": 302
     }
   ],
   "errors": [],
@@ -123,7 +129,7 @@
     {
       "name": "第二幕 journey 属于第 2 幕且时长 4–8s",
       "pass": true,
-      "detail": "{\"kind\":\"journey\",\"phase\":\"hold\",\"elapsed\":321,\"duration\":5840,\"from\":\"IntermissionScene\",\"to\":\"BattleScene\",\"act\":2,\"swapped\":true,\"targetReady\":false,\"skipped\":false}"
+      "detail": "{\"kind\":\"journey\",\"phase\":\"hold\",\"elapsed\":335,\"duration\":5840,\"from\":\"IntermissionScene\",\"to\":\"BattleScene\",\"act\":2,\"swapped\":true,\"targetReady\":false,\"skipped\":false}"
     },
     {
       "name": "death 时长 900–1600ms",
@@ -152,12 +158,158 @@
     {
       "name": "竖屏画布为高窗",
       "pass": true,
-      "detail": "{\"w\":390,\"h\":844,\"cut\":{\"kind\":\"act\",\"phase\":\"hold\",\"elapsed\":374,\"duration\":1460,\"from\":\"LoadoutScene\",\"to\":\"BattleScene\",\"act\":1,\"swapped\":true,\"targetReady\":true,\"skipped\":false}}"
+      "detail": "{\"w\":390,\"h\":844,\"cut\":{\"kind\":\"act\",\"phase\":\"hold\",\"elapsed\":465,\"duration\":1460,\"from\":\"LoadoutScene\",\"to\":\"BattleScene\",\"act\":1,\"swapped\":true,\"targetReady\":true,\"skipped\":false}}"
     },
     {
-      "name": "第三幕卡片属于第 3 幕",
+      "name": "七幕每一幕细节量充足（detail≥0.12）",
       "pass": true,
-      "detail": "3"
+      "detail": "不足: []"
+    },
+    {
+      "name": "七幕每一幕颜色层次足够（buckets≥18）",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "name": "七幕指纹两两距离 ≥0.18",
+      "pass": true,
+      "detail": "[]"
     }
-  ]
+  ],
+  "signatures": {
+    "ink": {
+      "1": 0.191,
+      "2": 0.557,
+      "3": 0.515,
+      "4": 0.494,
+      "5": 0.579,
+      "6": 0.677,
+      "7": 0.571
+    },
+    "detail": {
+      "1": 0.188,
+      "2": 0.406,
+      "3": 0.348,
+      "4": 0.46,
+      "5": 0.248,
+      "6": 0.267,
+      "7": 0.36
+    },
+    "buckets": {
+      "1": 29,
+      "2": 39,
+      "3": 28,
+      "4": 87,
+      "5": 52,
+      "6": 48,
+      "7": 35
+    },
+    "pairs": [
+      {
+        "a": 1,
+        "b": 2,
+        "d": 0.268
+      },
+      {
+        "a": 1,
+        "b": 3,
+        "d": 0.259
+      },
+      {
+        "a": 1,
+        "b": 4,
+        "d": 0.296
+      },
+      {
+        "a": 1,
+        "b": 5,
+        "d": 0.216
+      },
+      {
+        "a": 1,
+        "b": 6,
+        "d": 0.24
+      },
+      {
+        "a": 1,
+        "b": 7,
+        "d": 0.241
+      },
+      {
+        "a": 2,
+        "b": 3,
+        "d": 0.27
+      },
+      {
+        "a": 2,
+        "b": 4,
+        "d": 0.273
+      },
+      {
+        "a": 2,
+        "b": 5,
+        "d": 0.277
+      },
+      {
+        "a": 2,
+        "b": 6,
+        "d": 0.271
+      },
+      {
+        "a": 2,
+        "b": 7,
+        "d": 0.274
+      },
+      {
+        "a": 3,
+        "b": 4,
+        "d": 0.25
+      },
+      {
+        "a": 3,
+        "b": 5,
+        "d": 0.286
+      },
+      {
+        "a": 3,
+        "b": 6,
+        "d": 0.25
+      },
+      {
+        "a": 3,
+        "b": 7,
+        "d": 0.27
+      },
+      {
+        "a": 4,
+        "b": 5,
+        "d": 0.277
+      },
+      {
+        "a": 4,
+        "b": 6,
+        "d": 0.31
+      },
+      {
+        "a": 4,
+        "b": 7,
+        "d": 0.27
+      },
+      {
+        "a": 5,
+        "b": 6,
+        "d": 0.242
+      },
+      {
+        "a": 5,
+        "b": 7,
+        "d": 0.261
+      },
+      {
+        "a": 6,
+        "b": 7,
+        "d": 0.276
+      }
+    ]
+  }
 }

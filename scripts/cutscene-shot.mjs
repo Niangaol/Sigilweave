@@ -4,15 +4,15 @@
 //   node scripts/static-server.mjs dist 4174
 //   BASE_URL=http://127.0.0.1:4174 node scripts/cutscene-shot.mjs
 // 需要本机允许启动浏览器；若 Playwright 起不来，可用有启动权限的机器复跑。
-import { chromium } from 'playwright';
+import { openBrowser } from './lib/browser.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { captureSignature, pairwise, THRESHOLDS } from './lib/pixel-signature.mjs';
+import { signatureFromBuffer, pairwise, THRESHOLDS } from './lib/pixel-signature.mjs';
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:4174';
 const OUT = process.env.OUT_DIR ?? 'docs/cutscene';
 await mkdir(OUT, { recursive: true });
 
-const browser = await chromium.launch({ channel: process.env.PW_CHANNEL ?? 'msedge' });
+const browser = await openBrowser();
 const report = { ok: false, shots: [], timings: [], errors: [], checks: [] };
 const check = (name, pass, detail) => {
   report.checks.push({ name, pass: !!pass, detail });
@@ -136,17 +136,19 @@ try {
     const s = window.__SIGILWEAVE_BATTLE__;
     // 注入一组完整三幕跑分，只为了让胜利卡的统计不是 00:00/0（真实游玩用真数据）
     s.run.reports = [
-      { act: 1, elapsedMs: 143000, kills: 312, triggers: 980, combos: 26, blocked: 4, peakRate: 0.8 },
-      { act: 2, elapsedMs: 201000, kills: 450, triggers: 1300, combos: 31, blocked: 6, peakRate: 0.9 },
-      { act: 3, elapsedMs: 166000, kills: 380, triggers: 1100, combos: 29, blocked: 5, peakRate: 0.85 },
+      { act: 1, elapsedMs: 133000, kills: 290, triggers: 950, combos: 25, blocked: 4, peakRate: 0.8 },
+      { act: 2, elapsedMs: 146000, kills: 320, triggers: 1040, combos: 26, blocked: 5, peakRate: 0.8 },
+      { act: 3, elapsedMs: 159000, kills: 350, triggers: 1130, combos: 27, blocked: 3, peakRate: 0.8 },
+      { act: 4, elapsedMs: 172000, kills: 380, triggers: 1220, combos: 28, blocked: 4, peakRate: 0.8 },
+      { act: 5, elapsedMs: 185000, kills: 410, triggers: 1310, combos: 29, blocked: 5, peakRate: 0.8 },
+      { act: 6, elapsedMs: 198000, kills: 440, triggers: 1400, combos: 30, blocked: 3, peakRate: 0.8 },
+      { act: 7, elapsedMs: 211000, kills: 470, triggers: 1490, combos: 31, blocked: 4, peakRate: 0.8 },
     ];
-    s.run.bossResolutions = {
-      'boss-1': { method: 'quiz' }, 'boss-2': { method: 'combat' }, 'boss-3': { method: 'quiz' },
-    };
+    s.run.bossResolutions = Object.fromEntries(Array.from({ length: 7 }, (_, i) => ['boss-' + (i + 1), { method: i % 2 ? 'combat' : 'quiz' }]));
     s.kills = 312;
     s.shardCount = 19;
-    s.engine.now = 143000;
-    s.act = 3;
+    s.engine.now = 220000;
+    s.act = 7;
     s.phase = 'bossDefeated';
     s.bossDefeated = true;
     s.completeAct();
@@ -220,20 +222,26 @@ try {
       && window.__SIGILWEAVE_CUTSCENE__?.act === a
       && window.__SIGILWEAVE_CUTSCENE__?.phase === 'hold'
       && (window.__SIGILWEAVE_CUTSCENE__?.elapsed ?? 0) > 520, n, { timeout: 20000 });
-    await gallery.screenshot({ path: OUT + '/16-act' + n + '-scene.png' });
+    const buf = await gallery.screenshot({ path: OUT + '/16-act' + n + '-scene.png' });
     report.shots.push('16-act' + n + '-scene');
-    sigs[n] = await captureSignature(gallery);
-    check('第 ' + n + ' 幕 hold 画面有内容（ink≥' + THRESHOLDS.ink + '）', sigs[n].ink >= THRESHOLDS.ink, sigs[n].ink.toFixed(2));
+    sigs[n] = await signatureFromBuffer(gallery, buf);
+
     await gallery.keyboard.press('Space');
     await gallery.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('TitleScene')
       && !window.__SIGILWEAVE__?.scene.isActive('CutsceneScene'), null, { timeout: 20000 });
     await gallery.waitForTimeout(250);
   }
+  const thin = [1, 2, 3, 4, 5, 6, 7].filter(n => sigs[n].detail < THRESHOLDS.detail);
+  check('七幕每一幕细节量充足（detail≥' + THRESHOLDS.detail + '）', thin.length === 0, '不足: ' + JSON.stringify(thin.map(n => ({ n, detail: +sigs[n].detail.toFixed(3) }))));
+  const dull = [1, 2, 3, 4, 5, 6, 7].filter(n => sigs[n].buckets < THRESHOLDS.buckets);
+  check('七幕每一幕颜色层次足够（buckets≥' + THRESHOLDS.buckets + '）', dull.length === 0, JSON.stringify(dull.map(n => ({ n, buckets: sigs[n].buckets }))));
   const pairs = pairwise(sigs);
   const tooClose = pairs.filter(p => p.d < THRESHOLDS.actDistance);
   check('七幕指纹两两距离 ≥' + THRESHOLDS.actDistance, tooClose.length === 0, JSON.stringify(tooClose));
   report.signatures = {
     ink: Object.fromEntries(Object.entries(sigs).map(([k, v]) => [k, +v.ink.toFixed(3)])),
+    detail: Object.fromEntries(Object.entries(sigs).map(([k, v]) => [k, +v.detail.toFixed(3)])),
+    buckets: Object.fromEntries(Object.entries(sigs).map(([k, v]) => [k, v.buckets])),
     pairs,
   };
   await writeFile(OUT + '/signatures.json', JSON.stringify(report.signatures, null, 2));

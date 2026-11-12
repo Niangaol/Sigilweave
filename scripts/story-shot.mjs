@@ -3,14 +3,14 @@
 //   npm run build
 //   node scripts/static-server.mjs dist 4174
 //   BASE_URL=http://127.0.0.1:4174 node scripts/story-shot.mjs
-import { chromium } from 'playwright';
+import { openBrowser } from './lib/browser.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:4174';
 const OUT = process.env.OUT_DIR ?? 'docs/story';
 await mkdir(OUT, { recursive: true });
 
-const browser = await chromium.launch({ channel: process.env.PW_CHANNEL ?? 'msedge' });
+const browser = await openBrowser();
 const report = { ok: false, shots: [], errors: [], checks: [] };
 const check = (name, pass, detail) => {
   report.checks.push({ name, pass: !!pass, detail });

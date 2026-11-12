@@ -41,6 +41,7 @@ export function createChoreo(kind, act) {
       ev.draw(scene, {
         w: W, h: H, holdP, phase: phase.phase, anchors, accent, tint,
         seed: 0x51c7 + act * 131, act,
+        horizon: ctx.dio?.horizon ?? Math.round(H * 0.44),
       });
     }
 
