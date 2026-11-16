@@ -13,35 +13,27 @@ export const OPENING_SHOTS = Object.freeze([
   { id: 'title',     ms: 5000, stage: 'title',     subtitle: '', cue: 'finale' },
 ].map(Object.freeze));
 
+// 幕间 journey 以幕（chapter 1..5）为键：四、五幕各含两场，journey 只在进幕时播一次，
+// 因此取该幕首场的布景（chapter 4 → 书库、chapter 5 → 锻炉），场名与 journey-static 对齐。
 export const JOURNEYS = Object.freeze({
   2: Object.freeze({
-    act: 2, stage: 'swamp', label: '第贰幕 · 腐沼教堂',
+    chapter: 2, stage: 'swamp', label: '第贰幕 · 腐沼教堂',
     subtitle: '潮声把祷词泡烂。第二枚契约，沉在钟下。',
     accent: 0x7cc9a8, tint: 0x2b3a20,
   }),
   3: Object.freeze({
-    act: 3, stage: 'star', label: '第叁幕 · 星陨王庭',
+    chapter: 3, stage: 'star', label: '第叁幕 · 星陨王庭',
     subtitle: '星纹垂落如审判。最后一位契约主，记得所有名字。',
     accent: 0x7fd7ff, tint: 0x171b36,
   }),
   4: Object.freeze({
-    act: 4, stage: 'library', label: '第肆幕 · 天权 · 沉钟书库',
-    subtitle: '书页在钟声里翻动。第四枚契约，藏在索引的最后一页。',
-    accent: 0x9fb4d8, tint: 0x1a1e2e,
+    chapter: 4, stage: 'library', label: '第肆幕 · 审判书库',
+    subtitle: '书库的钟声还没停，碑上又多了一位契约主的名字。',
+    accent: 0xcfd6e0, tint: 0x1a1e2e,
   }),
   5: Object.freeze({
-    act: 5, stage: 'court', label: '第伍幕 · 玉衡 · 衡律法庭',
-    subtitle: '天平压着所有人的名字。第五枚契约，等一场公正的判决。',
-    accent: 0xcfd6e0, tint: 0x241f26,
-  }),
-  6: Object.freeze({
-    act: 6, stage: 'forge', label: '第陆幕 · 开阳 · 熔星锻炉',
-    subtitle: '炉火不熄，铁砧不冷。第六枚契约，要经一锤一锤的锻打。',
-    accent: 0xff8a4d, tint: 0x2a1814,
-  }),
-  7: Object.freeze({
-    act: 7, stage: 'sunrise', label: '第柒幕 · 摇光 · 破晓之座',
-    subtitle: '最后一颗星落进王座。第七枚契约，天就要亮了。',
+    chapter: 5, stage: 'forge', label: '第伍幕 · 熔星破晓',
+    subtitle: '炉火把夜烧穿。最后一夜的两位契约主，都在等天亮。',
     accent: 0xffd98a, tint: 0x1a1630,
   }),
 });

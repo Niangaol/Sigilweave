@@ -99,7 +99,7 @@ describe('演武会话与模拟暂停', () => {
  it('同幕统计只记录一次，防止重复幕间结算', () => {
    const run = createRun(); expect(recordAct(run, { triggers: 5 })).toBe(true);
    expect(recordAct(run, { triggers: 500 })).toBe(false); expect(run.reports[0].triggers).toBe(5);
-   run.act = 2; expect(recordAct(run, {})).toBe(true);
+   run.chapter = 2; run.stage = 2; expect(recordAct(run, {})).toBe(true);
  });
  it('暂停期间直接调用advance也不能偷跑时钟与队列', () => {
    const g = full(); const e = new SigilEngine({ grid: g, startCells: [5], seed: 1 });

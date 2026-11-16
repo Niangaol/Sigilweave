@@ -17,22 +17,28 @@ const check = (name, pass, detail) => {
   if (!pass) throw new Error('验收失败：' + name + (detail ? ' — ' + detail : ''));
 };
 
-// 注入一组完整三幕跑分并强制第三幕通幕（机制同 cutscene-shot.mjs §7；真实游玩用真数据）
-const VICTORY_KILLS = [140, 150, 160, 170, 180, 190, 200]; // 七幕，合计 1190
+// 注入一组完整五幕七场跑分并强制第七场通关（机制同 cutscene-shot.mjs §7；真实游玩用真数据）
+const VICTORY_KILLS = [140, 150, 160, 170, 180, 190, 200]; // 七场，合计 1190
 const forceVictory = () => {
   const s = window.__SIGILWEAVE_BATTLE__;
+  // 账目按「幕」去重（run.reports[].chapter），stage 记录记账时的场次：
+  // 场 1/2/3 → 幕 1/2/3，场 4/5 → 幕 4，场 6/7 → 幕 5。
+  const reportChapters = [1, 2, 3, 4, 4, 5, 5];
   s.run.reports = [140, 150, 160, 170, 180, 190, 200].map((kills, i) => ({
-    act: i + 1, elapsedMs: 143000 + i * 13000, kills, triggers: 900 + i * 90,
+    chapter: reportChapters[i], stage: i + 1,
+    elapsedMs: 143000 + i * 13000, kills, triggers: 900 + i * 90,
     combos: 24 + i, blocked: 4, peakRate: 0.8,
   }));
-  s.run.bossResolutions = Object.fromEntries(Array.from({ length: 7 }, (_, i) => ['boss-' + (i + 1), { method: i % 2 ? 'combat' : 'quiz' }]));
+  s.run.bossResolutions = Object.fromEntries(Array.from({ length: 7 }, (_, i) => [i + 1, { method: i % 2 ? 'combat' : 'quiz', tier: 'major' }]));
   s.kills = 312;
   s.shardCount = 19;
   s.engine.now = 143000 + 6 * 13000;
-  s.act = 7;
+  s.chapter = 5;
+  s.stage = 7;
   s.phase = 'bossDefeated';
   s.bossDefeated = true;
-  s.completeAct();
+  s.stageOutcome = 'victory';
+  s.finishStage();
 };
 
 try {
@@ -49,7 +55,7 @@ try {
     await page.waitForTimeout(300);
   };
 
-  // 1) ?scene=battle 调试直达战斗（boot 过场 → 标题自动进战斗），强制第三幕通幕
+  // 1) ?scene=battle 调试直达战斗（boot 过场 → 标题自动进战斗），强制第七场通关
   await page.goto(BASE + '/?seed=ending-shot&scene=battle', { waitUntil: 'load' });
   await page.waitForFunction(() => window.__SIGILWEAVE__?.scene.isActive('BattleScene')
     && !window.__SIGILWEAVE__?.scene.isActive('CutsceneScene'), null, { timeout: 20000 });

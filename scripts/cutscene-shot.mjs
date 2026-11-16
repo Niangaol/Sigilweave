@@ -48,7 +48,7 @@ try {
     await page.waitForFunction(([k, p]) => window.__SIGILWEAVE_CUTSCENE__?.kind === k
       && window.__SIGILWEAVE_CUTSCENE__?.phase === p, [kind, phase], { timeout: 20000 });
     const state = await page.evaluate(() => ({ ...window.__SIGILWEAVE_CUTSCENE__ }));
-    report.timings.push({ kind, phase, duration: state.duration, act: state.act, elapsed: state.elapsed });
+    report.timings.push({ kind, phase, duration: state.duration, chapter: state.chapter, stage: state.stage, elapsed: state.elapsed });
     check(kind + ' 时长 900–1600ms', state.duration >= 900 && state.duration <= 1600, String(state.duration));
     return state;
   };
@@ -77,7 +77,7 @@ try {
   await page.keyboard.press('Enter');
   const act1 = await cut('act', 'hold');
   await midHold();
-  check('第一幕卡片属于第 1 幕', act1.act === 1, String(act1.act));
+  check('第一幕卡片属于第 1 幕第 1 场', act1.chapter === 1 && act1.stage === 1, JSON.stringify({ chapter: act1.chapter, stage: act1.stage }));
   // 目标场景 create 完成需要一两帧；等 targetReady 再验证「底下已经就绪」
   await page.waitForFunction(() => window.__SIGILWEAVE_CUTSCENE__?.targetReady === true, null, { timeout: 5000 });
   // 无缝的硬证据：标题卡还在停留时，目标战斗场景已经 create 完成并躺在覆盖层底下
@@ -102,11 +102,11 @@ try {
     s.phase = 'bossDefeated';
     s.bossDefeated = true;
     s.transitionLeft = 0;
-    s.completeAct();
+    s.finishStage();
   });
   const clear = await cut('clear', 'hold');
   await midHold();
-  check('解除卡属于刚完成的一幕', clear.act === 1, String(clear.act));
+  check('解除卡属于刚完成的一幕（第 1 幕第 1 场）', clear.chapter === 1 && clear.stage === 1, JSON.stringify({ chapter: clear.chapter, stage: clear.stage }));
   await shot('07-clear-card');
   await settle('IntermissionScene');
   await shot('08-intermission');
@@ -121,15 +121,15 @@ try {
     if (!w.departed) {
       window.__SIGILWEAVE__.scene.getScene('IntermissionScene').scene.launch('CutsceneScene', {
         from: 'IntermissionScene', to: 'BattleScene',
-        payload: { run: w.run, __cine: true }, kind: 'journey', act: 2,
+        payload: { run: w.run, __cine: true }, kind: 'journey', act: 2, stage: 2,
       });
     }
   });
   await page.waitForFunction(() => window.__SIGILWEAVE_CUTSCENE__?.kind === 'journey'
     && window.__SIGILWEAVE_CUTSCENE__?.phase === 'hold', null, { timeout: 20000 });
   const j2 = await page.evaluate(() => ({ ...window.__SIGILWEAVE_CUTSCENE__ }));
-  report.timings.push({ kind: 'journey', phase: 'hold', duration: j2.duration, act: j2.act, elapsed: j2.elapsed });
-  check('第二幕 journey 属于第 2 幕且时长 4–8s', j2.act === 2 && j2.duration >= 4000 && j2.duration <= 8000, JSON.stringify(j2));
+  report.timings.push({ kind: 'journey', phase: 'hold', duration: j2.duration, chapter: j2.chapter, stage: j2.stage, elapsed: j2.elapsed });
+  check('第二幕 journey 属于第 2 幕第 2 场且时长 4–8s', j2.chapter === 2 && j2.stage === 2 && j2.duration >= 4000 && j2.duration <= 8000, JSON.stringify(j2));
   await shot('09-journey-act2');
   await settle('BattleScene');
 
@@ -148,24 +148,27 @@ try {
   await settle('BattleScene');
   await page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
-    // 注入一组完整三幕跑分，只为了让胜利卡的统计不是 00:00/0（真实游玩用真数据）
+    // 注入一组完整五幕七场跑分，只为了让胜利卡的统计不是 00:00/0（真实游玩用真数据）
+    // 账目按幕去重：场 1/2/3 → 幕 1/2/3，场 4/5 → 幕 4，场 6/7 → 幕 5。
     s.run.reports = [
-      { act: 1, elapsedMs: 133000, kills: 290, triggers: 950, combos: 25, blocked: 4, peakRate: 0.8 },
-      { act: 2, elapsedMs: 146000, kills: 320, triggers: 1040, combos: 26, blocked: 5, peakRate: 0.8 },
-      { act: 3, elapsedMs: 159000, kills: 350, triggers: 1130, combos: 27, blocked: 3, peakRate: 0.8 },
-      { act: 4, elapsedMs: 172000, kills: 380, triggers: 1220, combos: 28, blocked: 4, peakRate: 0.8 },
-      { act: 5, elapsedMs: 185000, kills: 410, triggers: 1310, combos: 29, blocked: 5, peakRate: 0.8 },
-      { act: 6, elapsedMs: 198000, kills: 440, triggers: 1400, combos: 30, blocked: 3, peakRate: 0.8 },
-      { act: 7, elapsedMs: 211000, kills: 470, triggers: 1490, combos: 31, blocked: 4, peakRate: 0.8 },
+      { chapter: 1, stage: 1, elapsedMs: 133000, kills: 290, triggers: 950, combos: 25, blocked: 4, peakRate: 0.8 },
+      { chapter: 2, stage: 2, elapsedMs: 146000, kills: 320, triggers: 1040, combos: 26, blocked: 5, peakRate: 0.8 },
+      { chapter: 3, stage: 3, elapsedMs: 159000, kills: 350, triggers: 1130, combos: 27, blocked: 3, peakRate: 0.8 },
+      { chapter: 4, stage: 4, elapsedMs: 172000, kills: 380, triggers: 1220, combos: 28, blocked: 4, peakRate: 0.8 },
+      { chapter: 4, stage: 5, elapsedMs: 185000, kills: 410, triggers: 1310, combos: 29, blocked: 5, peakRate: 0.8 },
+      { chapter: 5, stage: 6, elapsedMs: 198000, kills: 440, triggers: 1400, combos: 30, blocked: 3, peakRate: 0.8 },
+      { chapter: 5, stage: 7, elapsedMs: 211000, kills: 470, triggers: 1490, combos: 31, blocked: 4, peakRate: 0.8 },
     ];
-    s.run.bossResolutions = Object.fromEntries(Array.from({ length: 7 }, (_, i) => ['boss-' + (i + 1), { method: i % 2 ? 'combat' : 'quiz' }]));
+    s.run.bossResolutions = Object.fromEntries(Array.from({ length: 7 }, (_, i) => [i + 1, { method: i % 2 ? 'combat' : 'quiz', tier: 'major' }]));
     s.kills = 312;
     s.shardCount = 19;
     s.engine.now = 220000;
-    s.act = 7;
+    s.chapter = 5;
+    s.stage = 7;
     s.phase = 'bossDefeated';
     s.bossDefeated = true;
-    s.completeAct();
+    s.stageOutcome = 'victory';
+    s.finishStage();
   });
   await cut('victory', 'hold');
   await midHold();
@@ -214,8 +217,8 @@ try {
   check('竖屏画布为高窗', metrics.h > metrics.w, JSON.stringify(metrics));
   await portrait.close();
 
-  // 10) 七幕画廊 + 指纹：逐幕渲染 act 卡，量空白率(ink)与两两辨识度。
-  // 截图必须等 elapsed>520（act 的 cover 是 320ms，太早截到的是纯黑遮罩）。
+  // 10) 七场画廊 + 指纹：幕只有 5 个、布景有 7 套，所以按场 1..7 逐场渲染场次卡，量空白率(ink)与两两辨识度。
+  // 截图必须等 elapsed>520（场次卡的 cover 是 320ms，太早截到的是纯黑遮罩）。
   const gallery = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   gallery.on('pageerror', e => report.errors.push('gallery: ' + e.message));
   await gallery.goto(BASE + '/?seed=cutscene-gallery', { waitUntil: 'load' });
@@ -227,15 +230,15 @@ try {
 
   const sigs = {};
   for (let n = 1; n <= 7; n++) {
-    await gallery.evaluate((act) => {
+    await gallery.evaluate((stage) => {
       const title = window.__SIGILWEAVE__.scene.getScene('TitleScene');
       title.scene.launch('CutsceneScene', {
         from: 'TitleScene', to: 'TitleScene',
-        payload: { __cine: true }, kind: 'act', act,
+        payload: { __cine: true }, kind: 'act', stage,
       });
     }, n);
     await gallery.waitForFunction(a => window.__SIGILWEAVE_CUTSCENE__?.kind === 'act'
-      && window.__SIGILWEAVE_CUTSCENE__?.act === a
+      && window.__SIGILWEAVE_CUTSCENE__?.stage === a
       && window.__SIGILWEAVE_CUTSCENE__?.phase === 'hold'
       && (window.__SIGILWEAVE_CUTSCENE__?.elapsed ?? 0) > 520, n, { timeout: 20000 });
     const buf = await gallery.screenshot({ path: OUT + '/16-act' + n + '-scene.png' });
@@ -248,12 +251,12 @@ try {
     await gallery.waitForTimeout(250);
   }
   const thin = [1, 2, 3, 4, 5, 6, 7].filter(n => sigs[n].detail < THRESHOLDS.detail);
-  check('七幕每一幕细节量充足（detail≥' + THRESHOLDS.detail + '）', thin.length === 0, '不足: ' + JSON.stringify(thin.map(n => ({ n, detail: +sigs[n].detail.toFixed(3) }))));
+  check('七场每一场细节量充足（detail≥' + THRESHOLDS.detail + '）', thin.length === 0, '不足: ' + JSON.stringify(thin.map(n => ({ n, detail: +sigs[n].detail.toFixed(3) }))));
   const dull = [1, 2, 3, 4, 5, 6, 7].filter(n => sigs[n].buckets < THRESHOLDS.buckets);
-  check('七幕每一幕颜色层次足够（buckets≥' + THRESHOLDS.buckets + '）', dull.length === 0, JSON.stringify(dull.map(n => ({ n, buckets: sigs[n].buckets }))));
+  check('七场每一场颜色层次足够（buckets≥' + THRESHOLDS.buckets + '）', dull.length === 0, JSON.stringify(dull.map(n => ({ n, buckets: sigs[n].buckets }))));
   const pairs = pairwise(sigs);
   const tooClose = pairs.filter(p => p.d < THRESHOLDS.actDistance);
-  check('七幕指纹两两距离 ≥' + THRESHOLDS.actDistance, tooClose.length === 0, JSON.stringify(tooClose));
+  check('七场指纹两两距离 ≥' + THRESHOLDS.actDistance, tooClose.length === 0, JSON.stringify(tooClose));
   report.signatures = {
     ink: Object.fromEntries(Object.entries(sigs).map(([k, v]) => [k, +v.ink.toFixed(3)])),
     detail: Object.fromEntries(Object.entries(sigs).map(([k, v]) => [k, +v.detail.toFixed(3)])),

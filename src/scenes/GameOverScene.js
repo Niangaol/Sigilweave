@@ -9,6 +9,14 @@ const SAMPLE = {
   blocked: 0, dissipations: 0, peakRate: 0, cells: 6,
 };
 
+// 五幕七场后结算按 chapter 记幕；旧数据只有 act 时回退兼容，避免显示「第 undefined 幕」。
+function runChapter(data) {
+  const chapter = Number(data?.chapter);
+  if (Number.isInteger(chapter) && chapter >= 1) return chapter;
+  const act = Number(data?.act);
+  return Number.isInteger(act) && act >= 1 ? act : 1;
+}
+
 export default class GameOverScene extends Phaser.Scene {
   constructor() {
     super('GameOverScene');
@@ -82,7 +90,7 @@ export default class GameOverScene extends Phaser.Scene {
   toTitle() {
     if (this.started) return;
     this.started = true;
-    playCutscene(this, { kind: 'return', to: 'TitleScene', payload: { __cine: true }, act: this.data.act ?? 1 });
+    playCutscene(this, { kind: 'return', to: 'TitleScene', payload: { __cine: true }, act: runChapter(this.data), stage: this.data?.stage });
   }
 
   drawBackdrop() {
@@ -142,7 +150,7 @@ export default class GameOverScene extends Phaser.Scene {
       noStroke: true,
       stroke: '#f0d9a8', strokeThickness: 1, letterSpacing: 4,
     }).setOrigin(0.5, 0).setDepth(3);
-    addText(this, 240, 80, this.data.victory ? '七位契约主已消灭 · 通关' : (this.data.trainingComplete ? '构筑演武结束' : ('第 ' + this.data.act + ' 幕 · 挑战中断')), 8, HEX.ink, {
+    addText(this, 240, 80, this.data.victory ? '七位契约主已消灭 · 通关' : (this.data.trainingComplete ? '构筑演武结束' : ('第 ' + runChapter(this.data) + ' 幕 · 挑战中断')), 8, HEX.ink, {
       noStroke: true,
       letterSpacing: 1,
     }).setOrigin(0.5, 0).setDepth(3);

@@ -40,10 +40,12 @@ function buildGrid({ unlocked, intervalMs, stones = [], reduction = 0.25, cooldo
   return g;
 }
 
-function runOnce({ unlocked, intervalMs, stones, reduction, cooldownMode, seed, durationMs = 180000, combos = true }) {
+function runOnce({ unlocked, intervalMs, starts = 1, stones, reduction, cooldownMode, seed, durationMs = 180000, combos = true }) {
   const g = buildGrid({ unlocked, intervalMs, stones, reduction, cooldownMode });
   const catalog = combos ? buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4']) : null;
-  const e = new SigilEngine({ seed, grid: g, startCells: [5], combos: catalog });
+  // 脉流起点数与 BattleScene 同一条规则：取本幕已解封格的前 N 格。
+  const startCells = g.unlockedIds().slice(0, starts);
+  const e = new SigilEngine({ seed, grid: g, startCells, combos: catalog });
   e.start();
   e.advanceTo(durationMs);
   return e.summary(durationMs);
@@ -62,24 +64,28 @@ function aggregate(config, seeds = [1, 2, 3, 4, 5, 6, 7, 8]) {
   };
 }
 
+// 与 src/logic/constants.js 的 ACTS 同构：这张表按「幕」索引（1..5），场只影响玩法密度，
+// 纯逻辑仿真按幕取解封格、基础间隔与脉流起点。
 const ACTS = [
-  { name: '第一幕', unlocked: 6, intervalMs: 2000, starts: 1 },
-  { name: '第二幕', unlocked: 12, intervalMs: 1700, starts: 1 },
-  { name: '第三幕', unlocked: 16, intervalMs: 1400, starts: 2 },
+  { chapter: 1, name: '第一幕', unlocked: 6, baseIntervalMs: 1400, starts: 2 },
+  { chapter: 2, name: '第二幕', unlocked: 12, baseIntervalMs: 1200, starts: 3 },
+  { chapter: 3, name: '第三幕', unlocked: 16, baseIntervalMs: 1000, starts: 3 },
+  { chapter: 4, name: '第四幕', unlocked: 16, baseIntervalMs: 960, starts: 4 },
+  { chapter: 5, name: '第五幕', unlocked: 16, baseIntervalMs: 920, starts: 4 },
 ];
 
 const lines = [];
 lines.push('# P0 纯逻辑仿真报告');
 lines.push('');
-lines.push('> 由 scripts/simulate.mjs 自动生成。每组 8 个固定种子，每局 180 秒，单脉流（第三幕双起点未接入）。');
+lines.push('> 由 scripts/simulate.mjs 自动生成。每组 8 个固定种子，每局 180 秒，脉流起点数按幕取 ACTS[chapter-1].starts。');
 lines.push('');
 lines.push('## 一、各幕基础配置的实测触发与受阻');
 lines.push('');
-lines.push('| 幕 | 解封格 | 基础间隔 | 平均触发/秒 | 冷却受阻率 | 消散/局 | 保底传送/局 | 联组/局 |');
-lines.push('| --- | --- | --- | --- | --- | --- | --- | --- |');
+lines.push('| 幕 | 解封格 | 基础间隔 | 脉流起点 | 平均触发/秒 | 冷却受阻率 | 消散/局 | 保底传送/局 | 联组/局 |');
+lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
 for (const a of ACTS) {
-  const r = aggregate({ unlocked: ALL.slice(0, a.unlocked), intervalMs: a.intervalMs });
-  lines.push('| ' + a.name + ' | ' + a.unlocked + ' | ' + a.intervalMs + 'ms | ' +
+  const r = aggregate({ unlocked: ALL.slice(0, a.unlocked), intervalMs: a.baseIntervalMs, starts: a.starts });
+  lines.push('| ' + a.name + ' | ' + a.unlocked + ' | ' + a.baseIntervalMs + 'ms | ' + a.starts + ' | ' +
     r.tps.toFixed(2) + ' | ' + (r.blockedRate * 100).toFixed(2) + '% | ' +
     r.dissipations.toFixed(2) + ' | ' + r.fallbacks.toFixed(2) + ' | ' + r.combos.toFixed(1) + ' |');
 }
@@ -148,7 +154,7 @@ lines.push('1. **基础间隔 2.0 秒时，位置化冷却完全不起作用**�
 lines.push('2. **冷却只在间隔压到约 1.0 秒以下才开始生效**：0.8 秒时受阻率 ' + (at800.blockedRate * 100).toFixed(2) +
   '%。设计稿「冷却从第一秒就产生实际作用」在基础值下不成立。');
 lines.push('3. **共鸣石的价值主要来自间隔缩短，不是冷却**：它让局部频率上升，但也同时把冷却缩短 25%，所以受阻率不会等比例恶化。');
-lines.push('4. **对策建议（待你拍板）**：① 保留位置化冷却，但承认它是后期参数（第三幕 1.4 秒才开始有感）；② 或把基础间隔下调到 1.5/1.2/1.0 秒，让冷却从第二幕起参与决策；③ 或引入「同格连续被踩加成」替代冷却作为早期决策点。');
+lines.push('4. **对策建议（待你拍板）**：① 保留位置化冷却，但承认它是中后期参数（第二幕 1.2 秒起受阻 13.96%，第四幕 0.96 秒达 24.52%）；② 或继续下压基础间隔（现表 1.4/1.2/1.0/0.96/0.92 秒），让冷却从第一幕起就参与决策；③ 或引入「同格连续被踩加成」替代冷却作为早期决策点。');
 
 const out = lines.join('\n') + '\n';
 console.log(out);

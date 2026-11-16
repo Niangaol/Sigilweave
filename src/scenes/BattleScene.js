@@ -11,16 +11,18 @@ import { applyDraft, snapshotBuild, draftFromGrid, validateDraft, AUX_TARGETED, 
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, resolveSigilTrigger, resolveComboBonus, resolveDeathBursts } from '../logic/effects.js';
 import { createRun, recordAct } from '../logic/run.js';
 import { createProgression, grantExp, levelStats, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuff } from '../logic/progression.js';
-import { getEventPoints, findTriggeredPoint } from '../data/map-events.js';
-import { getEncounterById, getMinibossEncounters } from '../data/encounters.js';
+import { getEventPoints } from '../data/map-events.js';
+import { getEncounterById } from '../data/encounters.js';
 import { Rng } from '../logic/rng.js';
 import { CARD_POOL } from '../logic/workshop.js';
 import { expNeeded } from '../logic/progression.js';
 import { Pool } from '../logic/pool.js';
 import { pickSpawnPoint, pickWavePoints, separateEnemiesBucketed } from '../logic/spawn.js';
-import { getEncounterForAct } from '../data/encounters.js';
+import { getEncounterForStage } from '../data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../logic/encounters.js';
 import { resolveBossOnce } from '../logic/boss.js';
+import { chapterOf, isValidStage, nextStage, firstStageOf } from '../logic/acts.js';
+import { chapterDurationMs, stageSpellCard, stageAdvanceDecision } from './battle-pure.js';
 import { loadMeta, metaLevel, applyPassiveToCharacter, applyPassiveToCompass, metaPassiveLabel } from '../logic/meta.js';
 import Boss from '../entities/Boss.js';
 import EncounterPanel from '../ui/EncounterPanel.js';
@@ -45,6 +47,7 @@ import { punchFor, shouldPunch, strikePunchFor } from '../ui/spell-punch.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
+import { STAGE_CARDS } from '../data/cinematics.js';
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
 const FREQ_WINDOW_MS = 5000;
@@ -63,17 +66,22 @@ export default class BattleScene extends Phaser.Scene {
     this.__cine = !!data.__cine;
     const params = new URLSearchParams(window.location.search);
     this.run = data.run ?? createRun(params.get('seed') ?? ('sigil-' + Date.now()));
-    this.act = this.run.act;
+    this.stage = isValidStage(this.run.stage) ? this.run.stage : 1;
+    this.run.stage = this.stage;
+    this.chapter = chapterOf(this.stage);
+    this.run.chapter = this.chapter;
+    this.stageOutcome = 'none';
     this.quickMode = params.get('quick') === '1';
     // 成长状态：跨幕持久在 run 上
     this.run.progression ??= createProgression();
     this.run.compassBuffs ??= { damageMul: 1, intervalMul: 1, cooldownMul: 1, hitBonus: 0, comboWindowMul: 1, expMul: 1 };
     this.run.hand ??= {};
     this.run.completedEvents ??= {};
-    this.run.majorBossActs ??= {};
-    // 每幕的参考时长（仅用于调试/结算口径；通幕由大 Boss 决定，不按计时）。
-    this.durationMs = this.quickMode ? 15000 : ([180000, 240000, 180000, 180000, 180000, 180000, 180000][this.act - 1] ?? 180000);
-    this.combatRng = new Rng(this.run.seed + ':combat:' + this.act);
+    this.run.majorBossStages ??= {};
+    // 每幕的参考时长（仅用于调试/结算口径；通幕由本幕各大 Boss 决定，不按计时）。
+    // 合并幕后一幕含两场，时长按场参考秒数求和。
+    this.durationMs = this.quickMode ? 15000 : chapterDurationMs(this.chapter);
+    this.combatRng = new Rng(this.run.seed + ':combat:' + this.stage);
     this.debugParams = params;
     this.phase = 'play';
     this.stressRunning = false;
@@ -118,19 +126,19 @@ export default class BattleScene extends Phaser.Scene {
     this.hitstopLeft = 0;
     this.lastPunchAt = -99999;
 
-    // 在背景构造前刷新世界尺寸，避免同一个Scene跨幕复用上一幕的world。
-    const world = WORLD_SIZES[this.act] ?? WORLD_SIZES[1];
+    // 在背景构造前刷新世界尺寸，避免同一个Scene跨场复用上一场的world。
+    const world = WORLD_SIZES[this.stage] ?? WORLD_SIZES[1];
     this.world = { w: world.w, h: world.h };
 
     // ---------- 视觉层 ----------
-    this.background = new Background(this, this.act, this.world);
+    this.background = new Background(this, this.stage, this.world);
     this.effects = new EffectsLayer(this);
     this.hud = new Hud(this);
     // 暂停菜单的每一项都挂真实动作，鼠标点击与键盘快捷键走同一条路径
     this.pauseMenu = new PauseMenu(this, {
       resume: () => this.closePause(),
-      restart: () => { if (this.menuOpen || this.editOpen) playCutscene(this, { kind: 'retry', to: 'BattleScene', payload: { run: this.run, __cine: true }, act: this.act }); },
-      title: () => { if (this.menuOpen) playCutscene(this, { kind: 'return', to: 'TitleScene', payload: { __cine: true }, act: this.act }); },
+      restart: () => { if (this.menuOpen || this.editOpen) playCutscene(this, { kind: 'retry', to: 'BattleScene', payload: { run: this.run, __cine: true }, act: this.chapter, stage: this.stage }); },
+      title: () => { if (this.menuOpen) playCutscene(this, { kind: 'return', to: 'TitleScene', payload: { __cine: true }, act: this.chapter, stage: this.stage }); },
       edit: () => { if (this.menuOpen && !this.editOpen) this.openGridEdit(); },
       mute: () => { if (this.menuOpen) this.onMute(); },
     });
@@ -164,7 +172,7 @@ export default class BattleScene extends Phaser.Scene {
     // 竖屏：镜头中心压低，让人物落在地图区中上部，下方留给触控台
     if (isPortrait()) this.cameras.main.setFollowOffset(0, 190);
     // 事件点（依赖世界尺寸，必须在 world 赋值之后）
-    this.eventPoints = getEventPoints(this.act, this.world).map(p => ({ ...p, done: !!this.run.completedEvents[p.id], icon: null, label: null }));
+    this.eventPoints = getEventPoints(this.stage, this.world).map(p => ({ ...p, done: !!this.run.completedEvents[p.id], icon: null, label: null }));
 
     // 对象池：弹丸与碎片高频创建，复用图形对象；饱和时拒绝新建而不是抢占活动对象
     this.projectilePool = new Pool({
@@ -192,7 +200,7 @@ export default class BattleScene extends Phaser.Scene {
     if (!committed.ok) throw new Error('战斗构筑快照无效');
     // 罗盘增益：间隔/冷却乘算在此生效（伤害/命中/窗口走 combatState/引擎）
     const buffs = this.run.compassBuffs;
-    rebuildDerived(this.grid, ACTS[this.act - 1].baseIntervalMs * buffs.intervalMul, { cooldownMul: buffs.cooldownMul });
+    rebuildDerived(this.grid, ACTS[this.chapter - 1].baseIntervalMs * buffs.intervalMul, { cooldownMul: buffs.cooldownMul });
     // 平衡对照开关：只在 URL 显式给参时生效，默认玩法完全不变。
     this.tuning = this.readTuning(params);
     if (this.tuning.intervalMs) rebuildDerived(this.grid, this.tuning.intervalMs);
@@ -221,7 +229,7 @@ export default class BattleScene extends Phaser.Scene {
 
     // ---------- 脉流引擎（冻结内核） ----------
     this.engine = new SigilEngine({
-      seed: this.run.seed + ':signal:' + this.act,
+      seed: this.run.seed + ':signal:' + this.stage,
       grid: this.grid,
       startCells: this.pickStartCells(),
       comboWindowMul: this.run.compassBuffs.comboWindowMul,
@@ -253,14 +261,14 @@ export default class BattleScene extends Phaser.Scene {
       else this.openPause('menu');
     };
     this.onRestart = () => {
-      if (this.menuOpen) playCutscene(this, { kind: 'retry', to: 'BattleScene', payload: { run: this.run, __cine: true }, act: this.act });
+      if (this.menuOpen) playCutscene(this, { kind: 'retry', to: 'BattleScene', payload: { run: this.run, __cine: true }, act: this.chapter, stage: this.stage });
     };
     this.onMute = () => {
       const on = toggleSound();
       this.effects.text(240, 150, on ? '音效已开启' : '音效已关闭', HEX.arcaneLight, true);
     };
     this.onTitle = () => {
-      if (this.menuOpen) playCutscene(this, { kind: 'return', to: 'TitleScene', payload: { __cine: true }, act: this.act });
+      if (this.menuOpen) playCutscene(this, { kind: 'return', to: 'TitleScene', payload: { __cine: true }, act: this.chapter, stage: this.stage });
     };
     this.handleBlur = () => {
       if (this.phase !== 'play') return;
@@ -347,7 +355,7 @@ export default class BattleScene extends Phaser.Scene {
 
   pickStartCells() {
     const unlocked = this.grid.unlockedIds();
-    const count = this.tuning?.starts ?? ACTS[this.act - 1].starts;
+    const count = this.tuning?.starts ?? ACTS[this.chapter - 1].starts;
     const cells = [this.startCell];
     for (const id of unlocked) {
       if (cells.length >= count) break;
@@ -617,7 +625,16 @@ export default class BattleScene extends Phaser.Scene {
       this.updateExpMotes(dt);
       this.effects.update(dt);
       this.transitionLeft -= dt;
-      if (this.transitionLeft <= 0) this.completeAct();
+      if (this.transitionLeft <= 0) this.finishStage();
+    } else if (this.phase === 'stageIntro') {
+      // 幕内换场的场次卡：画面冻结，1.6 秒后接回战斗
+      this.effects.update(dt);
+      this.stageIntroLeft -= dt;
+      if (this.stageIntroLeft <= 0) {
+        this.phase = 'play'; this.paused = false; this.engine.paused = false;
+        this.player.invulnUntil = this.engine.now + 900;
+        this.resumeFollow();
+      }
     } else if (this.phase === 'levelup') {
       this.effects.update(0);
     } else if (this.phase === 'intro') {
@@ -653,7 +670,8 @@ export default class BattleScene extends Phaser.Scene {
       rate: this.recentRate,
       buckets: this.freqBuckets,
       elapsedMs: this.engine.now,
-      act: this.act,
+      chapter: this.chapter,
+      stage: this.stage,
     });
   }
 
@@ -691,7 +709,7 @@ export default class BattleScene extends Phaser.Scene {
     if (this.bossStarted) return;
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
-    const dif = difficultyAt(this.engine.now, this.act);
+    const dif = difficultyAt(this.engine.now, this.stage);
     const warming = this.engine.now < this.warmupMs;
     const room = dif.maxAlive - this.enemies.length;
     if (room <= 0) {
@@ -730,7 +748,7 @@ export default class BattleScene extends Phaser.Scene {
       nearDist: 250, farDist: 430,
     });
     // 按幕权重抽敌人类型；属性 = 难度基准 × 等级成长 × 敌种倍率
-    const def = pickEnemyType(this.act, this.combatRng.next());
+    const def = pickEnemyType(this.chapter, this.combatRng.next());
     const lv = levelStats(this.run.progression.level);
     this.enemies.push(new Enemy(
       this,
@@ -1044,7 +1062,7 @@ export default class BattleScene extends Phaser.Scene {
     this.editNote = '1 点右侧手牌 → 2 点左侧空符位 → 3 点完成；点已放置的卡可收回。';
     this.pauseMenu.hide();
     this.editHandPage = 0;
-    this.editDraft = draftFromGrid(this.grid, { act: this.act });
+    this.editDraft = draftFromGrid(this.grid, { act: this.chapter });
     this.editHand = { ...this.run.hand };
     this.editUI = this.add.container(0, 0).setDepth(3500).setScrollFactor(0);
     this.uiRoot?.add(this.editUI);
@@ -1398,7 +1416,7 @@ export default class BattleScene extends Phaser.Scene {
     this.run.draft = result.snapshot;
     this.run.hand = { ...this.editHand };
     // 罗盘乘算在改阵后重放
-    rebuildDerived(this.grid, ACTS[this.act - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
+    rebuildDerived(this.grid, ACTS[this.chapter - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
     this.engine.setCombos(buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4']).filter(inst => inst.order.every(id => this.grid.cells[id].unlocked && this.grid.cells[id].slot?.kind === 'sigil' && !this.grid.cells[id].mutedOutput)));
     this.editOpen = false;
     if (this.editPointer) { this.input.off('pointerdown', this.editPointer); this.editPointer = null; }
@@ -1541,19 +1559,29 @@ export default class BattleScene extends Phaser.Scene {
     }
   }
 
-  // Boss被解决后才通幕；计时结束仅开启前置问答。
-  completeAct() {
+  // 本场大 Boss 解决后的去向：合并幕前半场原地换场，单场幕/合并幕末场通幕，第七场终局。
+  // 计时结束只开启前置问答，通幕永远由大 Boss 决定。
+  finishStage() {
     if (this.phase !== 'bossDefeated' || !this.bossDefeated) return;
+    if (this.stageOutcome === 'swap') { this.swapStage(nextStage(this.stage)); return; }
     this.phase = 'intermission'; this.paused = true; this.engine.paused = true;
     const report = { ...this.engine.summary(this.engine.now), elapsedMs: this.engine.now, kills: this.kills, peakRate: this.peakRate };
     recordAct(this.run, report);
     this.run.shards = this.shardCount;
-    this.run.draft = snapshotBuild(this.grid, { act: this.act });
-    if (this.act < 7) {
-      this.run.act++;
-      // 通关一幕：先播「契约解除」标题卡与本幕数据，再落到幕间工作台
+    this.run.draft = snapshotBuild(this.grid, { act: this.chapter });
+    if (this.stageOutcome !== 'victory') {
+      // 通幕：幕号 +1，落回该幕第一场；先播「契约解除」标题卡与本幕数据，再落到幕间工作台。
+      const clearedChapter = this.chapter;
+      const clearedStage = this.stage;
+      this.chapter = Math.min(5, this.chapter + 1);
+      this.stage = firstStageOf(this.chapter);
+      this.run.chapter = this.chapter;
+      this.run.stage = this.stage;
+      this.stageOutcome = 'none';
+      // 通幕卡按「刚打完的那一幕」出卡：stage 显式传刚清空的场（合并幕=后半场），
+      // payload.run 已指向下一幕第一场，供幕间工作台使用。
       playCutscene(this, {
-        kind: 'clear', act: this.act, report, to: 'IntermissionScene',
+        kind: 'clear', act: clearedChapter, stage: clearedStage, report, to: 'IntermissionScene',
         payload: { run: this.run, report, __cine: true },
       });
     } else {
@@ -1575,10 +1603,63 @@ export default class BattleScene extends Phaser.Scene {
         return;
       }
       playCutscene(this, {
-        kind: 'victory', act: this.act, report: totals, to: 'StoryScene',
+        kind: 'victory', act: this.chapter, stage: this.stage, report: totals, to: 'StoryScene',
         payload: { mode: 'ending', stats: victoryPayload, __cine: true },
       });
     }
+  }
+
+  // 幕内换场：同一幕的下一场，不切场景、不弹工作台，只在原地重建世界层。
+  // 保留：构筑/手牌/碎晶/击杀数/引擎时间/成长/血量；重置：敌人/弹幕/宝箱/事件点/刷怪节奏。
+  swapStage(next) {
+    if (!isValidStage(next) || next === this.stage) return;
+    this.stage = next;
+    this.run.stage = next;
+    this.chapter = chapterOf(next);
+    this.run.chapter = this.chapter;
+    this.stageOutcome = 'none';
+    const world = WORLD_SIZES[next] ?? WORLD_SIZES[1];
+    this.world = { w: world.w, h: world.h };
+    this.worldBounds = { left: 24, top: 40, right: world.w - 24, bottom: world.h - 24 };
+    this.battleBounds = this.worldBounds;
+    this.background.setAct(next);
+    this.cameras.main.setBounds(0, 0, world.w, world.h);
+    // 清场：旧场的敌人、弹幕、宝箱全部回收；经验粒子先结算，避免「差一点没捡到」。
+    this.flushExpMotes();
+    for (const enemy of this.enemies) enemy.destroy();
+    this.enemies = [];
+    this.boss = null;
+    this.bossStarted = false;
+    this.bossDefeated = false;
+    this.releaseProjectiles();
+    this.hostileShots = []; this.hostileG.clear();
+    for (const chest of this.chests) chest.g?.destroy();
+    this.chests = [];
+    // 新场中心落位 + 事件点按新场重建（旧场已完成点仍记在 run.completedEvents）
+    this.player.x = world.w / 2;
+    this.player.y = world.h / 2;
+    this.player.moving = false;
+    this.player.draw(this.engine.now);
+    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
+    this.cameras.main.setDeadzone(60, 40);
+    this.cameras.main.setFollowOffset(0, isPortrait() ? 190 : 0);
+    this.eventPoints = getEventPoints(next, this.world).map(p => ({ ...p, done: !!this.run.completedEvents[p.id], icon: null, label: null }));
+    // 刷怪节奏轻启，但引擎时间/等级/构筑全部延续（密度按新的幕生效）。
+    this.spawnTimer = 700;
+    this.warmupMs = 1400;
+    this.timeExpTimer = 0;
+    this.lastKillAt = this.engine.now - 9999;
+    this.killStreak = 0;
+    // 场次卡：1.6 秒原地停留，期间战斗冻结
+    const card = STAGE_CARDS[next];
+    this.phase = 'stageIntro'; this.paused = true; this.engine.paused = true;
+    this.input.keyboard.resetKeys();
+    this.stageIntroLeft = 1600;
+    sfx.bossRoar();
+    this.cameras.main.flash(180, 255, 246, 224);
+    this.effects.text(240, 90, card ? card.numeral + ' · ' + card.title : '第 ' + next + ' 场', 12, HEX.brassLight, true);
+    this.effects.text(240, 110, card ? card.star + ' 位 · 第 ' + this.chapter + ' 幕' : '', 9, HEX.brass, true);
+    this.effects.text(240, 126, '新的场地已经展开', 8, HEX.mute, true);
   }
 
   onEnemyKilled(e) {
@@ -1675,8 +1756,8 @@ export default class BattleScene extends Phaser.Scene {
   // 进度事件：地图事件点走近触发 + 大Boss等级触发（取代旧的纯计时遭遇）
   checkProgressEvents() {
     // 1) 大Boss：等级达标（时间保底经验推着等级走，磨蹭也会触发）
-    if (!this.bossStarted && !this.run.majorBossActs[this.act] && shouldTriggerMajorBoss(this.act, this.run.progression.level)) {
-      const def = getEncounterForAct(this.act, 'boss');
+    if (!this.bossStarted && !this.run.majorBossStages[this.stage] && shouldTriggerMajorBoss(this.stage, this.run.progression.level)) {
+      const def = getEncounterForStage(this.stage, 'boss');
       if (def) { this.beginEncounter(def); return; }
     }
     // 2) 地图事件点：NPC 问答 / 小Boss 门
@@ -1715,7 +1796,7 @@ export default class BattleScene extends Phaser.Scene {
     const opened = openEncounter(this.run.encounters, definition, { seed: this.run.seed + ':' + definition.id });
     if (!opened.ok) return;
     // 大Boss一旦触发过（无论答对处决/答错开战）就不再重复触发，防止等级条件恒真导致无限开问答
-    if (definition.type === 'boss' && definition.tier !== 'mini') this.run.majorBossActs[this.act] = true;
+    if (definition.type === 'boss' && definition.tier !== 'mini') this.run.majorBossStages[this.stage] = true;
     // 冻结镜头跟随：问答面板挂世界坐标，镜头再动面板就会漂移、点击全偏
     this.cameras.main.stopFollow();
     this.phase = 'encounter'; this.paused = true; this.engine.paused = true;
@@ -1724,7 +1805,7 @@ export default class BattleScene extends Phaser.Scene {
     this.board.setDetailVisible(false); this.input.keyboard.resetKeys();
     if (definition.type === 'boss') {
       this.bossStarted = true;
-      this.boss = new Boss(this, definition, this.act, this.enemySeq++);
+      this.boss = new Boss(this, definition, this.stage, this.enemySeq++);
       this.boss.x = this.player.x;
       // 新 Boss 立绘 72/104px：下限按实际显示高度算，保证整只 Boss 落在 HUD 下方。
       const bossMinY = 42 + (this.boss.sprite?.displayHeight ?? 0) - 21 + 4;
@@ -1780,11 +1861,11 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   defeatBoss(method, bossId, tier = 'major') {
-    const receipt = resolveBossOnce(this.run, this.act, bossId, method, tier);
+    const receipt = resolveBossOnce(this.run, this.stage, bossId, method, tier);
     if (!receipt.ok) return;
     this.shardCount += receipt.reward; this.kills++;
     // Boss 战利品：问答定义给出法术卡进手牌 + 随机一个罗盘本体增益
-    const spellKey = 'sigil:' + ['frost_arrow', 'holy_ward', 'starfall', 'chain_lightning', 'pierce_lance', 'meteor_judgment', 'quake_maw'][this.act - 1];
+    const spellKey = 'sigil:' + stageSpellCard(this.stage);
     this.run.hand[spellKey] = (this.run.hand[spellKey] ?? 0) + 1;
     const buff = rollBuff(COMPASS_BUFFS, () => this.combatRng.next());
     if (buff) {
@@ -1792,12 +1873,16 @@ export default class BattleScene extends Phaser.Scene {
       const desc = applyPassiveToCompass(buff, this.run.compassBuffs, level);
       this.engine.comboWindowMul = this.run.compassBuffs.comboWindowMul;
       if (this.engine.combos) this.engine.combos.windowMul = this.engine.comboWindowMul;
-      rebuildDerived(this.grid, ACTS[this.act - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
+      rebuildDerived(this.grid, ACTS[this.chapter - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
       this.effects.text(240, 96, '罗盘增益 · ' + buff.name + metaPassiveLabel(level) + '：' + desc, HEX.teal, true);
     }
     this.cameras.main.flash(140, 255, 246, 224);
     sfx.bossShatter();
-    if (tier !== 'mini') this.bossDefeated = true;
+    if (tier !== 'mini') {
+      this.bossDefeated = true;
+      // 本场大 Boss 已清空：合并幕前半场换场，单场幕/末场通幕，第七场通关。
+      this.stageOutcome = stageAdvanceDecision({ stage: this.stage, majorCleared: true });
+    }
     this.bossStarted = false; // 复位：小Boss解决后，大Boss等级触发仍可生效
     this.hostileShots = []; this.hostileG.clear();
     if (this.boss) {
@@ -1877,7 +1962,7 @@ export default class BattleScene extends Phaser.Scene {
     const summary = this.buildSummary();
     this.time.delayedCall(1000, () => {
       // 死亡：先演魂火熄灭，再揭开结算页；合计约 2.1 秒，仍可按键跳过
-      if (this.phase === 'dying') playCutscene(this, { kind: 'death', act: this.act, to: 'GameOverScene', payload: { ...summary, __cine: true }, report: summary });
+      if (this.phase === 'dying') playCutscene(this, { kind: 'death', act: this.chapter, stage: this.stage, to: 'GameOverScene', payload: { ...summary, __cine: true }, report: summary });
     });
   }
 
@@ -1885,7 +1970,8 @@ export default class BattleScene extends Phaser.Scene {
     const s = this.engine.summary(this.engine.now);
     return {
       elapsedMs: this.engine.now,
-      act: this.act,
+      chapter: this.chapter,
+      stage: this.stage,
       hp: 0,
       kills: this.kills,
       shards: this.shardCount,
@@ -1965,6 +2051,8 @@ export default class BattleScene extends Phaser.Scene {
     this.touch = null;
     window.removeEventListener('pointerdown', this.panelPointerHandler);
     this.time.removeAllEvents();
+    this.background?.destroy();
+    this.background = null;
     this.encounterPanel.destroy();
     this.hostileG.destroy();
     this.hostileShots = [];

@@ -1,11 +1,14 @@
 // 过场动画的剧本与时间轴：纯数据 + 纯函数，不依赖 Phaser，可在 Node 里直接单测。
 // 接入点见 src/ui/transition.js；画面实现在 src/scenes/CutsceneScene.js。
+import { CHAPTERS } from '../logic/acts.js';
 
-// 七幕标题卡（北斗七星）。文案与现有世界观（契约、契约主、脉流、法阵）保持一致；
-// 幕名取自 Background 的七幕主题；star 是北斗星名，标题卡眉栏与 HUD 都会显示。
+// 场次卡（stage 1..7，北斗七星）。文案与现有世界观（契约、契约主、脉流、法阵）保持一致；
+// 场名取自 Background 的七套布景；star 是北斗星名，标题卡眉栏与 HUD 都会显示。
+// chapter 是场所属的幕（1..5），映射固定为 1,2,3,4,4,5,5：幕是叙事单位，场是玩法单位。
 export const ACT_CARDS = Object.freeze({
   1: Object.freeze({
     numeral: 'I',
+    chapter: 1,
     star: '天枢',
     title: '荒废墓园',
     subtitle: '第一枚契约钉进碑石。以脉流为笔，替沉默者补完未竟的仪式。',
@@ -15,6 +18,7 @@ export const ACT_CARDS = Object.freeze({
   }),
   2: Object.freeze({
     numeral: 'II',
+    chapter: 2,
     star: '天璇',
     title: '腐沼教堂',
     subtitle: '潮声把祷词泡烂。第二枚契约沉在钟下，债主只认答对的名字。',
@@ -24,6 +28,7 @@ export const ACT_CARDS = Object.freeze({
   }),
   3: Object.freeze({
     numeral: 'III',
+    chapter: 3,
     star: '天玑',
     title: '星陨王庭',
     subtitle: '星纹垂落如审判。最后一位契约主记得所有名字，包括你的。',
@@ -33,6 +38,7 @@ export const ACT_CARDS = Object.freeze({
   }),
   4: Object.freeze({
     numeral: 'IV',
+    chapter: 4,
     star: '天权',
     title: '沉钟书库',
     subtitle: '书页在钟声里合拢。第四位契约主，把名字写进了索引。',
@@ -42,31 +48,46 @@ export const ACT_CARDS = Object.freeze({
   }),
   5: Object.freeze({
     numeral: 'V',
+    chapter: 4,
     star: '玉衡',
     title: '衡律法庭',
     subtitle: '天平两端都是罪。第五位契约主，只认等价的东西。',
-    hint: '五幕四脉流 · 每一格都要称量价值',
+    hint: '四幕后半 · 四脉流 · 每一格都要称量价值',
     accent: 0xcfd6e0,
     tint: 0x241f26,
   }),
   6: Object.freeze({
     numeral: 'VI',
+    chapter: 5,
     star: '开阳',
     title: '熔星锻炉',
     subtitle: '炉火把夜烧穿。第六位契约主，在铁砧上等一记重锤。',
-    hint: '六幕密度再升 · 熔火与铁屑一起砸下来',
+    hint: '五幕开场 · 密度再升 · 熔火与铁屑一起砸下来',
     accent: 0xff8a4d,
     tint: 0x2a1814,
   }),
   7: Object.freeze({
     numeral: 'VII',
+    chapter: 5,
     star: '摇光',
     title: '破晓之座',
     subtitle: '七颗星连成一线。最后一位契约主，记得所有名字。',
-    hint: '七幕终局 · 这一局所有选择都在这里结算',
+    hint: '五幕终局 · 这一局所有选择都在这里结算',
     accent: 0xffd98a,
     tint: 0x1a1630,
   }),
+});
+
+// 场次卡（stage 1..7）：幕内换场时在战斗场景里原地弹出，不切场景、不弹工作台。
+// 七场与旧七幕的地名一一对应；「幕」是 1..5 的叙事单位，两者不可混用。
+export const STAGE_CARDS = Object.freeze({
+  1: Object.freeze({ numeral: 'I', star: '天枢', title: '荒废墓园', accent: 0xc9a227 }),
+  2: Object.freeze({ numeral: 'II', star: '天璇', title: '腐沼教堂', accent: 0x7cc9a8 }),
+  3: Object.freeze({ numeral: 'III', star: '天玑', title: '星陨王庭', accent: 0x7fd7ff }),
+  4: Object.freeze({ numeral: 'IV', star: '天权', title: '沉钟书库', accent: 0x9fb4d8 }),
+  5: Object.freeze({ numeral: 'V', star: '玉衡', title: '衡律法庭', accent: 0xcfd6e0 }),
+  6: Object.freeze({ numeral: 'VI', star: '开阳', title: '熔星锻炉', accent: 0xff8a4d }),
+  7: Object.freeze({ numeral: 'VII', star: '摇光', title: '破晓之座', accent: 0xffd98a }),
 });
 
 // 每类过场的时间轴（毫秒）。短过场总时长全部落在 900–1600ms 的验收区间内；
@@ -148,15 +169,19 @@ const COMPACT = Object.freeze({
 });
 
 // 统一的卡片内容给 CutsceneScene 用；返回 null 表示这一类只走视觉、不压字。
-export function buildCard(kind, act = 1, report = null) {
-  const safeAct = [1, 2, 3, 4, 5, 6, 7].includes(Number(act)) ? Number(act) : 1;
-  const actCard = ACT_CARDS[safeAct];
+// 第二参是场号 stage（1..7）：眉栏按所属幕（chapter）写「第 Ⅳ 幕 · 场 4 · 天权」，标题仍用场名。
+// 旧的 buildCard(kind, act) 调用点传的同样是场号，签名保持兼容。
+export function buildCard(kind, stage = 1, report = null) {
+  const safeStage = [1, 2, 3, 4, 5, 6, 7].includes(Number(stage)) ? Number(stage) : 1;
+  const actCard = ACT_CARDS[safeStage];
+  const chapter = actCard.chapter;
+  const chapterNumeral = CHAPTERS[chapter - 1].numeral;
   switch (kind) {
     case 'act':
       return {
         kind,
         compact: false,
-        eyebrow: '第 ' + safeAct + ' 幕 · ACT ' + actCard.numeral + ' · ' + actCard.star,
+        eyebrow: '第 ' + chapterNumeral + ' 幕 · 场 ' + safeStage + ' · ' + actCard.star,
         title: actCard.title,
         subtitle: actCard.subtitle,
         hint: actCard.hint,
@@ -169,9 +194,9 @@ export function buildCard(kind, act = 1, report = null) {
       return {
         kind,
         compact: false,
-        eyebrow: '第 ' + safeAct + ' 幕 · 完成',
+        eyebrow: '第 ' + chapter + ' 幕 · 完成',
         title: '契约解除',
-        subtitle: actCard.title + '的契约主已归于沉默，法阵把这一幕的刻痕收进核心。',
+        subtitle: actCard.title + '的契约主已归于沉默，法阵把这一场的刻痕收进核心。',
         hint: '进入幕间工作台 · 重排罗盘',
         stats,
         accent: actCard.accent,
@@ -182,7 +207,7 @@ export function buildCard(kind, act = 1, report = null) {
       return {
         kind,
         compact: false,
-        eyebrow: '第 ' + safeAct + ' 幕 · 契约反噬',
+        eyebrow: '第 ' + chapter + ' 幕 · 契约反噬',
         title: '魂火熄灭',
         subtitle: '刻线还温着。下一局，把缺的那一角补上。',
         hint: '查看本局结算',

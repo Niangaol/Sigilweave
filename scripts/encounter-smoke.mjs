@@ -53,7 +53,7 @@ async function goToEvent(page, type) {
 async function forceMajorLevel(page) {
   await page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
-    const need = { 1: 5, 2: 8, 3: 11, 4: 14, 5: 17, 6: 20, 7: 23 }[s.act];
+    const need = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 24, 6: 28, 7: 32 }[s.stage];
     while (s.run.progression.level < need) s.run.progression.level++;
   });
 }
@@ -99,15 +99,17 @@ async function forceMajorLevel(page) {
   const after = await page.evaluate(() => {
     const s = window.__SIGILWEAVE_WORKSHOP__;
     return {
-      act: s.run.act,
+      chapter: s.run.chapter,
+      stage: s.run.stage,
       shards: s.run.shards,
       resolutions: structuredClone(s.run.bossResolutions),
       completed: structuredClone(s.run.encounters.completed),
       reports: s.run.reports.length,
     };
   });
-  assert.equal(after.act, 2);
-  assert.deepEqual(after.resolutions, { 1: { act: 1, bossId: 'boss-1', method: 'quiz', tier: 'major', reward: 12 } });
+  assert.equal(after.chapter, 2);
+  assert.equal(after.stage, 2);
+  assert.deepEqual(after.resolutions, { 1: { stage: 1, bossId: 'boss-1', method: 'quiz', tier: 'major', reward: 12 } });
   assert.equal(after.completed['npc-1'], true); assert.equal(after.completed['boss-1'], true);
   assert.equal(after.reports, 1);
   // 碎片 = NPC8 + Boss问答4 + 通关12 + 击杀掉落(不确定)，至少24
@@ -133,7 +135,7 @@ async function forceMajorLevel(page) {
   }, type);
   const forceMajorLevel = () => page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
-    const need = { 1: 5, 2: 8, 3: 11, 4: 14, 5: 17, 6: 20, 7: 23 }[s.act];
+    const need = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 24, 6: 28, 7: 32 }[s.stage];
     while (s.run.progression.level < need) s.run.progression.level++;
   });
   const answerWrong = async () => {

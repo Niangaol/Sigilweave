@@ -34,6 +34,7 @@ const music = vi.hoisted(() => ({ startMusic: vi.fn(), stopMusic: vi.fn(), music
 vi.mock('../src/audio/CineMusic.js', () => music);
 
 import CutsceneScene from '../src/scenes/CutsceneScene.js';
+import { ACT_CARDS } from '../src/data/cinematics.js';
 
 function makeGraphics() {
   const g = {
@@ -404,5 +405,50 @@ describe('journey 幕间演出', () => {
     overlay.onSkipInput({ type: 'keydown' });
     expect(overlay.finished).toBe(true);
     expect(manager.isPaused('BattleScene')).toBe(false);
+  });
+});
+
+describe('幕/场双轨', () => {
+  it('只传 act≤5 时按幕号处理，场取该幕第一场（死亡/终局不会错取合并幕后半场）', () => {
+    const numerals = ['', 'Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ'];
+    for (const [chapter, stage] of [[1, 1], [2, 2], [3, 3], [4, 4], [5, 6]]) {
+      const { overlay } = makeHarness({ kind: 'act', act: chapter });
+      expect(overlay.stage, String(chapter)).toBe(stage);
+      expect(overlay.chapter, String(chapter)).toBe(chapter);
+      expect(overlay.cardData.eyebrow, String(chapter)).toContain('第 ' + numerals[chapter] + ' 幕');
+    }
+  });
+
+  it('只传 act=6/7（旧脚本的场号写法）时仍按场号推导所属幕', () => {
+    for (const [stage, chapter] of [[6, 5], [7, 5]]) {
+      const { overlay } = makeHarness({ kind: 'act', act: stage });
+      expect(overlay.stage, String(stage)).toBe(stage);
+      expect(overlay.chapter, String(stage)).toBe(chapter);
+      expect(overlay.cardData.eyebrow, String(stage)).toContain('第 Ⅴ 幕');
+    }
+  });
+
+  it('显式 stage 优先于 act：幕与场各取各的', () => {
+    const { overlay } = makeHarness({ kind: 'act', act: 4, stage: 5 });
+    expect(overlay.stage).toBe(5);
+    expect(overlay.chapter).toBe(4);
+    expect(overlay.cardData.title).toBe(ACT_CARDS[5].title);
+    expect(overlay.cardData.eyebrow).toBe('第 Ⅳ 幕 · 场 5 · 玉衡');
+  });
+
+  it('journey 按幕取文案、按场取布景：第五幕开场落到锻炉', () => {
+    const { overlay } = makeHarness({ kind: 'journey', act: 6, stage: 6, from: 'IntermissionScene', to: 'BattleScene' });
+    expect(overlay.chapter).toBe(5);
+    expect(overlay.journey.label).toBe('第伍幕 · 熔星破晓');
+    expect(overlay.journey.stage).toBe('forge');
+    expect(overlay.diorama.id).toBe('forge');
+  });
+
+  it('发布给验收脚本的状态同时带 act/chapter/stage，且都不是 undefined', () => {
+    const { overlay } = makeHarness({ kind: 'act', act: 5, stage: 5 });
+    advance(overlay, 100);
+    expect(globalThis.window.__SIGILWEAVE_CUTSCENE__).toMatchObject({
+      act: 5, chapter: 4, stage: 5,
+    });
   });
 });

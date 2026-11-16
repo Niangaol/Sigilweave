@@ -24,7 +24,7 @@ const rows = ACTS.map(act => {
   });
   const rates = results.map(r => r.rate);
   const mean = rates.reduce((a, b) => a + b, 0) / rates.length;
-  return { act: act.act, starts: act.starts, intervalMs: act.baseIntervalMs, mean, min: Math.min(...rates), max: Math.max(...rates), results };
+  return { act: act.chapter, starts: act.starts, intervalMs: act.baseIntervalMs, mean, min: Math.min(...rates), max: Math.max(...rates), results };
 });
 console.log(JSON.stringify({ scope: '无辅助、全铺奥术、角色固定世界中心、每幕8种子各180秒；受阻率为百分比', rows }));
 for (const row of rows) assert(row.mean >= 15 && row.mean <= 25, '第' + row.act + '幕标准盘平均受阻率须在15-25%，实际' + row.mean);

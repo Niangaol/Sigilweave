@@ -45,28 +45,28 @@ describe('开场分镜数据', () => {
     expect(canSkipStory(150)).toBe(true);
   });
 
-  it('journey 配置覆盖二至七幕，文案、幕名与北斗星名符合规格', () => {
-    expect(Object.keys(JOURNEYS)).toEqual(['2', '3', '4', '5', '6', '7']);
+  it('journey 配置只覆盖五幕（2..5），文案与场名符合规格', () => {
+    expect(Object.keys(JOURNEYS)).toEqual(['2', '3', '4', '5']);
+    // 幕号是叙事键；场名只用于取景，四、五幕各含两场，journey 取该幕首场布景
+    expect(Object.values(JOURNEYS).map(j => j.chapter)).toEqual([2, 3, 4, 5]);
     expect(JOURNEYS[2].label).toBe('第贰幕 · 腐沼教堂');
     expect(JOURNEYS[2].subtitle).toBe('潮声把祷词泡烂。第二枚契约，沉在钟下。');
     expect(JOURNEYS[2].stage).toBe('swamp');
     expect(JOURNEYS[3].label).toBe('第叁幕 · 星陨王庭');
     expect(JOURNEYS[3].subtitle).toBe('星纹垂落如审判。最后一位契约主，记得所有名字。');
     expect(JOURNEYS[3].stage).toBe('star');
-    expect(JOURNEYS[4].label).toBe('第肆幕 · 天权 · 沉钟书库');
+    expect(JOURNEYS[4].label).toBe('第肆幕 · 审判书库');
+    expect(JOURNEYS[4].subtitle).toBe('书库的钟声还没停，碑上又多了一位契约主的名字。');
     expect(JOURNEYS[4].stage).toBe('library');
-    expect(JOURNEYS[5].label).toBe('第伍幕 · 玉衡 · 衡律法庭');
-    expect(JOURNEYS[5].stage).toBe('court');
-    expect(JOURNEYS[6].label).toBe('第陆幕 · 开阳 · 熔星锻炉');
-    expect(JOURNEYS[6].stage).toBe('forge');
-    expect(JOURNEYS[7].label).toBe('第柒幕 · 摇光 · 破晓之座');
-    expect(JOURNEYS[7].stage).toBe('sunrise');
+    expect(JOURNEYS[5].label).toBe('第伍幕 · 熔星破晓');
+    expect(JOURNEYS[5].subtitle).toBe('炉火把夜烧穿。最后一夜的两位契约主，都在等天亮。');
+    expect(JOURNEYS[5].stage).toBe('forge');
+    expect(JOURNEYS[6]).toBeUndefined();
+    expect(JOURNEYS[7]).toBeUndefined();
     expect(JOURNEYS[2].accent).toBe(0x7cc9a8);
     expect(JOURNEYS[3].accent).toBe(0x7fd7ff);
-    expect(JOURNEYS[4].accent).toBe(0x9fb4d8);
-    expect(JOURNEYS[5].accent).toBe(0xcfd6e0);
-    expect(JOURNEYS[6].accent).toBe(0xff8a4d);
-    expect(JOURNEYS[7].accent).toBe(0xffd98a);
+    expect(JOURNEYS[4].accent).toBe(0xcfd6e0);
+    expect(JOURNEYS[5].accent).toBe(0xffd98a);
   });
 
   it('数据全部冻结，运行期不会被 accidental 修改', () => {

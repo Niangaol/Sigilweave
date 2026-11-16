@@ -27,11 +27,11 @@ try {
     const moved = s.player.x - x;
     const cd = s.grid.cells[5].effCooldownMs;
     s.combatRng.next = () => 2.1 / 6; // 冷凝回路
-    s.defeatBoss('combat', 'miniboss-1', 'mini');
+    s.defeatBoss('combat', 'miniboss-1a', 'mini');
     const cooled = s.grid.cells[5].effCooldownMs;
     const hand = s.run.hand['sigil:frost_arrow'];
     const shards = s.shardCount;
-    s.defeatBoss('combat', 'miniboss-1', 'mini');
+    s.defeatBoss('combat', 'miniboss-1a', 'mini');
     const duplicate = { hand: s.run.hand['sigil:frost_arrow'], shards: s.shardCount, cd: s.grid.cells[5].effCooldownMs };
     s.combatRng.next = () => 4.1 / 6; // 延续之链
     s.defeatBoss('quiz', 'boss-1', 'major');

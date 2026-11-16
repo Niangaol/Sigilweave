@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createBossModel, stepBoss, resolveBossOnce, bossPattern } from '../src/logic/boss.js';
 
-const fireOnce = (act, position = { x: 0, y: 0 }, target = { x: 100, y: 0 }) => {
-  const boss = createBossModel(act);
+const fireOnce = (stage, position = { x: 0, y: 0 }, target = { x: 100, y: 0 }) => {
+  const boss = createBossModel(stage);
   stepBoss(boss, 1200, position, target);   // 进入预警
   return { boss, shots: stepBoss(boss, 600, position, target) };
 };
@@ -26,13 +26,13 @@ describe('Boss预警与实际攻击', () => {
 
   it.each([
     [1, 5], [2, 8], [3, 7], [4, 6], [5, 10], [6, 3], [7, 9],
-  ])('第 %i 幕使用自己的弹幕模板（%i 发）', (act, count) => {
-    const { shots } = fireOnce(act);
+  ])('第 %i 场使用自己的弹幕模板（%i 发）', (stage, count) => {
+    const { shots } = fireOnce(stage);
     expect(shots).toHaveLength(count);
     expect(shots.every(s => s.damage > 0 && s.lifeMs > 0)).toBe(true);
   });
 
-  it('七幕弹幕形态确实不同：一扇形、二环形、三更快，后四幕各有专属模板', () => {
+  it('七场弹幕形态确实不同：一扇形、二环形、三更快，后四场各有专属模板', () => {
     const one = fireOnce(1).shots;
     const two = fireOnce(2).shots;
     const three = fireOnce(3).shots;
@@ -41,45 +41,89 @@ describe('Boss预警与实际攻击', () => {
     expect(two.some(s => s.vx > 0)).toBe(true);
     expect(one.every(s => s.vx >= 0)).toBe(true);       // 扇形整体朝目标方向
     expect(one.some(s => s.vy < 0) && one.some(s => s.vy > 0)).toBe(true); // 上下扩散
-    // 三幕速度更快，二幕更慢
+    // 三场速度更快，二场更慢
     const speed = (shots) => Math.hypot(shots[0].vx, shots[0].vy);
     expect(speed(three)).toBeGreaterThan(speed(one));
     expect(speed(two)).toBeLessThan(speed(one));
     expect(bossPattern(2).ring).toBe(true);
     expect(bossPattern(1).ring).toBeUndefined();
-    // 后四幕：四/六是扇形，五环形，七是更快的宽扇
+    // 后四场：四/六是扇形，五环形，七是更快的宽扇
     expect(bossPattern(4).ring).toBeUndefined();
     expect(bossPattern(5).ring).toBe(true);
     expect(bossPattern(6).ring).toBeUndefined();
     expect(speed(fireOnce(7).shots)).toBeGreaterThan(speed(fireOnce(6).shots));
-    expect(new Set([1, 2, 3, 4, 5, 6, 7].map((act) => bossPattern(act).name)).size).toBe(7);
+    expect(new Set([1, 2, 3, 4, 5, 6, 7].map((stage) => bossPattern(stage).name)).size).toBe(7);
   });
 
   it.each([NaN, -1, Infinity])('非法步长%j不产生伤害弹丸', dt => {
     const boss = createBossModel(); const before = structuredClone(boss);
     expect(stepBoss(boss, dt, {x:0,y:0}, {x:1,y:1})).toEqual([]); expect(boss).toEqual(before);
   });
-  it.each([0,8,'1',1.5])('非法幕数%j拒绝', act => expect(() => createBossModel(act)).toThrow(RangeError));
-  it('未知幕的模板回退到第一幕', () => expect(bossPattern(9)).toBe(bossPattern(1)));
+  it.each([0,8,'1',1.5])('非法场数%j拒绝', stage => expect(() => createBossModel(stage)).toThrow(RangeError));
+  it('省略场数时默认第 1 场', () => expect(createBossModel()).toEqual(createBossModel(1)));
+  it('未知场的模板回退到第一场', () => expect(bossPattern(9)).toBe(bossPattern(1)));
 });
 
 describe('统一Boss击败收据', () => {
-  it.each(['quiz','combat'])('不同路径%s获得相同基础奖励12且仅一次', method => {
-    const run = { act: 1 };
-    const first = resolveBossOnce(run,1,'boss-1',method);
-    expect(first.ok).toBe(true); expect(first.reward).toBe(12); expect(first.receipt.method).toBe(method);
-    expect(resolveBossOnce(run,1,'boss-1',method === 'quiz' ? 'combat' : 'quiz')).toEqual({ok:false,reward:0});
+  it.each(['quiz','combat'])('大 Boss 不同路径%s奖励相同且只记一次', method => {
+    const run = { stage: 1 };
+    const first = resolveBossOnce(run, 1, 'boss-1', method);
+    expect(first).toMatchObject({ ok: true, reward: 12 });
+    expect(first.receipt).toMatchObject({ stage: 1, bossId: 'boss-1', tier: 'major', method, reward: 12 });
+    expect(resolveBossOnce(run, 1, 'boss-1', method === 'quiz' ? 'combat' : 'quiz')).toEqual({ ok: false, reward: 0 });
     first.receipt.reward = 999; expect(run.bossResolutions[1].reward).toBe(12);
   });
-  it('每幕单独记账，无法重复或提前领取下一幕奖励', () => {
-    const run = {act:1}; resolveBossOnce(run,1,'boss-1','quiz');
-    expect(resolveBossOnce(run,2,'boss-2','quiz').ok).toBe(false);
-    run.act=2; expect(resolveBossOnce(run,2,'boss-2','combat').ok).toBe(true);
-    expect(Object.keys(run.bossResolutions)).toEqual(['1','2']);
+
+  it('大 Boss 按场记账：同场记两次只成功一次，跨场各记一次', () => {
+    const run = { stage: 1, bossResolutions: {}, miniBossResolutions: {} };
+    expect(resolveBossOnce(run, 1, 'boss-1', 'quiz', 'major')).toMatchObject({ ok: true, reward: 12 });
+    expect(resolveBossOnce(run, 1, 'boss-1', 'combat', 'major')).toEqual({ ok: false, reward: 0 });
+    // 第 4 幕有两场：解了场 4 不等于解了场 5，也不能提前领场 6。
+    run.stage = 4;
+    expect(resolveBossOnce(run, 4, 'boss-4', 'quiz', 'major').ok).toBe(true);
+    expect(resolveBossOnce(run, 5, 'boss-5', 'quiz', 'major')).toEqual({ ok: false, reward: 0 });
+    expect(resolveBossOnce(run, 6, 'boss-6', 'quiz', 'major')).toEqual({ ok: false, reward: 0 });
+    run.stage = 5;
+    expect(resolveBossOnce(run, 5, 'boss-5', 'quiz', 'major').ok).toBe(true);
+    expect(Object.keys(run.bossResolutions).map(Number)).toEqual([1, 4, 5]);
+    expect(run.bossResolutions[4].stage).toBe(4);
+    expect(run.bossResolutions[5].stage).toBe(5);
   });
-  it.each([null, 'run', [], {act:1,bossResolutions:[]}])('非法会话%j不抛错', run => {
+
+  it('七契：七场大 Boss 各记一条，账本共七条', () => {
+    const run = { stage: 1, bossResolutions: {}, miniBossResolutions: {} };
+    for (let stage = 1; stage <= 7; stage++) {
+      run.stage = stage;
+      expect(resolveBossOnce(run, stage, 'boss-' + stage, 'combat', 'major')).toMatchObject({ ok: true, reward: 12 });
+      expect(resolveBossOnce(run, stage, 'boss-' + stage, 'combat', 'major')).toEqual({ ok: false, reward: 0 });
+    }
+    expect(Object.keys(run.bossResolutions).map(Number)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(Object.values(run.bossResolutions).every(r => r.tier === 'major')).toBe(true);
+    expect(Object.keys(run.miniBossResolutions)).toEqual([]);
+  });
+
+  it('小 Boss 仍按 bossId 每局一次，receipt 带场号，奖励 6', () => {
+    const run = { stage: 1, miniBossResolutions: {} };
+    const first = resolveBossOnce(run, 1, 'miniboss-1c', 'quiz', 'mini');
+    expect(first).toMatchObject({ ok: true, reward: 6 });
+    expect(first.receipt).toMatchObject({ stage: 1, bossId: 'miniboss-1c', tier: 'mini', method: 'quiz', reward: 6 });
+    expect(resolveBossOnce(run, 1, 'miniboss-1c', 'combat', 'mini').ok).toBe(false);
+    expect(run.miniBossResolutions['miniboss-1c'].stage).toBe(1);
+    expect(run.bossResolutions).toBeUndefined();   // 小 Boss 不碰大 Boss 账本
+  });
+
+  it('场号超出 1..7 或与当前场不符时拒绝', () => {
+    const run = { stage: 4 };
+    expect(resolveBossOnce(run, 6, 'boss-6', 'quiz')).toEqual({ ok: false, reward: 0 });
+    expect(run.bossResolutions).toBeUndefined();
+    for (const bad of [0, 8, '1', 1.5, NaN, undefined]) {
+      expect(resolveBossOnce({ stage: 1 }, bad, 'boss-1', 'quiz')).toEqual({ ok: false, reward: 0 });
+    }
+  });
+
+  it.each([null, 'run', [], {stage:1,bossResolutions:[]}])('非法会话%j不抛错', run => {
     expect(() => resolveBossOnce(run,1,'boss-1','quiz')).not.toThrow();
     expect(resolveBossOnce(run,1,'boss-1','quiz').ok).toBe(false);
   });
-  it('未知通关方式不发奖励', () => expect(resolveBossOnce({act:1},1,'boss-1','skip')).toEqual({ok:false,reward:0}));
+  it('未知通关方式不发奖励', () => expect(resolveBossOnce({stage:1},1,'boss-1','skip')).toEqual({ok:false,reward:0}));
 });

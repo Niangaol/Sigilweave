@@ -79,7 +79,7 @@ try {
   await page.waitForTimeout(3000);
   await page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
-    s.phase = 'bossDefeated'; s.bossDefeated = true; s.transitionLeft = 0; s.completeAct();
+    s.phase = 'bossDefeated'; s.bossDefeated = true; s.transitionLeft = 0; s.stageOutcome = 'clear'; s.finishStage();
   });
   await page.waitForFunction(() => window.__SIGILWEAVE_CUTSCENE__?.kind === 'clear', null, { timeout: 20000 });
   await settle('IntermissionScene');
@@ -118,7 +118,7 @@ try {
   // 6) 幕间→第三幕 journey
   await page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
-    s.phase = 'bossDefeated'; s.bossDefeated = true; s.transitionLeft = 0; s.completeAct();
+    s.phase = 'bossDefeated'; s.bossDefeated = true; s.transitionLeft = 0; s.stageOutcome = 'clear'; s.finishStage();
   });
   await page.waitForFunction(() => window.__SIGILWEAVE_CUTSCENE__?.kind === 'clear', null, { timeout: 20000 });
   await settle('IntermissionScene');

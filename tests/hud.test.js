@@ -19,6 +19,22 @@ describe('等级经验HUD', () => {
     expect(hud.lvText.text).toBe('LV 2');
     expect(hud.expText.text).toBe('EXP 1/17');
   });
+  it('幕/场标签按幕显示星名、按场显示场地名，同幕换场也要刷新', () => {
+    const hud = fixture();
+    const base = { hp: 100, maxHp: 100, shards: 0, rate: 0, elapsedMs: 0 };
+    hud.update({ ...base, chapter: 3, stage: 3 });
+    expect(hud.actText.text).toBe('第三幕 · 天玑');
+    // 幕 4 含场 4/5：缓存键若只存文案（或只按幕），场 4→5 会漏刷新
+    hud.update({ ...base, chapter: 4, stage: 4 });
+    expect(hud.actText.text).toBe('第四幕 · 沉钟书库');
+    hud.update({ ...base, chapter: 4, stage: 5 });
+    expect(hud.actText.text).toBe('第四幕 · 衡律法庭');
+    hud.update({ ...base, chapter: 5, stage: 7 });
+    expect(hud.actText.text).toBe('第五幕 · 破晓之座');
+    // 旧数据只有 act 时按第一幕第一场兜底，不显示 undefined
+    hud.update({ ...base, act: 1 });
+    expect(hud.actText.text).toBe('第一幕 · 天枢');
+  });
   it('所有顶栏文字固定于视口', () => {
     const hud = fixture();
     for (const key of ['hpText', 'shardText', 'freqText', 'actText', 'timeText', 'lvText', 'expText']) {

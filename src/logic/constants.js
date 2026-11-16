@@ -25,16 +25,16 @@ export const COOLDOWN_FLOOR_MS = 600;
 // 共鸣石：对正交四邻的间隔与冷却同时乘算 -25%
 export const RESONANCE_FACTOR = 0.75;
 
-// 七幕参数（北斗七星）：前三幕沿用旧曲线，第四幕起间隔继续小幅压缩、脉流 3→4 条。
-// unlocked 上限就是 4×4 法阵的 16 格，后四幕不再解封新格，靠手牌/铭文/誓约继续成长。
+// 五幕参数（幕 = 叙事单位，见 src/logic/acts.js 的幕/场映射）：
+// 前三幕沿用旧曲线，第四、五幕是合并幕（各含两场），间隔继续小幅压缩、脉流 4 条。
+// unlocked 上限就是 4×4 法阵的 16 格，第四幕起不再解封新格，靠手牌/铭文/誓约继续成长。
+// 注意：这张表按「幕」索引（ACTS[chapter-1]），按「场」取参数的地方请先 chapterOf(stage)。
 export const ACTS = [
-  { act: 1, baseIntervalMs: 1400, starts: 2, unlocked: 6 },
-  { act: 2, baseIntervalMs: 1200, starts: 3, unlocked: 12 },
-  { act: 3, baseIntervalMs: 1000, starts: 3, unlocked: 16 },
-  { act: 4, baseIntervalMs: 980, starts: 3, unlocked: 16 },
-  { act: 5, baseIntervalMs: 960, starts: 4, unlocked: 16 },
-  { act: 6, baseIntervalMs: 940, starts: 4, unlocked: 16 },
-  { act: 7, baseIntervalMs: 920, starts: 4, unlocked: 16 },
+  { chapter: 1, baseIntervalMs: 1400, starts: 2, unlocked: 6 },
+  { chapter: 2, baseIntervalMs: 1200, starts: 3, unlocked: 12 },
+  { chapter: 3, baseIntervalMs: 1000, starts: 3, unlocked: 16 },
+  { chapter: 4, baseIntervalMs: 960, starts: 4, unlocked: 16 },
+  { chapter: 5, baseIntervalMs: 920, starts: 4, unlocked: 16 },
 ];
 
 export const MAX_REROUTE = 2;          // 冷却受阻最多改道两次
@@ -49,14 +49,15 @@ export const SECTOR_SCREEN_HALF_H = 135;
 export const SECTOR_FAR_X = 480;
 export const SECTOR_FAR_Y = 270;
 
-// 大地图：每幕一张固定世界（像素），屏幕逻辑分辨率仍 480×270，摄像机跟随
-// 第 4-6 幕沿用三幕的世界尺度；终幕「摇光」放大一档，给收束与 Boss 战留空间。
+// 大地图：每「场」一张固定世界（像素），屏幕逻辑分辨率仍 480×270，摄像机跟随。
+// 五幕七场把世界整体放大一档：前三场各加宽加高，合并幕的两段同尺寸便于幕内原地换场，
+// 终场「摇光」放到最大，给双 Boss 与收束留空间。
 export const WORLD_SIZES = Object.freeze({
-  1: { w: 1920, h: 1440 },
-  2: { w: 2400, h: 1600 },
-  3: { w: 2400, h: 1800 },
-  4: { w: 2400, h: 1800 },
-  5: { w: 2400, h: 1800 },
-  6: { w: 2400, h: 1800 },
-  7: { w: 2560, h: 1920 },
+  1: { w: 2400, h: 1800 },
+  2: { w: 2600, h: 1900 },
+  3: { w: 2800, h: 2000 },
+  4: { w: 2800, h: 2100 },
+  5: { w: 2800, h: 2100 },
+  6: { w: 3000, h: 2200 },
+  7: { w: 3000, h: 2200 },
 });

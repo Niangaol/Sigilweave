@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ENCOUNTERS, getEncounterForAct, getEncounterById } from '../src/data/encounters.js';
+import { ENCOUNTERS, getEncounterForAct, getEncounterForStage, getEncounterById, getMinibossEncounters } from '../src/data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../src/logic/encounters.js';
 
 const clone = (value) => structuredClone(value);
@@ -19,20 +19,68 @@ const unchangedFailure = (state, fn) => {
 };
 
 describe('遭遇定义', () => {
-  it('包含七幕各一个 NPC、一个大 Boss、两个小 Boss，名字和题目均不重复', () => {
+  it('共 34 条：7 NPC + 20 小 Boss + 7 大 Boss，名字与题目均不重复', () => {
+    expect(Object.keys(ENCOUNTERS)).toHaveLength(34);
     expect(Object.keys(ENCOUNTERS).sort()).toEqual([
       'boss-1', 'boss-2', 'boss-3', 'boss-4', 'boss-5', 'boss-6', 'boss-7',
-      'miniboss-1a', 'miniboss-1b', 'miniboss-2a', 'miniboss-2b', 'miniboss-3a', 'miniboss-3b',
+      'miniboss-1a', 'miniboss-1b', 'miniboss-1c', 'miniboss-1d',
+      'miniboss-2a', 'miniboss-2b', 'miniboss-2c', 'miniboss-2d',
+      'miniboss-3a', 'miniboss-3b', 'miniboss-3c', 'miniboss-3d',
       'miniboss-4a', 'miniboss-4b', 'miniboss-5a', 'miniboss-5b', 'miniboss-6a', 'miniboss-6b',
       'miniboss-7a', 'miniboss-7b',
       'npc-1', 'npc-2', 'npc-3', 'npc-4', 'npc-5', 'npc-6', 'npc-7',
     ]);
-    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.name)).size).toBe(28);
-    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.question)).size).toBe(28);
-    // 大 Boss 无 tier，小 Boss 必须 tier=mini
+    const ids = Object.keys(ENCOUNTERS);
+    expect(ids.filter((id) => id.startsWith('npc-'))).toHaveLength(7);
+    expect(ids.filter((id) => id.startsWith('miniboss-'))).toHaveLength(20);
+    expect(ids.filter((id) => id.startsWith('boss-'))).toHaveLength(7);
+    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.name)).size).toBe(34);
+    expect(new Set(Object.values(ENCOUNTERS).map((d) => d.question)).size).toBe(34);
+    // 每条都是 2 条线索 + 1 个三选一；大 Boss 无 tier，小 Boss 必须 tier=mini
     for (const d of Object.values(ENCOUNTERS)) {
+      expect(d.clues).toHaveLength(2);
       if (d.id.startsWith('miniboss-')) expect(d.tier).toBe('mini');
       else if (d.type === 'boss') expect(d.tier ?? 'major').toBe('major');
+      else expect(d).not.toHaveProperty('tier');
+    }
+  });
+  it('每场清单正确：场 1-3 各四只小 Boss，场 4-7 各两只', () => {
+    for (let stage = 1; stage <= 7; stage++) {
+      const minis = getMinibossEncounters(stage);
+      const suffixes = stage <= 3 ? ['a', 'b', 'c', 'd'] : ['a', 'b'];
+      expect(minis.map((d) => d.id)).toEqual(suffixes.map((s) => 'miniboss-' + stage + s));
+      for (const def of minis) {
+        expect(def).toBe(ENCOUNTERS[def.id]);
+        expect(def.type).toBe('boss');
+        expect(def.tier).toBe('mini');
+        expect(def.bossId).toBe(def.id);
+      }
+      expect(getEncounterForStage(stage, 'npc').id).toBe('npc-' + stage);
+      expect(getEncounterForStage(stage, 'boss').id).toBe('boss-' + stage);
+    }
+    for (const stage of [0, 8, 1.5, '1', null, undefined, NaN, {}, Symbol('stage')]) {
+      expect(getMinibossEncounters(stage)).toEqual([]);
+      expect(getEncounterForStage(stage, 'npc')).toBeNull();
+      expect(getEncounterForStage(stage, 'boss')).toBeNull();
+    }
+  });
+  it('新增 1c/1d/2c/2d/3c/3d 结构与文案合法', () => {
+    for (const id of ['miniboss-1c', 'miniboss-1d', 'miniboss-2c', 'miniboss-2d', 'miniboss-3c', 'miniboss-3d']) {
+      const def = ENCOUNTERS[id];
+      expect(def.tier).toBe('mini');
+      expect(def.clues).toHaveLength(2);
+      expect(def.choices).toHaveLength(3);
+      expect(def.choices.some((c) => c.id === def.correctChoiceId)).toBe(true);
+      expect(def.reward).toEqual({ shards: 6 });
+      expect(def.penalty).toEqual({});
+      expect(def.successText.endsWith('无需战斗。')).toBe(true);
+      expect(def.failureText.endsWith('！')).toBe(true);
+    }
+  });
+  it('全部小 Boss 的成功文案以「无需战斗。」收尾、失败文案以「！」收尾', () => {
+    for (const d of Object.values(ENCOUNTERS).filter((x) => x.tier === 'mini')) {
+      expect(d.successText.endsWith('无需战斗。')).toBe(true);
+      expect(d.failureText.endsWith('！')).toBe(true);
     }
   });
   for (const definition of Object.values(ENCOUNTERS)) {
@@ -43,8 +91,11 @@ describe('遭遇定义', () => {
       expect(new Set(definition.choices.map((c) => c.id)).size).toBe(3);
       expect(definition.choices.filter((c) => c.id === definition.correctChoiceId)).toHaveLength(1);
       expect(getEncounterById(definition.id)).toBe(definition);
-      if ((definition.tier ?? 'major') === 'major') {
-        expect(getEncounterForAct(Number(definition.id.at(-1)), definition.type)).toBe(definition);
+      if (definition.id.startsWith('miniboss-')) {
+        const stage = Number(definition.id.slice('miniboss-'.length, -1));
+        expect(getMinibossEncounters(stage)).toContain(definition);
+      } else {
+        expect(getEncounterForStage(Number(definition.id.slice(-1)), definition.type)).toBe(definition);
       }
       expect(openEncounter(createEncounterState(), definition).ok).toBe(true);
       if (definition.type === 'npc') {
@@ -60,11 +111,19 @@ describe('遭遇定义', () => {
       }
     });
   }
-  it.each([null, undefined, NaN, Infinity, 0, -1, 8, 1.5, '1', {}, Symbol('act')])('拒绝非法幕号 %s', (act) => {
-    expect(getEncounterForAct(act, 'npc')).toBeNull();
+  it.each([null, undefined, NaN, Infinity, 0, -1, 8, 1.5, '1', {}, Symbol('stage')])('拒绝非法场号 %s', (stage) => {
+    expect(getEncounterForStage(stage, 'npc')).toBeNull();
+    expect(getEncounterForAct(stage, 'npc')).toBeNull();
   });
-  it.each(['constructor', '__proto__', 'boss-1', null, {}, Symbol('kind')])('拒绝非法种类 %s', (kind) => {
-    expect(getEncounterForAct(1, kind)).toBeNull();
+  it.each(['constructor', '__proto__', 'boss-1', 'mini', null, {}, Symbol('kind')])('拒绝非法种类 %s', (kind) => {
+    expect(getEncounterForStage(1, kind)).toBeNull();
+  });
+  it('getEncounterForAct 是转发到 getEncounterForStage 的薄别名', () => {
+    for (let stage = 1; stage <= 7; stage++) {
+      expect(getEncounterForAct(stage, 'npc')).toBe(getEncounterForStage(stage, 'npc'));
+      expect(getEncounterForAct(stage, 'boss')).toBe(getEncounterForStage(stage, 'boss'));
+    }
+    expect(getEncounterForAct(0, 'boss')).toBeNull();
   });
 });
 

@@ -3,6 +3,7 @@ import {
   ACT_CARDS, TIMELINES, SKIP_GRACE_MS, buildTimeline, phaseAt, canSkip,
   skipResult, formatReport, buildCard,
 } from '../src/data/cinematics.js';
+import { CHAPTERS } from '../src/logic/acts.js';
 
 // journey 是 5.8s 幕间演出，由下方 journey describe 单独验收，不算短过场。
 const KINDS = Object.keys(TIMELINES).filter(k => k !== 'journey');
@@ -81,7 +82,7 @@ describe('跳过语义', () => {
 });
 
 describe('标题卡与文案', () => {
-  it('七幕标题卡齐全、幕名唯一、字幕是单行短句', () => {
+  it('七张场次卡齐全、场名唯一、字幕是单行短句', () => {
     expect(Object.keys(ACT_CARDS)).toEqual(['1', '2', '3', '4', '5', '6', '7']);
     const titles = new Set();
     for (const [act, card] of Object.entries(ACT_CARDS)) {
@@ -102,16 +103,25 @@ describe('标题卡与文案', () => {
     expect(Object.values(ACT_CARDS).map((card) => card.star)).toEqual(['天枢', '天璇', '天玑', '天权', '玉衡', '开阳', '摇光']);
   });
 
-  it('buildCard(act)：幕序号、标题、提示、主题色都取当幕；越界回退第一幕', () => {
+  it('每张场次卡都标出所属幕：1→1、2→2、3→3、4/5→4、6/7→5', () => {
+    const chapters = Object.values(ACT_CARDS).map((card) => card.chapter);
+    expect(chapters).toEqual([1, 2, 3, 4, 4, 5, 5]);
+    for (const chapter of chapters) expect(CHAPTERS[chapter - 1]).toBeTruthy();
+  });
+
+  it('buildCard(stage)：眉栏按所属幕写中文数字、标题仍取场名；越界回退第一场', () => {
     const card = buildCard('act', 2);
     expect(card.compact).toBe(false);
-    expect(card.eyebrow).toBe('第 2 幕 · ACT II · 天璇');
+    expect(card.eyebrow).toBe('第 Ⅱ 幕 · 场 2 · 天璇');
     expect(card.title).toBe(ACT_CARDS[2].title);
     expect(card.accent).toBe(ACT_CARDS[2].accent);
     expect(card.stats).toEqual([]);
-    expect(buildCard('act', 7).eyebrow).toBe('第 7 幕 · ACT VII · 摇光');
+    // 五幕七场：场 4/5 同属第四幕，场 6/7 同属第五幕
+    expect(buildCard('act', 4).eyebrow).toBe('第 Ⅳ 幕 · 场 4 · 天权');
+    expect(buildCard('act', 5).eyebrow).toBe('第 Ⅳ 幕 · 场 5 · 玉衡');
+    expect(buildCard('act', 7).eyebrow).toBe('第 Ⅴ 幕 · 场 7 · 摇光');
     expect(buildCard('act', 99).title).toBe(ACT_CARDS[1].title);
-    expect(buildCard('act', 'x').eyebrow).toBe('第 1 幕 · ACT I · 天枢');
+    expect(buildCard('act', 'x').eyebrow).toBe('第 Ⅰ 幕 · 场 1 · 天枢');
   });
 
   it('clear 卡带本幕四项数据，victory 卡带总计数据', () => {
@@ -120,6 +130,10 @@ describe('标题卡与文案', () => {
     expect(clear.title).toBe('契约解除');
     expect(clear.subtitle).toContain(ACT_CARDS[1].title);
     expect(clear.stats.map(s => s.value)).toEqual(['02:23', '312', '980', '26']);
+    // 场 5 属于第四幕：解除卡写「第 4 幕」，副标题用场 5 的场名
+    const act4Clear = buildCard('clear', 5, report);
+    expect(act4Clear.eyebrow).toBe('第 4 幕 · 完成');
+    expect(act4Clear.subtitle).toContain(ACT_CARDS[5].title);
     const victory = buildCard('victory', 3, report);
     expect(victory.title).toBe('契约终结');
     expect(victory.stats).toHaveLength(4);
@@ -129,7 +143,9 @@ describe('标题卡与文案', () => {
   it('death 是血红主题；boot 不压字；短转场用紧凑卡', () => {
     const death = buildCard('death', 2);
     expect(death.title).toBe('魂火熄灭');
-    expect(death.eyebrow).toContain('第 2 幕');
+    expect(death.eyebrow).toBe('第 2 幕 · 契约反噬');
+    // 场 6/7 归第五幕：死亡卡不能写成「第 6/7 幕」
+    expect(buildCard('death', 7).eyebrow).toBe('第 5 幕 · 契约反噬');
     expect(buildCard('boot', 1)).toBeNull();
     for (const kind of ['sigil', 'retry', 'return']) {
       const card = buildCard(kind, 1);

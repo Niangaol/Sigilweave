@@ -1,5 +1,7 @@
 // Boss 基础行为：纯模拟时钟、600ms预警、固定瞄准后发射；UI与命中由战斗层处理。
-// 七位 Boss 使用不同弹幕模板：一扇形、二环形、三宽扇高速；四起是后四幕的专属弹幕。
+// 七位 Boss 使用不同弹幕模板：一扇形、二环形、三宽扇高速；四起是后四场的专属弹幕。
+// 模板号 = 场号（1..7），场与旧七幕美术一一对应，弹幕表本身不随幕合并而改。
+import { isValidStage } from './acts.js';
 export const BOSS_PATTERNS = Object.freeze({
   1: { name: '扇形五连', count: 5, spread: 0.42, speed: 53, damage: 8 },
   2: { name: '环封八向', count: 8, ring: true, speed: 38, damage: 7 },
@@ -14,9 +16,9 @@ export function bossPattern(act) {
   return BOSS_PATTERNS[act] ?? BOSS_PATTERNS[1];
 }
 
-export function createBossModel(act = 1) {
-  if (!Number.isInteger(act) || act < 1 || act > 7) throw new RangeError('Boss幕数无效');
-  return { act, attackIn: 1200, windupLeft: 0, aim: null, shots: 0 };
+export function createBossModel(stage = 1) {
+  if (!isValidStage(stage)) throw new RangeError('Boss场号无效');
+  return { act: stage, attackIn: 1200, windupLeft: 0, aim: null, shots: 0 };
 }
 export function stepBoss(model, dtMs, position, target) {
   if (!Number.isFinite(dtMs) || dtMs < 0) return [];
@@ -45,23 +47,31 @@ export function stepBoss(model, dtMs, position, target) {
   return [];
 }
 
-// 通关收据独立于普通伤害/掉落链，一幕只奖励一次。
-export function resolveBossOnce(run, act, bossId, method, tier = 'major') {
-  if (!run || typeof run !== 'object' || Array.isArray(run) || (run.act !== undefined && run.act !== act) || !Number.isInteger(act) || act < 1 || act > 7 || typeof bossId !== 'string' || !bossId
-    || !['quiz', 'combat'].includes(method) || !['major', 'mini'].includes(tier)) return { ok: false, reward: 0 };
-  if (run.bossResolutions !== undefined && (run.bossResolutions === null || typeof run.bossResolutions !== 'object' || Array.isArray(run.bossResolutions))) return { ok: false, reward: 0 };
-  run.bossResolutions ??= {};
-  run.miniBossResolutions ??= {};
-  // 大Boss按幕记账（通幕依据）；小Boss按bossId记账（每局每只一次）
+// 通关收据独立于普通伤害/掉落链。
+// 大 Boss 按「场」记账 → run.bossResolutions[stage]，七场 = 七契，通幕判定读它；
+// 小 Boss 按 bossId 记账 → run.miniBossResolutions[bossId]，每局每只只记一次。
+export function resolveBossOnce(run, stage, bossId, method, tier = 'major') {
+  const validTier = tier === 'major' || tier === 'mini';
+  if (!run || typeof run !== 'object' || Array.isArray(run)
+    || !isValidStage(stage)
+    || (run.stage !== undefined && run.stage !== stage)
+    || typeof bossId !== 'string' || !bossId
+    || !['quiz', 'combat'].includes(method) || !validTier) return { ok: false, reward: 0 };
+  for (const key of ['bossResolutions', 'miniBossResolutions']) {
+    const ledger = run[key];
+    if (ledger !== undefined && (ledger === null || typeof ledger !== 'object' || Array.isArray(ledger))) return { ok: false, reward: 0 };
+  }
   const reward = tier === 'mini' ? 6 : 12;
   if (tier === 'major') {
-    if (Object.hasOwn(run.bossResolutions, act)) return { ok: false, reward: 0 };
-    const receipt = { act, bossId, method, tier, reward };
-    run.bossResolutions[act] = receipt;
+    run.bossResolutions ??= {};
+    if (Object.hasOwn(run.bossResolutions, stage)) return { ok: false, reward: 0 };
+    const receipt = { stage, bossId, method, tier, reward };
+    run.bossResolutions[stage] = receipt;
     return { ok: true, reward, receipt: { ...receipt } };
   }
+  run.miniBossResolutions ??= {};
   if (Object.hasOwn(run.miniBossResolutions, bossId)) return { ok: false, reward: 0 };
-  const receipt = { act, bossId, method, tier, reward };
+  const receipt = { stage, bossId, method, tier, reward };
   run.miniBossResolutions[bossId] = receipt;
   return { ok: true, reward, receipt: { ...receipt } };
 }

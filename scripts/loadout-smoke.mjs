@@ -89,7 +89,8 @@ try {
     const s = window.__SIGILWEAVE_BATTLE__;
     return {
       seed: s.run.seed,
-      act: s.run.act,
+      chapter: s.run.chapter,
+      stage: s.run.stage,
       unlocked: structuredClone(s.run.draft.unlocked),
       slots: structuredClone(s.run.draft.slots),
       cells: s.grid.unlockedIds().length,
@@ -98,7 +99,8 @@ try {
   const flame = STARTING_KITS.find(kit => kit.id === 'flame');
   assert.deepEqual(battle.slots, JSON.parse(JSON.stringify(flame.slots)), '战斗 run 的槽位应与所选套装一致');
   assert.equal(battle.seed, 'loadout-smoke', 'URL ?seed= 应带进战斗 run');
-  assert.equal(battle.act, 1);
+  assert.equal(battle.chapter, 1);
+  assert.equal(battle.stage, 1);
   assert.equal(battle.unlocked.length, 6);
   assert.deepEqual(battle.unlocked, [4, 5, 6, 7, 9, 10]);
   assert.equal(battle.cells, 6);
@@ -121,7 +123,7 @@ try {
   console.log(JSON.stringify({
     kitNames: cards.kitNames,
     selected: highlight.handle.kitId,
-    battle: { seed: battle.seed, act: battle.act, unlocked: battle.unlocked, slots: battle.slots },
+    battle: { seed: battle.seed, chapter: battle.chapter, stage: battle.stage, unlocked: battle.unlocked, slots: battle.slots },
     directBattle: { loadoutSkipped: !jumped.loadout, seed: jumped.seed },
     errors,
   }));

@@ -1,5 +1,7 @@
-// 七幕布景注册表：每一幕 = 一条「远景/中景/近景」三层静态画 + 一组归一化锚点。
-// 锚点是所有事件特效的落点（符环中心、门洞、祭坛、王座、锻炉…），用 0..1 的归一化坐标写，
+// 场次布景注册表：每一场（stage 1..7）= 一条「远景/中景/近景」三层静态画 + 一组归一化锚点。
+// 五幕七场下幕（chapter 1..5）是叙事单位、场（stage 1..7）是玩法单位，布景按场取景：
+// 场 1..3 各成一幕，幕 4 含场 4/5，幕 5 含场 6/7。锚点是所有事件特效的落点
+// （符环中心、门洞、祭坛、王座、锻炉…），用 0..1 的归一化坐标写，
 // 由 dioramaLayout 换算成当前画布像素——这样横屏 480×270 与竖屏 480×760 用同一份布景数据。
 import * as act1 from './act1.js';
 import * as act2 from './act2.js';
@@ -12,7 +14,8 @@ import * as act7 from './act7.js';
 // 单带静态预算：create 时只画一次，但仍要控制，否则切场首帧会卡。
 export const BAND_BUDGET = { back: 1300, mid: 1300, fore: 900 };
 
-// 幕色只允许上光源与事件高光；tint 是底色（大面积），accent 是光源（小面积）。
+// 场色只允许上光源与事件高光；tint 是底色（大面积），accent 是光源（小面积）。
+// 注：每项的 act 字段是场号 stage 的旧名，为旧测试/验收脚本保留，新代码按 stage 理解。
 export const DIORAMAS = [
   null,
   { act: 1, id: 'graveyard', title: '荒废墓园', numeral: 'I', accent: 0xc9a227, tint: 0x332b4a, horizon: 0.4444, module: act1 },
@@ -24,16 +27,17 @@ export const DIORAMAS = [
   { act: 7, id: 'dawn-seat', title: '破晓之座', numeral: 'VII', accent: 0xffd98a, tint: 0x1a1630, horizon: 0.44, module: act7 },
 ];
 
-export function getDiorama(act) {
-  const n = Math.round(Number(act) || 1);
+export function getDiorama(stage) {
+  const n = Math.round(Number(stage) || 1);
   return DIORAMAS[Math.max(1, Math.min(7, n))];
 }
 
 export const DIORAMA_BANDS = ['back', 'mid', 'fore'];
 
-// 归一化锚点 → 画布像素。任何幕缺省锚点都退回「中央符环」，事件代码不用判空。
-export function dioramaLayout(act, w, h) {
-  const d = getDiorama(act);
+// 归一化锚点 → 画布像素。任何场缺省锚点都退回「中央符环」，事件代码不用判空。
+// 返回的 act 字段是场号旧名（兼容旧调用方），stage 是同一值的正式名字。
+export function dioramaLayout(stage, w, h) {
+  const d = getDiorama(stage);
   const tall = h > 400;
   const s = Math.min(w / 480, h / 270);
   const horizon = Math.round(h * (d.horizon ?? 0.6));
@@ -49,12 +53,12 @@ export function dioramaLayout(act, w, h) {
     };
   }
   if (!anchors.seal) anchors.seal = { x: Math.round(w / 2), y: Math.round(h * 0.45), r: Math.round(0.16 * Math.min(w, h)) };
-  return { act: d.act, id: d.id, w, h, tall, scale: s, horizon, floorY, accent: d.accent, tint: d.tint, anchors };
+  return { act: d.act, stage: d.act, id: d.id, w, h, tall, scale: s, horizon, floorY, accent: d.accent, tint: d.tint, anchors };
 }
 
 // 画一条带。带函数可缺省（先做远景、后补近景），缺省即不画。
-export function drawBand(act, band, g, layout) {
-  const d = getDiorama(act);
+export function drawBand(stage, band, g, layout) {
+  const d = getDiorama(stage);
   const fn = d.module[band];
   if (typeof fn !== 'function') return false;
   fn(g, layout);

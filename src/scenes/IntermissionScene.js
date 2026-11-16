@@ -24,8 +24,13 @@ export default class IntermissionScene extends Phaser.Scene {
     const preview = createGrid();
     const result = applyDraft(preview, this.run.draft, { phase: 'intermission' });
     if (!result.ok) throw new Error('幕间收到无效构筑');
-    unlockToTarget(preview, ACTS[this.run.act - 1].unlocked);
-    this.workshop = createWorkshop({ draft: draftFromGrid(preview, { act: this.run.act }), shards: this.run.shards, seed: this.run.seed + ':' + this.run.act });
+    // 幕间以幕（chapter 1..5）为单位：解封表、草稿与随机种子都按幕取，场只决定布景。
+    // 旧会话只有 act 时回退兼容，避免从存档/调试入口进来直接抛错。
+    const chapter = Number.isInteger(this.run.chapter) && this.run.chapter >= 1
+      ? this.run.chapter
+      : (Number.isInteger(this.run.act) && this.run.act >= 1 ? this.run.act : 1);
+    unlockToTarget(preview, ACTS[chapter - 1].unlocked);
+    this.workshop = createWorkshop({ draft: draftFromGrid(preview, { act: chapter }), shards: this.run.shards, seed: this.run.seed + ':' + chapter });
     if (this.run.hand) this.workshop.hand = { ...this.workshop.hand, ...this.run.hand };
     if (this.run.runeCosts) this.workshop.runeCosts = structuredClone(this.run.runeCosts);
     this.focusCell = this.workshop.draft.unlocked[0];
@@ -483,9 +488,10 @@ export default class IntermissionScene extends Phaser.Scene {
     this.run.shards = this.workshop.shards;
     this.run.hand = { ...this.workshop.hand };
     this.run.runeCosts = structuredClone(this.workshop.runeCosts);
-    // 幕间 → 下一幕：journey 单镜头演出（5.8s），再落到新地图
+    // 幕间 → 下一幕：journey 单镜头演出（5.8s），再落到新地图。
+    // act=幕、stage=场一起传：布景与 journey-static 按场取景，JOURNEYS 文案按幕取。
     playCutscene(this, {
-      kind: 'journey', act: this.run.act, to: 'BattleScene',
+      kind: 'journey', act: this.run.chapter ?? 1, stage: this.run.stage ?? 1, to: 'BattleScene',
       payload: { run: this.run, __cine: true },
     });
   }

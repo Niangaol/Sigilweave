@@ -38,11 +38,11 @@ describe('playCutscene 入口', () => {
     expect(cutscenesDisabled()).toBe(true);
   });
 
-  it('正常时启动覆盖层，带上 from/to/kind/act/report', () => {
+  it('正常时启动覆盖层，带上 from/to/kind/act/stage/report', () => {
     const { scene, launch, start } = makeScene();
     const used = playCutscene(scene, {
-      to: 'IntermissionScene', kind: 'clear', act: 2,
-      payload: { run: { act: 2 }, report: { kills: 5 }, __cine: true },
+      to: 'IntermissionScene', kind: 'clear', act: 4,
+      payload: { run: { chapter: 4, stage: 4 }, report: { kills: 5 }, __cine: true },
       report: { kills: 5 },
     });
     expect(used).toBe(true);
@@ -51,16 +51,24 @@ describe('playCutscene 入口', () => {
     const [key, data] = launch.mock.calls[0];
     expect(key).toBe(CUTSCENE_KEY);
     expect(data).toMatchObject({
-      from: 'TitleScene', to: 'IntermissionScene', kind: 'clear', act: 2,
+      from: 'TitleScene', to: 'IntermissionScene', kind: 'clear', act: 4, stage: 4,
       report: { kills: 5 },
     });
-    expect(data.payload.run.act).toBe(2);
+    expect(data.payload.run.chapter).toBe(4);
   });
 
-  it('act 未显式给出时用 payload.run.act，避免幕号错位', () => {
+  it('幕/场未显式给出时分别回退 payload.run.chapter 与 payload.run.stage', () => {
     const { scene, launch } = makeScene();
-    playCutscene(scene, { to: 'BattleScene', kind: 'act', payload: { run: { act: 3 } } });
-    expect(launch.mock.calls[0][1].act).toBe(3);
+    playCutscene(scene, { to: 'BattleScene', kind: 'act', payload: { run: { chapter: 4, stage: 5 } } });
+    expect(launch.mock.calls[0][1].act).toBe(4);
+    expect(launch.mock.calls[0][1].stage).toBe(5);
+  });
+
+  it('没有 run 时按第一幕第一场兜底，绝不会把幕号场号丢成 undefined', () => {
+    const { scene, launch } = makeScene();
+    playCutscene(scene, { to: 'BattleScene', kind: 'act' });
+    expect(launch.mock.calls[0][1].act).toBe(1);
+    expect(launch.mock.calls[0][1].stage).toBe(1);
   });
 
   it('覆盖层已在播放时忽略重复触发，不叠两层', () => {

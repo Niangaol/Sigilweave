@@ -124,37 +124,69 @@ const THEMES = {
 };
 
 export default class Background {
-  // world 形如 { w, h }；默认按幕取 WORLD_SIZES，act=1 时即 WORLD_SIZES[1]
-  // new Background(scene) 完全向后兼容：act=1、1920x1440
+  // world 形如 { w, h }；默认按场（stage 1..7）取 WORLD_SIZES，stage=1 时即 WORLD_SIZES[1]。
+  // act 字段沿用旧名（= 场号），drawStatic 的装饰分派与地板 key 都按它取。
   constructor(scene, act = 1, world = WORLD_SIZES[act] || WORLD_SIZES[1]) {
     this.scene = scene;
     this.act = act;
     this.world = { w: Math.round(world.w), h: Math.round(world.h) };
     this.theme = THEMES[act] || THEMES[1];
-    // 美术升级包：三幕各一张 512 无缝石砖，铺在世界底层；有图时跳过程序化地砖。
-    // 第 4-7 幕没有新地板图，复用前三幕的石砖纹理并按幕染色，避免退化成 32px 素格子。
+    this.floorArt = null;
+    this.floorImg = null;
+    this.buildFloor();
+    this.staticG = scene.add.graphics().setDepth(-100);
+    this.flickerG = scene.add.graphics().setDepth(-90);
+    this.candles = [];
+    this.lastFlickerStep = -1;
+    this.drawStatic();
+  }
+
+  // 地板层单独重建：幕内换场时世界尺寸不变，只换场号也会换掉地砖。
+  // 美术升级包：七场各一张 512 无缝石砖；缺图才回退到旧地板并染色。
+  buildFloor() {
+    this.floorArt?.destroy?.();
+    this.floorArt = null;
+    this.floorImg?.destroy?.();
+    this.floorImg = null;
+    const scene = this.scene;
     const FLOOR_FALLBACK = {
       4: { key: 'floor_act1', tint: 0x9fb4d8 }, // 书库：冷蓝
       5: { key: 'floor_act3', tint: 0xcfd6e0 }, // 法庭：银灰
       6: { key: 'floor_act1', tint: 0xffb08a }, // 锻炉：暖橙
       7: { key: 'floor_act3', tint: 0xffd98a }, // 破晓：金白
     };
-    const fallback = FLOOR_FALLBACK[act];
-    const nativeKey = 'floor_act' + act;
+    const fallback = FLOOR_FALLBACK[this.act];
+    const nativeKey = 'floor_act' + this.act;
     const useNative = !!scene.textures?.exists(nativeKey);
     const floorKey = useNative ? nativeKey : (fallback?.key ?? nativeKey);
     this.floorArt = scene.textures?.exists(floorKey) && typeof scene.add?.tileSprite === 'function'
       ? scene.add.tileSprite(0, 0, this.world.w, this.world.h, floorKey).setOrigin(0, 0).setDepth(-102).setAlpha(0.65).setTileScale(0.5, 0.5)
       : null;
-    // 有本幕专属地板就原样用；只有缺图时才回退到旧地板并染色。
+    // 有本场专属地板就原样用；只有缺图时才回退到旧地板并染色。
     if (this.floorArt && !useNative && fallback && typeof this.floorArt.setTint === 'function') this.floorArt.setTint(fallback.tint);
-    this.staticG = scene.add.graphics().setDepth(-100);
-    this.flickerG = scene.add.graphics().setDepth(-90);
-    // 一幕地板烘焙成纹理后挂在这里（见 bakeFloor）；二/三幕恒为 null
-    this.floorImg = null;
-    this.candles = [];
+  }
+
+  // 幕内换场：重铺地板 + 整层装饰重画（drawStatic 自带 clear，不会叠图）。
+  setAct(act) {
+    if (!THEMES[act] || act === this.act) return;
+    this.act = act;
+    this.theme = THEMES[act] || THEMES[1];
+    this.buildFloor();
     this.lastFlickerStep = -1;
     this.drawStatic();
+  }
+
+  // 换场前必须显式销毁旧层，否则旧地板与装饰会留在场景里。
+  destroy() {
+    this.floorArt?.destroy?.();
+    this.floorArt = null;
+    this.floorImg?.destroy?.();
+    this.floorImg = null;
+    this.staticG?.destroy?.();
+    this.staticG = null;
+    this.flickerG?.destroy?.();
+    this.flickerG = null;
+    this.candles = [];
   }
 
   // ---------- 通用工具 ----------

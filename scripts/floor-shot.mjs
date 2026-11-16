@@ -52,15 +52,17 @@ try {
     }));
   }
 
-  // 3) 二 / 三幕回归：旧 drawTiles 路径必须还在（用世界尺寸判断真的换了幕）
+  // 3) 二 / 三场回归：旧 drawTiles 路径必须还在（用世界尺寸判断真的换了场）
+  // 场 2 = 2600×1900（和 4500）、场 3 = 2800×2000（和 4800），见 src/logic/constants.js 的 WORLD_SIZES。
   const regress = [];
-  for (const [act, name, size] of [[2, '5-二幕回归', 2400 + 1600], [3, '6-三幕回归', 2400 + 1800]]) {
-    // 注意：restart() 不带 data 会重建 run（act 回落到 1），必须把 run 一起传进去
-    await page.evaluate((a) => {
+  for (const [stage, name, size] of [[2, '5-二场回归', 2600 + 1900], [3, '6-三场回归', 2800 + 2000]]) {
+    // 注意：restart() 不带 data 会重建 run（幕/场回落到 1），必须把 run 一起传进去
+    await page.evaluate((st) => {
       const s = window.__SIGILWEAVE_BATTLE__;
-      s.run.act = a;
+      s.run.stage = st;
+      s.run.chapter = st <= 3 ? st : (st <= 5 ? 4 : 5);
       s.scene.restart({ run: s.run });
-    }, act);
+    }, stage);
     await page.waitForFunction((want) => {
       const s = window.__SIGILWEAVE_BATTLE__;
       return s?.phase === 'play' && (s.world.w + s.world.h) === want;
@@ -68,20 +70,22 @@ try {
     await page.waitForTimeout(800);
     await page.screenshot({ path: OUT + '/' + name + '.png' });
     regress.push(await page.evaluate(() => ({
-      act: window.__SIGILWEAVE_BATTLE__.act,
+      chapter: window.__SIGILWEAVE_BATTLE__.chapter,
+      stage: window.__SIGILWEAVE_BATTLE__.stage,
       floorImg: !!window.__SIGILWEAVE_BATTLE__.background.floorImg,
     })));
   }
 
-  // 4) 实战：回到一幕，灌一批敌人看地板会不会把角色/特效压掉
+  // 4) 实战：回到第一场（2400×1800，和 4200），灌一批敌人看地板会不会把角色/特效压掉
   await page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
-    s.run.act = 1;
+    s.run.chapter = 1;
+    s.run.stage = 1;
     s.scene.restart({ run: s.run });
   });
   await page.waitForFunction(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
-    return s?.phase === 'play' && (s.world.w + s.world.h) === 3360;
+    return s?.phase === 'play' && (s.world.w + s.world.h) === 4200;
   });
   await page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;

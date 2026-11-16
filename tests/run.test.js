@@ -42,7 +42,8 @@ describe('开局法术套装', () => {
   it('每套都通过 applyDraft，第一幕固定解封 6 格且至少两张非中继输出', () => {
     for (const kit of STARTING_KITS) {
       const run = createRun('balance', kit.id);
-      expect(run.act).toBe(1);
+      expect(run.chapter).toBe(1);
+      expect(run.stage).toBe(1);
       expect(run.draft.unlocked).toEqual(CELLS);
       expect(run.draft.unlocked).toEqual(ACT1_STARTING_CELLS);
       expect(run.draft.unlocked).toHaveLength(6);
@@ -67,7 +68,9 @@ describe('开局法术套装', () => {
   it('createRun 默认兼容旧四张起手，且与显式 bolt 完全一致', () => {
     const run = createRun('compat');
     expect(run.seed).toBe('compat');
-    expect(run.act).toBe(1);
+    expect('act' in run).toBe(false);   // 本局只认 chapter/stage，不再有 act 字段
+    expect(run.chapter).toBe(1);
+    expect(run.stage).toBe(1);
     expect(run.shards).toBe(0);
     expect(run.draft.slots).toEqual({
       4: { kind: 'sigil', defId: 'frost_arrow' },
@@ -99,10 +102,18 @@ describe('开局法术套装', () => {
     expect(getKit('flame').slots[4].defId).toBe('flame_burst');
   });
 
-  it('同一幕只记录一次报告', () => {
+  it('同一幕只记录一次报告，报告里带 chapter 与 stage', () => {
     const run = createRun();
     expect(recordAct(run, { triggers: 1 })).toBe(true);
     expect(recordAct(run, { triggers: 999 })).toBe(false);
-    expect(run.reports[0].triggers).toBe(1);
+    expect(run.reports[0]).toMatchObject({ triggers: 1, chapter: 1, stage: 1 });
+    // 幕内换场不重复记同一幕（第 4 幕两场只记一条），进下一幕才记第二条。
+    run.stage = 5;
+    expect(recordAct(run, { triggers: 2 })).toBe(false);
+    run.chapter = 2;
+    run.stage = 2;
+    expect(recordAct(run, { triggers: 2 })).toBe(true);
+    expect(run.reports.map(r => r.chapter)).toEqual([1, 2]);
+    expect(run.reports[1].stage).toBe(2);
   });
 });

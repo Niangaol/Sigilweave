@@ -84,26 +84,87 @@ export function metaPassiveRow(scene, x, y, row, index, selected = false) {
   return { nameText, levelText, costText: costTextObj, descText, index };
 }
 
-// 24 格契约图鉴（4×6）：点亮显示名字，未点亮显示 ???；格子压到 24px 高，6 行才塞得进 270 高画布
-export function metaCodexGrid(scene, { save, cols = 4, cellW = 104, cellH = 24, originX = 26, originY = 56, gapX = 8, gapY = 4 } = {}) {
+// 34 格契约图鉴：格宽/行高全部由 480×270 可用区反算，条目再多也不压画布与页脚。
+// 默认 6 列 × 6 行：34 格刚好占 6 行，73×24 的格子、右缘 466、底边 220（页脚从 244 起）。
+export const CODEX_GRID = Object.freeze({
+  canvasW: 480,
+  marginX: 13,
+  top: 56,
+  footerTop: 244,
+  bottomPad: 6,
+  cols: 6,
+  gapX: 3,
+  gapY: 4,
+  cellH: 24,
+});
+
+// 纯算式：给定条目数与网格参数，算出列数、行数、格宽、格高与右缘/底边。
+export function codexLayout(count = MILESTONES.length, opts = {}) {
+  const cfg = { ...CODEX_GRID, ...(opts || {}) };
+  const cols = Math.max(1, Math.floor(cfg.cols));
+  const rows = Math.max(1, Math.ceil(Math.max(0, count) / cols));
+  const usableW = cfg.canvasW - cfg.marginX * 2;
+  const cellW = Math.max(1, Math.floor((usableW - cfg.gapX * (cols - 1)) / cols));
+  const usableH = cfg.footerTop - cfg.bottomPad - cfg.top;
+  const fitH = Math.floor((usableH - cfg.gapY * (rows - 1)) / rows);
+  const cellH = Math.max(1, Math.min(cfg.cellH, fitH));
+  const originX = cfg.marginX;
+  const originY = cfg.top;
+  return {
+    cols, rows, cellW, cellH, originX, originY,
+    gapX: cfg.gapX, gapY: cfg.gapY,
+    right: originX + cols * cellW + (cols - 1) * cfg.gapX,
+    bottom: originY + rows * cellH + (rows - 1) * cfg.gapY,
+  };
+}
+
+// 像素风小字号的宽度估算：CJK/全角按 1 个字号宽，ASCII/半角按 0.55 个字号宽。
+const isWideChar = (ch) => {
+  const cp = ch.codePointAt(0);
+  return cp >= 0x2e80 || cp === 0x2026;
+};
+export function codexTextWidth(text, size = 7) {
+  let width = 0;
+  for (const ch of String(text ?? '')) width += isWideChar(ch) ? size : size * 0.55;
+  return width;
+}
+
+// 格子里的名字必须先塞得进可用宽度：够宽原样显示；略宽依次压「 · 」两侧空格、整句去空格；仍宽才用省略号截断。
+export function fitCodexLabel(text, maxW, size = 7) {
+  const raw = String(text ?? '');
+  if (codexTextWidth(raw, size) <= maxW) return raw;
+  const compact = raw.replace(/\s*·\s*/g, '·').replace(/\s{2,}/g, ' ').trim();
+  if (codexTextWidth(compact, size) <= maxW) return compact;
+  // 还宽就整句去空格（「破局者 · 问答击破 5 次」→「破局者·问答击破5次」），中文排版里这样读并不别扭。
+  const dense = compact.replace(/\s+/g, '');
+  if (codexTextWidth(dense, size) <= maxW) return dense;
+  const chars = [...dense];
+  while (chars.length > 0 && codexTextWidth(chars.join('') + '…', size) > maxW) chars.pop();
+  return chars.length > 0 ? chars.join('') + '…' : '';
+}
+
+export function metaCodexGrid(scene, { save, layout } = {}) {
   const unlockedIds = new Set(save?.milestones ?? []);
   const g = scene.add.graphics();
+  const L = layout || codexLayout(MILESTONES.length);
   const cells = [];
   MILESTONES.forEach((m, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const x = originX + col * (cellW + gapX);
-    const y = originY + row * (cellH + gapY);
+    const col = i % L.cols;
+    const row = Math.floor(i / L.cols);
+    const x = L.originX + col * (L.cellW + L.gapX);
+    const y = L.originY + row * (L.cellH + L.gapY);
     const unlocked = unlockedIds.has(m.id);
-    pxRect(g, x, y, cellW, cellH, unlocked ? C.nightSoft : C.ink, unlocked ? 0.95 : 0.6);
-    pxFrame(g, x, y, cellW, cellH, unlocked ? C.brass : C.stoneDark, 1, unlocked ? 1 : 0.8);
-    addText(scene, x + 5, y + 3, unlocked ? m.label : '???', 7, unlocked ? HEX.parchment : HEX.mute);
-    addText(scene, x + cellW - 4, y + 3, unlocked ? '+' + m.reward : '·', 6, unlocked ? HEX.brass : HEX.stoneDark)
+    pxRect(g, x, y, L.cellW, L.cellH, unlocked ? C.nightSoft : C.ink, unlocked ? 0.95 : 0.6);
+    pxFrame(g, x, y, L.cellW, L.cellH, unlocked ? C.brass : C.stoneDark, 1, unlocked ? 1 : 0.8);
+    // 名字独占第一行，奖励挪到第二行右侧：「小契约 · 第 1 场甲」这类长条目才有整格宽度可用。
+    const text = unlocked ? fitCodexLabel(m.label, L.cellW - 4, 7) : '???';
+    addText(scene, x + 3, y + 2, text, 7, unlocked ? HEX.parchment : HEX.mute);
+    addText(scene, x + L.cellW - 4, y + 13, unlocked ? '+' + m.reward : '·', 6, unlocked ? HEX.brass : HEX.stoneDark)
       .setOrigin(1, 0);
-    if (m.unlockCap) addText(scene, x + 5, y + 12, '上限→' + m.unlockCap, 6, HEX.teal);
-    cells.push({ id: m.id, label: unlocked ? m.label : '???', unlocked, reward: m.reward, x, y, cellW, cellH });
+    if (m.unlockCap) addText(scene, x + 4, y + 13, '上限→' + m.unlockCap, 6, HEX.teal);
+    cells.push({ id: m.id, label: unlocked ? m.label : '???', text, unlocked, reward: m.reward, x, y, cellW: L.cellW, cellH: L.cellH });
   });
-  return { cells, unlocked: cells.filter((c) => c.unlocked).length };
+  return { cells, unlocked: cells.filter((c) => c.unlocked).length, layout: L };
 }
 
 export function metaFooter(scene, { page = 0 } = {}) {

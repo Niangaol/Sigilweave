@@ -18,7 +18,7 @@ try {
     } else {
       await page.evaluate(() => {
         const s = window.__SIGILWEAVE_BATTLE__;
-        const need = { 1: 5, 2: 8, 3: 11, 4: 14, 5: 17, 6: 20, 7: 23 }[s.act];
+        const need = { 1: 5, 2: 10, 3: 15, 4: 20, 5: 24, 6: 28, 7: 32 }[s.stage];
         while (s.run.progression.level < need) s.run.progression.level++;
       });
     }
@@ -74,11 +74,13 @@ try {
   await click(168, 243); // 出口编辑里的「右」开关，不是誓约按钮
   await click(117, 258);
   await click(352, 261);
-  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.act === 2 && window.__SIGILWEAVE_BATTLE__.phase === 'play');
+  await page.waitForFunction(() => window.__SIGILWEAVE_BATTLE__?.stage === 2 && window.__SIGILWEAVE_BATTLE__?.chapter === 2 && window.__SIGILWEAVE_BATTLE__.phase === 'play');
   const resumed = await page.evaluate(() => {
     const s = window.__SIGILWEAVE_BATTLE__;
-    return { act: s.act, count: s.grid.unlockedIds().length, slot: s.grid.cells[7].slot, exits: [...s.grid.cells[7].exits] };
+    return { chapter: s.chapter, stage: s.stage, count: s.grid.unlockedIds().length, slot: s.grid.cells[7].slot, exits: [...s.grid.cells[7].exits] };
   });
+  assert.equal(resumed.chapter, 2);
+  assert.equal(resumed.stage, 2);
   assert.equal(resumed.count, 12);
   assert.deepEqual(resumed.slot, placed);
   assert.deepEqual(resumed.exits, ['up', 'down', 'left'], '出口编辑应生效');

@@ -10,6 +10,7 @@ import {
   CANVAS_H_PORTRAIT, BASE_W, BASE_H, FONT_DISPLAY,
 } from '../ui/Palette.js';
 import { buildTimeline, phaseAt, skipResult, buildCard } from '../data/cinematics.js';
+import { chapterOf, firstStageOf } from '../logic/acts.js';
 import {
   clamp01, easeInOutCubic, buildDust, drawVeil, drawDust,
 } from '../ui/cinematic-art.js';
@@ -30,7 +31,25 @@ export default class CutsceneScene extends Phaser.Scene {
   }
 
   init(data = {}) {
-    this.options = { kind: 'sigil', from: null, to: null, payload: {}, act: 1, report: null, ...data };
+    this.options = { kind: 'sigil', from: null, to: null, payload: {}, act: 1, stage: null, report: null, ...data };
+    // 幕（1..5）与场（1..7）双轨：stage 才是玩法单位。新调用方（transition.js）总是把 act=幕、stage=场 一起传；
+    // 旧调用方/脚本只传一个 act 1..7 时，它其实是场号，幕由 chapterOf 反推。
+    // 判别规则：act≤5 且没给 stage → act 是幕号，场取该幕第一场；act>5 或给了 stage → act/ stage 按场号处理。
+    // 这样卡片眉栏、JOURNEYS 文案与布景永远属于同一幕，且合并幕的死亡/终局不会错取后半场布景。
+    const rawStage = Number(this.options.stage);
+    const rawAct = Number(this.options.act);
+    const isStage = v => Number.isInteger(v) && v >= 1 && v <= 7;
+    const isChapter = v => Number.isInteger(v) && v >= 1 && v <= 5;
+    if (isStage(rawStage)) {
+      this.stage = rawStage;
+    } else if (isChapter(rawAct)) {
+      this.stage = firstStageOf(rawAct);
+    } else if (isStage(rawAct)) {
+      this.stage = rawAct;
+    } else {
+      this.stage = 1;
+    }
+    this.chapter = chapterOf(this.stage);
     this.timeline = buildTimeline(this.options.kind);
     this.elapsed = 0;
     this.swapped = false;
@@ -73,28 +92,28 @@ export default class CutsceneScene extends Phaser.Scene {
     // 静态布景三层：create 时各画一次，之后每帧只调 setAlpha / setY（见 update 里的 parallax）。
     // 这是扩容的关键——旧版每帧重画全部剪影，第 1 幕 act 已顶到 646/700 指令，没有余量再加细节。
     const isJourney = this.options.kind === 'journey';
-    this.diorama = dioramaLayout(this.options.act, W, H);
-    if (isJourney) this.journey = JOURNEYS[this.options.act] ?? JOURNEYS[2];
+    this.diorama = dioramaLayout(this.stage, W, H);
+    if (isJourney) this.journey = JOURNEYS[this.chapter] ?? JOURNEYS[2];
     this.journeyL = isJourney ? journeyLayout(this.journey.stage, W, H) : null;
     if (isJourney) this.stageG.setDepth(1.2); // 动态件必须盖在静态三层之上
     this.dioramaBands = DIORAMA_BANDS.map((band, i) => {
       const g = this.add.graphics().setDepth(0.6 + i * 0.15);
       if (isJourney) JOURNEY_STATIC[this.journey.stage][band](g, this.journeyL);
-      else drawBand(this.options.act, band, g, this.diorama);
+      else drawBand(this.stage, band, g, this.diorama);
       g.setAlpha(0);
       return g;
     });
 
-    this.cardData = buildCard(this.options.kind, this.options.act, this.options.report);
+    this.cardData = buildCard(this.options.kind, this.stage, this.options.report);
     this.card = this.buildCardView(this.cardData);
-    this.dust = buildDust(0x51c7 + this.options.act * 131, 44, W, H);
+    this.dust = buildDust(0x51c7 + this.stage * 131, 44, W, H);
     // 每类过场的视觉编舞（状态机无关）；journey 走下方自有分支，返回 null
-    this.choreo = createChoreo(this.options.kind, this.options.act);
+    this.choreo = createChoreo(this.options.kind, this.stage);
 
     // journey：不压标题卡，改播单镜头演出 + 角标/字幕
     if (this.options.kind === 'journey') {
-      this.journey = JOURNEYS[this.options.act] ?? JOURNEYS[2];
-      this.stars = buildStars(0x9e37 + this.options.act, 46, W, H);
+      this.journey = JOURNEYS[this.chapter] ?? JOURNEYS[2];
+      this.stars = buildStars(0x9e37 + this.stage, 46, W, H);
       const tall = isPortrait();
       this.jLabel = addText(this, 14, tall ? 14 : 12, this.journey.label, tall ? 9 : 8, hexOf(this.journey.accent), {
         letterSpacing: 2,
@@ -177,14 +196,14 @@ export default class CutsceneScene extends Phaser.Scene {
     for (const [rx, ry] of [[bandX + 2, bandY + 2], [bandX + L.panel.w - 5, bandY + 2], [bandX + 2, bandY + L.panel.h - 5], [bandX + L.panel.w - 5, bandY + L.panel.h - 5]]) {
       pxRect(g, rx, ry, 3, 3, C.brass, 0.8);
     }
-    const marks = plinthMarks(0x51c7 + (this.options.act || 1) * 131);
+    const marks = plinthMarks(0x51c7 + this.stage * 131);
     for (const m of marks.marks) pxRect(g, px(m.x), bandY + m.y, m.len, 1, C.stoneDark, 0.5);
     for (const m of marks.moss) pxRect(g, px(m.x), bandY + m.y, m.w, 1, C.mossTileLit, 0.55);
 
     // 幕数字水印：大字压在石带右侧，不参与阅读
     const wm = L.watermark;
     if (wm) {
-      const numeral = getDiorama(this.options.act)?.numeral ?? '';
+      const numeral = getDiorama(this.stage)?.numeral ?? '';
       const wp = at(wm);
       const mark = addText(this, wp.x, wp.y, numeral, wm.size, accent, {
         fontFamily: FONT_DISPLAY, stroke: HEX.inkDark, strokeThickness: 2,
@@ -355,7 +374,11 @@ export default class CutsceneScene extends Phaser.Scene {
       duration: this.timeline.totalMs,
       from: this.options.from,
       to: this.options.to,
+      // act 保留原字段（调用方传什么就是什么，验收脚本按幕刷画廊时依赖它），
+      // 另外给出语义明确的 chapter/stage，避免「幕/场」在外部再猜一次。
       act: this.options.act,
+      chapter: this.chapter,
+      stage: this.stage,
       swapped: this.swapped,
       targetReady: this.targetReady,
       skipped: this.skipped,
@@ -422,7 +445,7 @@ export default class CutsceneScene extends Phaser.Scene {
     // 视觉全部交给每类编舞（舞台/符环/浮尘/卡片动效 + 大胆层）；状态机 below 不变
     this.choreo.draw(this, {
       phase, veil, accent, tint, elapsed: this.elapsed, tl,
-      act: this.options.act, anchors: this.diorama.anchors, dio: this.diorama,
+      act: this.stage, anchors: this.diorama.anchors, dio: this.diorama,
     });
 
     // 目标场景没就绪前绝不揭开/放行；提前 resume 会让随后 freezeTarget 把目标永久暂停（跳过路径曾踩到）

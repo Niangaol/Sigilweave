@@ -1,11 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { getEventPoints, findTriggeredPoint } from '../src/data/map-events.js';
+import {
+  getEventPoints,
+  findTriggeredPoint,
+  POINT_RADIUS,
+  EDGE_MARGIN,
+  MIN_SPACING,
+  MIN_SPAWN_DISTANCE,
+  MIN_WORLD_SIZE,
+} from '../src/data/map-events.js';
 import { WORLD_SIZES } from '../src/logic/constants.js';
+import { minorBossIdsOfStage, encounterIdsOfStage } from '../src/logic/acts.js';
 
-const EDGE = 80;      // 距边缘最小值
-const SPACING = 400;  // 点间距最小值
-const SPAWN = 240;    // 距中心（出生区）最小值（严格大于）
-const RADIUS = 28;    // 事件点半径
+// 五幕七场：场 1-3 各 1 NPC + 4 小 Boss，场 4-7（合并幕）各 1 NPC + 2 小 Boss。
+const STAGES = [1, 2, 3, 4, 5, 6, 7];
+const POINT_COUNT = { 1: 5, 2: 5, 3: 5, 4: 3, 5: 3, 6: 3, 7: 3 };
+const TOTAL_POINTS = 27;
+const RADIUS = 34; // 事件点半径（与 POINT_RADIUS 常量同步）
 
 const EXPECTED = {
   1: { npc: '艾琳', miniboss: '守墓傀儡' },
@@ -16,123 +26,174 @@ const EXPECTED = {
   6: { npc: '铎恩', miniboss: '淬火傀儡' },
   7: { npc: '黎恩', miniboss: '残星骑士' },
 };
-const ACTS = [1, 2, 3, 4, 5, 6, 7];
 
 const squared = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
 const quadrantOf = (p, w, h) => (p.x < w / 2 ? 'L' : 'R') + (p.y < h / 2 ? 'T' : 'B');
 
-// 布置约束全量校验：边缘 / 间距 / 出生距离 / 三象限
+// 布置约束全量校验：边缘 / 两两间距 / 出生距离（阈值一律取模块导出的常量）
 const expectLayoutValid = (points, w, h) => {
-  expect(points).toHaveLength(3);
   for (const p of points) {
-    expect(p.x).toBeGreaterThanOrEqual(EDGE);
-    expect(p.x).toBeLessThanOrEqual(w - EDGE);
-    expect(p.y).toBeGreaterThanOrEqual(EDGE);
-    expect(p.y).toBeLessThanOrEqual(h - EDGE);
-    expect(squared(p.x, p.y, w / 2, h / 2)).toBeGreaterThan(SPAWN * SPAWN);
+    expect(p.x).toBeGreaterThanOrEqual(EDGE_MARGIN);
+    expect(p.x).toBeLessThanOrEqual(w - EDGE_MARGIN);
+    expect(p.y).toBeGreaterThanOrEqual(EDGE_MARGIN);
+    expect(p.y).toBeLessThanOrEqual(h - EDGE_MARGIN);
+    // 距地图中心（出生区）严格大于 MIN_SPAWN_DISTANCE
+    expect(squared(p.x, p.y, w / 2, h / 2)).toBeGreaterThan(MIN_SPAWN_DISTANCE * MIN_SPAWN_DISTANCE);
   }
-  const [a, b, c] = points;
-  for (const [p, q] of [[a, b], [a, c], [b, c]]) {
-    expect(squared(p.x, p.y, q.x, q.y)).toBeGreaterThanOrEqual(SPACING * SPACING);
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      const p = points[i];
+      const q = points[j];
+      expect(squared(p.x, p.y, q.x, q.y)).toBeGreaterThanOrEqual(MIN_SPACING * MIN_SPACING);
+    }
   }
-  expect(new Set(points.map((p) => quadrantOf(p, w, h))).size).toBe(3);
 };
 
-describe('getEventPoints · 结构与命名', () => {
-  for (const act of ACTS) {
-    it(act + ' 幕：恰好 1 个 NPC + 2 个小 Boss，id/类型/名字/半径/提示齐全', () => {
-      const points = getEventPoints(act, WORLD_SIZES[act]);
-      expect(points).toHaveLength(3);
-      expect(points.map((p) => p.id)).toEqual(['npc-' + act, 'miniboss-' + act + 'a', 'miniboss-' + act + 'b']);
-      expect(points.map((p) => p.type)).toEqual(['npc', 'miniboss', 'miniboss']);
+describe('常量阈值（五幕七场放大后的硬约束）', () => {
+  it('POINT_RADIUS 34 / EDGE_MARGIN 80 / MIN_SPACING 400 / MIN_SPAWN_DISTANCE 240 / MIN_WORLD_SIZE 1600', () => {
+    expect([POINT_RADIUS, EDGE_MARGIN, MIN_SPACING, MIN_SPAWN_DISTANCE, MIN_WORLD_SIZE]).toEqual([
+      34, 80, 400, 240, 1600,
+    ]);
+  });
+});
+
+describe('getEventPoints · 点数与结构', () => {
+  it('每场点数：1-3 场五点、4-7 场三点，全图共 27 点', () => {
+    let total = 0;
+    for (const stage of STAGES) {
+      const points = getEventPoints(stage, WORLD_SIZES[stage]);
+      expect(points).toHaveLength(POINT_COUNT[stage]);
+      total += points.length;
+    }
+    expect(total).toBe(TOTAL_POINTS);
+  });
+
+  for (const stage of STAGES) {
+    it(stage + ' 场：1 NPC + ' + (POINT_COUNT[stage] - 1) + ' 小 Boss，id/类型/名字/半径/提示齐全', () => {
+      const points = getEventPoints(stage, WORLD_SIZES[stage]);
+      const expectedIds = ['npc-' + stage, ...minorBossIdsOfStage(stage)];
+      expect(points.map((p) => p.id)).toEqual(expectedIds);
+      expect(points.map((p) => p.type)).toEqual(['npc', ...expectedIds.slice(1).map(() => 'miniboss')]);
       expect(points.filter((p) => p.type === 'npc')).toHaveLength(1);
       expect(points.every((p) => p.radius === RADIUS)).toBe(true);
-      expect(points[0].name).toBe(EXPECTED[act].npc);
-      expect(points[1].name).toBe(EXPECTED[act].miniboss);
-      expect(points[2].name).toBe(EXPECTED[act].miniboss);
+      expect(points[0].name).toBe(EXPECTED[stage].npc);
+      for (const p of points.slice(1)) expect(p.name).toBe(EXPECTED[stage].miniboss);
       for (const p of points) {
         expect(typeof p.hint).toBe('string');
         expect(p.hint.length).toBeGreaterThan(0);
       }
-      expect(new Set(points.map((p) => p.hint)).size).toBe(3);
+      // 5 个点 5 条不同提示（4 个点 4 条），避免 UI 上重复的探索文案
+      expect(new Set(points.map((p) => p.hint)).size).toBe(points.length);
+      for (const p of points) {
+        expect(Number.isInteger(p.x)).toBe(true);
+        expect(Number.isInteger(p.y)).toBe(true);
+      }
+    });
+  }
+});
+
+describe('getEventPoints · id 与 acts.js 完全对齐', () => {
+  for (const stage of STAGES) {
+    it(stage + ' 场：事件点 id 集合 = encounterIdsOfStage 去掉大 Boss', () => {
+      const points = getEventPoints(stage, WORLD_SIZES[stage]);
+      const ids = points.map((p) => p.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(ids).toEqual(encounterIdsOfStage(stage).filter((id) => !id.startsWith('boss-')));
+      for (const id of ids) expect(encounterIdsOfStage(stage)).toContain(id);
+      expect(ids).not.toContain('boss-' + stage);
     });
   }
 });
 
 describe('getEventPoints · 布置约束', () => {
-  // 真实世界尺寸 + 合法最小世界（最坏情况）+ 任意非整尺寸，全部都要满足约束
+  // 真实场尺寸 + 合法最小世界 1600×1600（最坏情况）+ 非整尺寸合法世界
   const worlds = [
-    ['幕默认世界', (act) => WORLD_SIZES[act]],
-    ['最小合法世界 800×800（最坏情况）', () => ({ w: 800, h: 800 })],
-    ['非整尺寸 1234×876', () => ({ w: 1234, h: 876 })],
+    ['本场默认世界', (stage) => WORLD_SIZES[stage]],
+    ['最小合法世界 ' + MIN_WORLD_SIZE + '×' + MIN_WORLD_SIZE + '（最坏情况）', () => ({ w: 1600, h: 1600 })],
+    ['非整尺寸 1733×1611', () => ({ w: 1733, h: 1611 })],
   ];
   for (const [label, pick] of worlds) {
-    for (const act of ACTS) {
-      it(act + ' 幕 @ ' + label + '：边缘≥80 / 互相≥400 / 距中心>240 / 三象限', () => {
-        const world = pick(act);
-        expectLayoutValid(getEventPoints(act, world), world.w, world.h);
+    for (const stage of STAGES) {
+      it(stage + ' 场 @ ' + label + '：边缘≥80 / 互相≥400 / 距中心>240', () => {
+        const world = pick(stage);
+        expectLayoutValid(getEventPoints(stage, world), world.w, world.h);
       });
     }
   }
+
+  it('场 1-3 五点铺开：至少覆盖 4 个象限，且单个象限不超过 2 点', () => {
+    for (const stage of [1, 2, 3]) {
+      const world = WORLD_SIZES[stage];
+      const quadrants = getEventPoints(stage, world).map((p) => quadrantOf(p, world.w, world.h));
+      expect(new Set(quadrants).size).toBeGreaterThanOrEqual(4);
+      expect(Math.max(...[...quadrants.reduce((m, q) => m.set(q, (m.get(q) || 0) + 1), new Map()).values()])).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('场 4-7 三点仍分居三个不同象限', () => {
+    for (const stage of [4, 5, 6, 7]) {
+      const world = WORLD_SIZES[stage];
+      const quadrants = getEventPoints(stage, world).map((p) => quadrantOf(p, world.w, world.h));
+      expect(new Set(quadrants).size).toBe(3);
+    }
+  });
 });
 
-describe('getEventPoints · 七幕坐标互不相同', () => {
-  it('各幕默认世界下 21 个点坐标两两不同', () => {
-    const all = ACTS.flatMap((act) => getEventPoints(act, WORLD_SIZES[act]));
-    expect(all).toHaveLength(21);
-    expect(new Set(all.map((p) => p.x + ',' + p.y)).size).toBe(21);
-  });
-  it('同一 800×800 世界下 21 个点坐标仍两两不同（锚点比例互不相同）', () => {
-    const all = ACTS.flatMap((act) => getEventPoints(act, { w: 800, h: 800 }));
-    expect(new Set(all.map((p) => p.x + ',' + p.y)).size).toBe(21);
+describe('getEventPoints · 七场坐标互不相同', () => {
+  it('各场默认世界下 27 个点坐标两两不同', () => {
+    const all = STAGES.flatMap((stage) => getEventPoints(stage, WORLD_SIZES[stage]));
+    expect(all).toHaveLength(TOTAL_POINTS);
+    expect(new Set(all.map((p) => p.x + ',' + p.y)).size).toBe(TOTAL_POINTS);
   });
 });
 
 describe('getEventPoints · 确定性', () => {
-  for (const act of ACTS) {
-    it(act + ' 幕同 world 两次调用结果完全一致（深相等）', () => {
-      expect(getEventPoints(act, WORLD_SIZES[act])).toEqual(getEventPoints(act, WORLD_SIZES[act]));
+  for (const stage of STAGES) {
+    it(stage + ' 场同 world 两次调用结果完全一致（深相等）', () => {
+      expect(getEventPoints(stage, WORLD_SIZES[stage])).toEqual(getEventPoints(stage, WORLD_SIZES[stage]));
     });
   }
   it('不同 world 尺寸会得到不同像素坐标（锚点比例随世界缩放）', () => {
-    expect(getEventPoints(1, { w: 800, h: 800 })).not.toEqual(getEventPoints(1, { w: 1600, h: 1600 }));
+    expect(getEventPoints(1, { w: 1600, h: 1600 })).not.toEqual(getEventPoints(1, { w: 2400, h: 1800 }));
   });
 });
 
 describe('getEventPoints · 非法输入返回空数组且不抛错', () => {
-  it('非法 act：非 1-7 整数或类型不符', () => {
-    for (const act of [0, 8, -1, 1.5, '1', null, undefined, NaN, {}, []]) {
-      expect(() => getEventPoints(act, WORLD_SIZES[1])).not.toThrow();
-      expect(getEventPoints(act, WORLD_SIZES[1])).toEqual([]);
+  it('非法 stage：非 1-7 整数或类型不符', () => {
+    for (const stage of [0, 8, -1, 1.5, '1', null, undefined, NaN, {}, []]) {
+      expect(() => getEventPoints(stage, WORLD_SIZES[1])).not.toThrow();
+      expect(getEventPoints(stage, WORLD_SIZES[1])).toEqual([]);
     }
   });
-  it('非法 world：非对象 / 宽高缺失 / 宽高 < 800 / 非有限数值', () => {
+  it('非法 world：非对象 / 宽高缺失 / 宽高 < MIN_WORLD_SIZE / 非有限数值', () => {
     const badWorlds = [
       null, undefined, 42, 'world', [], {},
-      { w: 799, h: 800 }, { w: 800, h: 799 }, { w: 800 }, { h: 800 },
-      { w: '1920', h: 1440 }, { w: NaN, h: 800 }, { w: Infinity, h: 800 },
+      { w: 1599, h: 1600 }, { w: 1600, h: 1599 }, { w: 1600 }, { h: 1600 },
+      { w: '1600', h: 1600 }, { w: NaN, h: 1600 }, { w: Infinity, h: 1600 },
+      { w: 1000, h: 900 }, { w: 800, h: 800 },
     ];
     for (const world of badWorlds) {
       expect(() => getEventPoints(1, world)).not.toThrow();
       expect(getEventPoints(1, world)).toEqual([]);
     }
   });
-  it('world 同时接受 {width,height} 别名', () => {
-    expect(getEventPoints(1, { width: 1000, height: 900 })).toHaveLength(3);
-    expect(getEventPoints(1, { width: 799, height: 900 })).toEqual([]);
+  it('world 同时接受 {width,height} 别名（阈值同样是 1600）', () => {
+    expect(getEventPoints(1, { width: 1680, height: 1620 })).toHaveLength(5);
+    expect(getEventPoints(1, { width: 1599, height: 1620 })).toEqual([]);
   });
 });
 
-describe('findTriggeredPoint', () => {
+describe('findTriggeredPoint（行为保持不变）', () => {
   it('点中心与 radius 边界（≤ 含边界）命中，radius 外不命中', () => {
     const points = getEventPoints(1, WORLD_SIZES[1]);
-    const npc = points[0];
-    expect(findTriggeredPoint(points, npc.x, npc.y)).toBe(npc);
-    expect(findTriggeredPoint(points, npc.x + RADIUS, npc.y)).toBe(npc);
-    expect(findTriggeredPoint(points, npc.x - RADIUS, npc.y)).toBe(npc);
-    expect(findTriggeredPoint(points, npc.x, npc.y + RADIUS)).toBe(npc);
-    expect(findTriggeredPoint(points, npc.x + RADIUS + 0.5, npc.y)).toBeNull();
-    expect(findTriggeredPoint(points, npc.x, npc.y + RADIUS + 0.5)).toBeNull();
+    for (const point of points) {
+      expect(findTriggeredPoint(points, point.x, point.y)).toBe(point);
+      expect(findTriggeredPoint(points, point.x + RADIUS, point.y)).toBe(point);
+      expect(findTriggeredPoint(points, point.x - RADIUS, point.y)).toBe(point);
+      expect(findTriggeredPoint(points, point.x, point.y + RADIUS)).toBe(point);
+      expect(findTriggeredPoint(points, point.x + RADIUS + 0.5, point.y)).toBeNull();
+      expect(findTriggeredPoint(points, point.x, point.y + RADIUS + 0.5)).toBeNull();
+    }
   });
   it('按数组序返回第一个命中点', () => {
     const points = [
@@ -145,9 +206,9 @@ describe('findTriggeredPoint', () => {
     expect(findTriggeredPoint(points, 175, 100).id).toBe('second');
   });
   it('世界中心（出生区）不会触发任何事件点', () => {
-    for (const act of ACTS) {
-      const world = WORLD_SIZES[act];
-      const points = getEventPoints(act, world);
+    for (const stage of STAGES) {
+      const world = WORLD_SIZES[stage];
+      const points = getEventPoints(stage, world);
       expect(findTriggeredPoint(points, world.w / 2, world.h / 2)).toBeNull();
     }
   });
@@ -156,7 +217,7 @@ describe('findTriggeredPoint', () => {
       expect(() => findTriggeredPoint(points, 0, 0)).not.toThrow();
       expect(findTriggeredPoint(points, 0, 0)).toBeNull();
     }
-    const points = [{ id: 'p', x: 500, y: 400, radius: 28 }];
+    const points = [{ id: 'p', x: 500, y: 400, radius: RADIUS }];
     const badCoords = [[NaN, 400], [500, NaN], [Infinity, 400], [500, -Infinity], [undefined, 400], [500, null], ['500', 400]];
     for (const [x, y] of badCoords) {
       expect(() => findTriggeredPoint(points, x, y)).not.toThrow();
@@ -164,7 +225,7 @@ describe('findTriggeredPoint', () => {
     }
   });
   it('跳过数组中的畸形点而不抛错', () => {
-    const points = [null, { x: NaN, y: 0, radius: 28 }, 'x', { x: 500, y: 400, radius: 28 }];
+    const points = [null, { x: NaN, y: 0, radius: RADIUS }, 'x', { x: 500, y: 400, radius: RADIUS }];
     expect(findTriggeredPoint(points, 500, 400).x).toBe(500);
   });
   it('缺少 radius 的点按半径 0 处理（仅精确重合命中）', () => {

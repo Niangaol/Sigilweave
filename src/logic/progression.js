@@ -1,4 +1,6 @@
 // 等级、人物本体与罗盘本体成长；不依赖场景，也不直接发放选牌奖励。
+import { isValidStage } from './acts.js';
+
 const validLevel = (level) => Number.isSafeInteger(level) && level >= 1;
 const finiteNonnegative = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -39,11 +41,12 @@ export function levelStats(level) {
   return { hpMul: 1 + 0.16 * L, damageMul: 1 + 0.08 * L, speedMul: 1 + Math.min(0.3, 0.02 * L) };
 }
 
-// 七幕大 Boss 触发等级：每幕 +3。等级与经验跨幕保留，所以后四幕的入场等级本来就高。
-export const MAJOR_BOSS_LEVEL = Object.freeze({ 1: 5, 2: 8, 3: 11, 4: 14, 5: 17, 6: 20, 7: 23 });
+// 七场大 Boss 触发等级（按场）：前五场每场 +5，后两场 +4。
+// 等级与经验跨场保留，所以后四场的入场等级本来就高；第 4/5 幕各两场，门槛不同（20 与 24、28 与 32）。
+export const MAJOR_BOSS_LEVEL = Object.freeze({ 1: 5, 2: 10, 3: 15, 4: 20, 5: 24, 6: 28, 7: 32 });
 
-export function shouldTriggerMajorBoss(act, level) {
-  return Number.isInteger(act) && act >= 1 && act <= 7 && validLevel(level) && level >= MAJOR_BOSS_LEVEL[act];
+export function shouldTriggerMajorBoss(stage, level) {
+  return isValidStage(stage) && validLevel(level) && level >= MAJOR_BOSS_LEVEL[stage];
 }
 
 // 局外等级：0 表示未点亮，只走基础增益；1-5 走「残响祭坛」的追加增益。

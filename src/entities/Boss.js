@@ -1,8 +1,9 @@
 import { C, pxRect, pxLine, pxDiamond, pxRing } from '../ui/Palette.js';
 import { createBossModel, stepBoss } from '../logic/boss.js';
 
-// 每幕小 Boss / 幕 Boss 各一张专属立绘；脚底仍对齐 y+21。
-// 第 4-7 幕是 2026-11-11 新画的八张专属立绘，不再复用前三幕素材。
+// 每场小 Boss / 场 Boss 各一张专属立绘；脚底仍对齐 y+21。
+// 场 4-7 是 2026-11-11 新画的八张专属立绘，不再复用前三场素材
+// （五幕七场下它们分属幕 4 的场 4/5 与幕 5 的场 6/7）。
 const BOSS_TEXTURE = {
   mini: {
     1: 'boss_gargoyle', 2: 'boss_ghoul', 3: 'boss_skeleton_mage',
@@ -17,17 +18,18 @@ const BOSS_DISPLAY_HEIGHT = { mini: 72, final: 104 };
 const BOSS_FEET = 21;
 
 export default class Boss {
-  constructor(scene, definition, act, id) {
+  constructor(scene, definition, stage, id) {
     this.scene = scene; this.definition = definition; this.id = id; this.isBoss = true;
     this.x = 240; this.y = 72; this.radius = 14;
-    this.hp = this.maxHp = 80 + act * 40; this.armor = 0;
+    // 强度按场递增（场 1..7），与幕的叙事划分无关
+    this.hp = this.maxHp = 80 + stage * 40; this.armor = 0;
     this.alive = true; this.rewarded = false; this.damage = 12; this.hitAt = -9999;
-    this.model = createBossModel(act);
+    this.model = createBossModel(stage);
     this.g = scene.add.graphics().setDepth(200);
-    // 素材精灵：按幕与 tier 选立绘；统一缩放到 72px（小 Boss）/ 104px（幕 Boss）
+    // 素材精灵：按场与 tier 选立绘；统一缩放到 72px（小 Boss）/ 104px（场 Boss）
     const tierKey = definition?.tier === 'mini' ? 'mini' : 'final';
-    const safeAct = [1, 2, 3, 4, 5, 6, 7].includes(Number(act)) ? Number(act) : 1;
-    const texKey = BOSS_TEXTURE[tierKey][safeAct];
+    const safeStage = [1, 2, 3, 4, 5, 6, 7].includes(Number(stage)) ? Number(stage) : 1;
+    const texKey = BOSS_TEXTURE[tierKey][safeStage];
     this.sprite = scene.textures?.exists(texKey) && typeof scene.add?.sprite === 'function'
       ? scene.add.sprite(Math.round(this.x), Math.round(this.y) + BOSS_FEET, texKey).setOrigin(0.5, 1)
       : null;

@@ -549,29 +549,30 @@ export const ENEMY_TYPES = {
   },
 };
 
-// 七幕刷怪权重：每幕权重和恒为 1（浮点求和精确等于 1，测试可直接判等）。
+// 五幕刷怪权重：键是「幕」（1..5），每幕权重和恒为 1（浮点求和精确等于 1，测试可直接判等）。
 // 第一幕：骷髅为主 + 少量蝠；第二幕：蝠 / 腐尸 / 骷髅 + 缝合尸魁 8%；
 // 第三幕：常规五种 + 咒誓主教 12%，骑士与邪教徒合计 44%（每幕精英只占尾部权重）。
-// 第四幕起进入北斗后半段：精英占比逐幕抬高，终幕（摇光）连缝合尸魁都回来收尾。
-export const ACT_ENEMY_WEIGHTS = {
+// 第四幕（审判书库 = 沉钟书库 + 衡律法庭）：两场的专属怪合并成一池，六种专属占 64%；
+// 第五幕（熔星破晓 = 熔星锻炉 + 破晓之座）：炉渣兽/火星精/铁砧暴君 + 晓色之影/星屑骑士/蚀日祭司，同样占 64%。
+// 合并幕的意义就在这里：一幕之内能同时遇到两场的全部兵种，密度比旧七幕更厚。
+export const CHAPTER_ENEMY_WEIGHTS = {
   1: [['skeleton', 0.46], ['bat', 0.18], ['rune_spider', 0.24], ['stone_gargoyle', 0.12]],
   2: [['bat', 0.16], ['corpse', 0.18], ['skeleton', 0.1], ['rune_spider', 0.12], ['crystal_dryad', 0.12], ['clockwork_doll', 0.12], ['stone_gargoyle', 0.12], ['stitch_abomination', 0.08]],
   3: [['skeleton', 0.06], ['bat', 0.08], ['corpse', 0.07], ['cultist', 0.09], ['knight', 0.1], ['rune_spider', 0.05], ['crystal_dryad', 0.09], ['clockwork_doll', 0.06], ['stone_gargoyle', 0.08], ['wraith', 0.1], ['void_elemental', 0.1], ['brass_warden', 0.06], ['oath_bishop', 0.06]],
-  // 四幕·天权（沉钟书库）：本幕专属的墨灵/纸页傀儡/索引猎犬占 44%，旧怪只作陪衬。
-  4: [['ink_wisp', 0.18], ['page_golem', 0.18], ['index_hound', 0.08], ['clockwork_doll', 0.12], ['rune_spider', 0.08], ['wraith', 0.1], ['cultist', 0.08], ['stone_gargoyle', 0.06], ['brass_warden', 0.06], ['oath_bishop', 0.06]],
-  // 五幕·玉衡（衡律法庭）：判词幽灵/枷锁守卫/天平裁决者占 42%，骑士与主教作审判席。
-  5: [['verdict_wraith', 0.16], ['shackle_guard', 0.18], ['scale_arbiter', 0.08], ['knight', 0.12], ['cultist', 0.08], ['brass_warden', 0.08], ['oath_bishop', 0.08], ['wraith', 0.06], ['void_elemental', 0.06], ['stone_gargoyle', 0.04], ['corpse', 0.06]],
-  // 六幕·开阳（熔星锻炉）：炉渣兽/火星精/铁砧暴君占 42%，重甲压场。
-  6: [['slag_beast', 0.18], ['ember_imp', 0.16], ['anvil_tyrant', 0.08], ['knight', 0.14], ['brass_warden', 0.12], ['cultist', 0.06], ['corpse', 0.06], ['stone_gargoyle', 0.06], ['clockwork_doll', 0.04], ['wraith', 0.04], ['void_elemental', 0.06]],
-  // 七幕·摇光（破晓之座）：晓色之影/星屑骑士/蚀日祭司占 42%，全兵种终局配置。
-  7: [['dawn_shade', 0.16], ['stardust_knight', 0.16], ['eclipse_priest', 0.1], ['knight', 0.12], ['brass_warden', 0.08], ['oath_bishop', 0.08], ['void_elemental', 0.08], ['wraith', 0.06], ['cultist', 0.06], ['corpse', 0.04], ['stone_gargoyle', 0.04], ['stitch_abomination', 0.02]],
+  // 四幕·审判书库：墨灵/纸页傀儡/索引猎犬 + 判词幽灵/枷锁守卫/天平裁决者 = 0.64，旧怪只作陪衬。
+  4: [['ink_wisp', 0.13], ['page_golem', 0.13], ['index_hound', 0.06], ['verdict_wraith', 0.13], ['shackle_guard', 0.13], ['scale_arbiter', 0.06], ['knight', 0.1], ['brass_warden', 0.06], ['oath_bishop', 0.06], ['clockwork_doll', 0.05], ['wraith', 0.05], ['cultist', 0.04]],
+  // 五幕·熔星破晓：炉渣兽/火星精/铁砧暴君 + 晓色之影/星屑骑士/蚀日祭司 = 0.64，终局把缝合尸魁也放回来收尾。
+  5: [['slag_beast', 0.13], ['ember_imp', 0.12], ['anvil_tyrant', 0.06], ['dawn_shade', 0.13], ['stardust_knight', 0.13], ['eclipse_priest', 0.07], ['knight', 0.1], ['brass_warden', 0.08], ['oath_bishop', 0.06], ['void_elemental', 0.05], ['corpse', 0.03], ['stone_gargoyle', 0.04]],
 };
 
+// 旧名保留：外部若还按七幕写着 ACT_ENEMY_WEIGHTS，语义已经变成「按幕」的同一张表。
+export const ACT_ENEMY_WEIGHTS = CHAPTER_ENEMY_WEIGHTS;
+
 // 确定性刷怪映射：roll ∈ [0,1) 自上而下落在哪个权重区间就是哪种敌人。
-// 非法幕数 / 非法 roll 一律回退骷髅兵，保证刷怪函数永远有返回值。
-export function pickEnemyType(act, roll) {
-  const table = Number.isInteger(act) && Object.hasOwn(ACT_ENEMY_WEIGHTS, act)
-    ? ACT_ENEMY_WEIGHTS[act]
+// 非法幕号 / 非法 roll 一律回退骷髅兵，保证刷怪函数永远有返回值。
+export function pickEnemyType(chapter, roll) {
+  const table = Number.isInteger(chapter) && Object.hasOwn(CHAPTER_ENEMY_WEIGHTS, chapter)
+    ? CHAPTER_ENEMY_WEIGHTS[chapter]
     : null;
   if (!table || !Number.isFinite(roll) || roll < 0 || roll >= 1) return ENEMY_TYPES.skeleton;
   let acc = 0;
@@ -590,19 +591,21 @@ export function pickEnemyType(act, roll) {
 // 密度翻了约十倍后，接触伤害必须同步下调（见 ENEMY_TYPES），否则贴脸就是瞬间秒杀。
 export const DIFFICULTY = {
   rampMs: 180000,
+  // 五幕后单幕被拉长（合并幕约 6~7 分钟），所以末段数值整体抬一档：
+  // 血量 4→12、速度 38→60、同屏 34→66、刷怪 700→500ms，配合按场放大的密度系数。
   hpStart: 4,
-  hpEnd: 10,
+  hpEnd: 12,
   // 刷怪环在屏幕外 275~380px：速度太低会让怪走 7~15 秒才到脸上，屏幕长期空着，
   // 38→58 下 5~9 秒到位；蝙蝠 speedMul 1.6 也只有约 93px/s，仍略低于玩家 96，追不上人。
   speedStart: 38,
-  speedEnd: 58,
+  speedEnd: 60,
   // 刷怪节奏按「玩家实际清怪速度」定，不是拍脑袋往死里堆：
   // 纯逻辑战斗仿真（scripts/density-sim.mjs）测得 2/3/3 脉流下第一幕击杀约 0.8/s、二三幕约 2.2~2.8/s，
   // 所以末段刷怪定在约 2.9/s（520ms × 平均 1.5 只），让同屏稳定在 30~60 而不是顶满上限变成一堵墙。
   spawnMsStart: 700,
-  spawnMsEnd: 520,
-  maxAliveStart: 30,
-  maxAliveEnd: 64,
+  spawnMsEnd: 500,
+  maxAliveStart: 34,
+  maxAliveEnd: 66,
   // 兜底伤害：只有怪种没自带 damage 时才会用到
   damageStart: 3,
   damageEnd: 5,
@@ -611,23 +614,25 @@ export const DIFFICULTY = {
   waveEnd: 2,
 };
 
-// 按幕放大的密度系数：越往后同屏越多、刷得越密（同屏上限仍由 maxAlive 兜住）。
-// 七幕封顶 64×1.62≈104 只，仍低于压测过的 150 只档位，留得住帧率。
+// 按「场」放大的密度系数：越往后同屏越多、刷得越密（同屏上限仍由 maxAlive 兜住）。
+// 七场封顶 66×1.62≈107 只，仍低于压测过的 150 只档位，留得住帧率。
+// 合并幕（第四、五幕）内部两场的系数不同：换场那一刻密度会实打实再抬一级。
 export const ACT_DENSITY = {
   1: { maxAlive: 1.00, spawnMs: 1.00 },
-  2: { maxAlive: 1.15, spawnMs: 0.92 },
-  3: { maxAlive: 1.30, spawnMs: 0.85 },
-  4: { maxAlive: 1.38, spawnMs: 0.82 },
-  5: { maxAlive: 1.46, spawnMs: 0.79 },
-  6: { maxAlive: 1.54, spawnMs: 0.76 },
+  2: { maxAlive: 1.10, spawnMs: 0.94 },
+  3: { maxAlive: 1.20, spawnMs: 0.88 },
+  4: { maxAlive: 1.34, spawnMs: 0.83 },
+  5: { maxAlive: 1.42, spawnMs: 0.79 },
+  6: { maxAlive: 1.52, spawnMs: 0.76 },
   7: { maxAlive: 1.62, spawnMs: 0.73 },
 };
 
-// 难度采样：difficultyAt(ms) 保持旧签名，不传 act 等价于第一幕（老调用点行为不变）。
-// wave 随 k 线性取整（k=0→1、k=1→3）；非法 act 回退第一幕，非法 ms 按 0 处理（保持既有 clamp 语义）。
-export function difficultyAt(elapsedMs, act = 1) {
+// 难度采样：difficultyAt(ms) 保持旧签名，不传场号等价于第一场（老调用点行为不变）。
+// 参数是「场」不是「幕」：血量/速度在每一场内各自从头爬，跨场的抬升靠密度系数与兵种池。
+// wave 随 k 线性取整（k=0→1、k=1→2）；非法场号回退第一场，非法 ms 按 0 处理（保持既有 clamp 语义）。
+export function difficultyAt(elapsedMs, stage = 1) {
   const k = Number.isFinite(elapsedMs) ? Math.min(1, Math.max(0, elapsedMs / DIFFICULTY.rampMs)) : 0;
-  const density = Number.isInteger(act) && Object.hasOwn(ACT_DENSITY, act) ? ACT_DENSITY[act] : ACT_DENSITY[1];
+  const density = Number.isInteger(stage) && Object.hasOwn(ACT_DENSITY, stage) ? ACT_DENSITY[stage] : ACT_DENSITY[1];
   const maxAlive = Math.round(DIFFICULTY.maxAliveStart + (DIFFICULTY.maxAliveEnd - DIFFICULTY.maxAliveStart) * k);
   const spawnMs = DIFFICULTY.spawnMsStart + (DIFFICULTY.spawnMsEnd - DIFFICULTY.spawnMsStart) * k;
   const wave = Math.round(DIFFICULTY.waveStart + (DIFFICULTY.waveEnd - DIFFICULTY.waveStart) * k);

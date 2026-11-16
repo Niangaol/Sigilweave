@@ -1,6 +1,7 @@
 // 割草密度的纯逻辑战斗仿真：不依赖浏览器与 Phaser，全部走真实逻辑层。
-// 用法：node scripts/density-sim.mjs [act] [seconds] [kit]
-//   act 1..3（默认 1）、seconds（默认 180）、kit bolt|flame|ward（默认 bolt）
+// 用法：node scripts/density-sim.mjs [stage] [seconds] [kit]
+//   stage 1..7（默认 1；幕由场反推：1/2/3→同号，4/5→幕4，6/7→幕5）、
+//   seconds（默认 180）、kit bolt|flame|ward（默认 bolt）
 // 输出：每 10 秒的同屏数/屏内数、击杀速率、玩家血量，以及整局摘要。
 //
 // 口径（必须知道）：
@@ -19,13 +20,14 @@ import { createBrain, stepBrain } from '../src/logic/enemy-ai.js';
 import { pickWavePoints, separateEnemiesBucketed } from '../src/logic/spawn.js';
 import { Rng } from '../src/logic/rng.js';
 import { ACTS, WORLD_SIZES } from '../src/logic/constants.js';
+import { chapterOf } from '../src/logic/acts.js';
 import { createProgression, grantExp, levelStats } from '../src/logic/progression.js';
 import {
   ENEMY_TYPES, SIGILS, PLAYER, DIFFICULTY, ACT_DENSITY, difficultyAt, pickEnemyType,
 } from '../src/data/roster.js';
 
 // 仿真可调档：用环境变量覆盖刷怪端点，方便在改默认值之前先扫一遍平衡。
-// 不传时完全等价于 roster.difficultyAt(now, act)。
+// 不传时完全等价于 roster.difficultyAt(now, stage)。
 const num = (name, fallback) => {
   const v = Number(process.env[name]);
   return Number.isFinite(v) ? v : fallback;
@@ -36,9 +38,9 @@ const MAX_START = num('SIM_MAX_START', DIFFICULTY.maxAliveStart);
 const MAX_END = num('SIM_MAX_END', DIFFICULTY.maxAliveEnd);
 const WAVE_END = num('SIM_WAVE_END', DIFFICULTY.waveEnd);
 const DENSITY_OVERRIDE = process.env.SIM_NO_ACT_SCALE === '1' ? null : ACT_DENSITY;
-function difficulty(now, act) {
+function difficulty(now, stage) {
   const k = Math.min(1, Math.max(0, now / DIFFICULTY.rampMs));
-  const den = (DENSITY_OVERRIDE && DENSITY_OVERRIDE[act]) || { maxAlive: 1, spawnMs: 1 };
+  const den = (DENSITY_OVERRIDE && DENSITY_OVERRIDE[stage]) || { maxAlive: 1, spawnMs: 1 };
   return {
     hp: Math.round(DIFFICULTY.hpStart + (DIFFICULTY.hpEnd - DIFFICULTY.hpStart) * k),
     speed: DIFFICULTY.speedStart + (DIFFICULTY.speedEnd - DIFFICULTY.speedStart) * k,
@@ -49,23 +51,27 @@ function difficulty(now, act) {
   };
 }
 
-const act = Math.min(3, Math.max(1, Number(process.argv[2]) || 1));
+// 场是玩法单位：一次仿真跑一场，幕号由场号反推（与 src/logic/acts.js 同一条规则）。
+const stage = Math.min(7, Math.max(1, Number(process.argv[2]) || 1));
+const chapter = chapterOf(stage);
 const seconds = Math.min(600, Math.max(30, Number(process.argv[3]) || 180));
 const kitId = process.argv[4] || 'bolt';
 // 可选第 5 参数：尸爆比例（默认用 DEATH_BURST 的设计值），用于扫平衡
 const burstRatio = Number(process.argv[5]);
 
-const world = WORLD_SIZES[act];
+const world = WORLD_SIZES[stage];
 const bounds = { left: 24, top: 40, right: world.w - 24, bottom: world.h - 24 };
-const rng = new Rng('density-sim:' + act + ':' + kitId);
+const rng = new Rng('density-sim:' + stage + ':' + kitId);
 
-// ---------- 构筑：第一幕用起手套装；二三幕补满解封格并铺一套范围法术 ----------
+// ---------- 构筑：第一幕用起手套装；后续幕补满本幕解封格并铺一套范围法术 ----------
+// 解封上限与脉流起点都按「幕」取（ACTS[chapter-1]）；draft.act 也是幕号，不是场号。
 const run = createRun('sim', kitId);
-run.act = act;
+run.chapter = chapter;
+run.stage = stage;
 const grid = createGrid();
-if (act > 1) {
-  const unlocked = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].slice(0, act === 2 ? 12 : 16);
-  run.draft.act = act;
+if (chapter > 1) {
+  const unlocked = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].slice(0, ACTS[chapter - 1].unlocked);
+  run.draft.act = chapter;
   run.draft.unlocked = unlocked;
   const fill = ['flame_burst', 'starfall', 'chain_lightning', 'thorn_vine', 'frost_arrow', 'quake_maw', 'pierce_lance', 'holy_ward'];
   run.draft.slots = {};
@@ -73,7 +79,7 @@ if (act > 1) {
 }
 const applied = applyDraft(grid, run.draft, { phase: 'intermission' });
 if (!applied.ok) throw new Error('构筑快照无效: ' + JSON.stringify(applied.errors));
-rebuildDerived(grid, ACTS[act - 1].baseIntervalMs);
+rebuildDerived(grid, ACTS[chapter - 1].baseIntervalMs);
 
 // ---------- 玩家 ----------
 const player = {
@@ -155,9 +161,9 @@ function triggerDeathBursts() {
 }
 
 const engine = new SigilEngine({
-  seed: 'sim-signal:' + act,
+  seed: 'sim-signal:' + stage,
   grid,
-  startCells: grid.unlockedIds().slice(0, ACTS[act - 1].starts),
+  startCells: grid.unlockedIds().slice(0, ACTS[chapter - 1].starts),
   comboWindowMul: 1,
   combos: buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4'])
     .filter((inst) => inst.order.every((id) => grid.cells[id].unlocked && grid.cells[id].slot?.kind === 'sigil')),
@@ -201,7 +207,7 @@ function spawnWave(dif, count) {
     count, minDist: 275, maxDist: 380, minGap: 30, nearDist: 250, farDist: 430,
   });
   for (const point of points) {
-    const def = pickEnemyType(act, rng.next());
+    const def = pickEnemyType(chapter, rng.next());
     const lv = levelStats(progression.level);
     const hp = Math.max(1, Math.round(dif.hp * (def.hpMul ?? 1) * lv.hpMul));
     enemies.push({
@@ -271,7 +277,7 @@ for (let t = 0; t < totalMs; t += dtMs) {
   // 刷怪
   spawnTimer -= dtMs;
   if (spawnTimer <= 0) {
-    const dif = difficulty(engine.now, act);
+    const dif = difficulty(engine.now, stage);
     const warming = engine.now < WARMUP_MS;
     const room = dif.maxAlive - aliveEnemies().length;
     if (room > 0) {
@@ -346,7 +352,7 @@ for (let t = 0; t < totalMs; t += dtMs) {
 
 const survived = player.hp > 0 ? seconds : Math.round(engine.now / 1000);
 const summary = {
-  act, kit: kitId, seconds, survivedS: survived, aliveAtEnd: aliveEnemies().length, maxAlive,
+  chapter, stage, kit: kitId, seconds, survivedS: survived, aliveAtEnd: aliveEnemies().length, maxAlive,
   kills, killsPerSec: +(kills / survived).toFixed(2),
   contactDeaths, damageTaken, hpLeft: Math.max(0, Math.round(player.hp * 10) / 10),
   level: progression.level, levelUps, triggers: engine.stats.triggers,

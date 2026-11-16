@@ -662,12 +662,12 @@ describe('Enemy 实体接线', () => {
   });
 });
 
-const weightOf = (act, id) => {
-  const row = ACT_ENEMY_WEIGHTS[act].find(([key]) => key === id);
+const weightOf = (chapter, id) => {
+  const row = ACT_ENEMY_WEIGHTS[chapter].find(([key]) => key === id);
   return row ? row[1] : 0;
 };
 
-describe('roster：敌人数据与三幕权重', () => {
+describe('roster：敌人数据与五幕权重', () => {
   it.each(['bat', 'corpse', 'cultist', 'knight', 'stitch_abomination', 'oath_bishop'])('%s 字段齐全且自洽', (id) => {
     const def = ENEMY_TYPES[id];
     for (const key of ['id', 'name', 'radius', 'damage', 'shards', 'behavior', 'hpMul', 'speedMul', 'color']) {
@@ -708,8 +708,8 @@ describe('roster：敌人数据与三幕权重', () => {
     expect(ENEMY_TYPES.skeleton.elite).toBeUndefined();  // 普通杂兵不带精英标记
   });
 
-  it.each([1, 2, 3, 4, 5, 6, 7])('第 %i 幕权重和约为 1', (act) => {
-    const table = ACT_ENEMY_WEIGHTS[act];
+  it.each([1, 2, 3, 4, 5])('第 %i 幕权重和约为 1', (chapter) => {
+    const table = ACT_ENEMY_WEIGHTS[chapter];
     expect(Array.isArray(table)).toBe(true);
     expect(table.length).toBeGreaterThanOrEqual(2);
     expect(table.every(([id, weight]) => ENEMY_TYPES[id] && weight > 0)).toBe(true);
@@ -743,43 +743,52 @@ describe('roster：敌人数据与三幕权重', () => {
     expect(weightOf(3, 'knight')).toBeCloseTo(0.1, 10);
     expect(weightOf(3, 'stitch_abomination')).toBe(0);
 
-    // 后四幕：每幕专属敌人占大头，旧怪只作陪衬
-    for (const act of [4, 5, 6, 7]) {
-      expect(ACT_ENEMY_WEIGHTS[act].length).toBeGreaterThanOrEqual(10);
-      expect(weightOf(act, 'brass_warden')).toBeGreaterThan(0);
+    // 合并幕：第四幕把书库与法庭两套专属怪合进同一池，两边的招牌都在
+    expect(ACT_ENEMY_WEIGHTS[4].length).toBeGreaterThanOrEqual(10);
+    expect(weightOf(4, 'brass_warden')).toBeGreaterThan(0);
+    expect(weightOf(4, 'ink_wisp')).toBeCloseTo(0.13, 10);
+    expect(weightOf(4, 'page_golem')).toBeCloseTo(0.13, 10);
+    expect(weightOf(4, 'index_hound')).toBeCloseTo(0.06, 10);
+    expect(weightOf(4, 'verdict_wraith')).toBeCloseTo(0.13, 10);
+    expect(weightOf(4, 'shackle_guard')).toBeCloseTo(0.13, 10);
+    expect(weightOf(4, 'scale_arbiter')).toBeCloseTo(0.06, 10);
+    expect(weightOf(4, 'clockwork_doll')).toBeCloseTo(0.05, 10);
+    // 书库+法庭专属怪合计 64%，旧怪只作陪衬
+    const libraryOnly = ['ink_wisp', 'page_golem', 'index_hound', 'verdict_wraith', 'shackle_guard', 'scale_arbiter'];
+    expect(libraryOnly.reduce((sum, id) => sum + weightOf(4, id), 0)).toBeCloseTo(0.64, 10);
+
+    // 第五幕：锻炉+破晓合并，缝合尸魁在终局收尾
+    expect(ACT_ENEMY_WEIGHTS[5].length).toBeGreaterThanOrEqual(10);
+    expect(weightOf(5, 'brass_warden')).toBeGreaterThan(0);
+    expect(weightOf(5, 'slag_beast')).toBeCloseTo(0.13, 10);
+    expect(weightOf(5, 'ember_imp')).toBeCloseTo(0.12, 10);
+    expect(weightOf(5, 'anvil_tyrant')).toBeCloseTo(0.06, 10);
+    expect(weightOf(5, 'dawn_shade')).toBeCloseTo(0.13, 10);
+    expect(weightOf(5, 'stardust_knight')).toBeCloseTo(0.13, 10);
+    expect(weightOf(5, 'eclipse_priest')).toBeCloseTo(0.07, 10);
+    expect(weightOf(5, 'stitch_abomination')).toBe(0);
+    const forgeOnly = ['slag_beast', 'ember_imp', 'anvil_tyrant', 'dawn_shade', 'stardust_knight', 'eclipse_priest'];
+    expect(forgeOnly.reduce((sum, id) => sum + weightOf(5, id), 0)).toBeCloseTo(0.64, 10);
+    // 六、七场不再是独立幕，不存在各自的权重表
+    for (const stage of [6, 7]) {
+      expect(ACT_ENEMY_WEIGHTS[stage]).toBeUndefined();
     }
-    expect(weightOf(4, 'ink_wisp')).toBeCloseTo(0.18, 10);
-    expect(weightOf(4, 'page_golem')).toBeCloseTo(0.18, 10);
-    expect(weightOf(4, 'index_hound')).toBeCloseTo(0.08, 10);
-    expect(weightOf(4, 'clockwork_doll')).toBeCloseTo(0.12, 10);
-    expect(weightOf(5, 'verdict_wraith')).toBeCloseTo(0.16, 10);
-    expect(weightOf(5, 'shackle_guard')).toBeCloseTo(0.18, 10);
-    expect(weightOf(5, 'scale_arbiter')).toBeCloseTo(0.08, 10);
-    expect(weightOf(5, 'knight')).toBeCloseTo(0.12, 10);
-    expect(weightOf(6, 'slag_beast')).toBeCloseTo(0.18, 10);
-    expect(weightOf(6, 'ember_imp')).toBeCloseTo(0.16, 10);
-    expect(weightOf(6, 'anvil_tyrant')).toBeCloseTo(0.08, 10);
-    expect(weightOf(6, 'oath_bishop')).toBe(0);
-    expect(weightOf(7, 'dawn_shade')).toBeCloseTo(0.16, 10);
-    expect(weightOf(7, 'stardust_knight')).toBeCloseTo(0.16, 10);
-    expect(weightOf(7, 'eclipse_priest')).toBeCloseTo(0.1, 10);
-    expect(weightOf(7, 'stitch_abomination')).toBeCloseTo(0.02, 10);
   });
 
   it('roll 落入哪个区间就返回哪种敌人（按当前权重逐段验证）', () => {
-    for (const act of [1, 2, 3, 4, 5, 6, 7]) {
+    for (const chapter of [1, 2, 3, 4, 5]) {
       let acc = 0;
-      for (const [id, weight] of ACT_ENEMY_WEIGHTS[act]) {
-        expect(pickEnemyType(act, acc + weight / 2).id).toBe(id);
+      for (const [id, weight] of ACT_ENEMY_WEIGHTS[chapter]) {
+        expect(pickEnemyType(chapter, acc + weight / 2).id).toBe(id);
         acc += weight;
       }
-      expect(pickEnemyType(act, 0).id).toBe(ACT_ENEMY_WEIGHTS[act][0][0]);
-      expect(pickEnemyType(act, 0.999999).id).toBe(ACT_ENEMY_WEIGHTS[act].at(-1)[0]);
+      expect(pickEnemyType(chapter, 0).id).toBe(ACT_ENEMY_WEIGHTS[chapter][0][0]);
+      expect(pickEnemyType(chapter, 0.999999).id).toBe(ACT_ENEMY_WEIGHTS[chapter].at(-1)[0]);
     }
   });
 
-  it('同 act/roll 永远返回同一种敌人对象', () => {
-    for (const act of [1, 2, 3, 4, 5, 6, 7]) {
+  it('同 chapter/roll 永远返回同一种敌人对象', () => {
+    for (const act of [1, 2, 3, 4, 5]) {
       for (let i = 0; i < 50; i++) {
         const roll = (i + 0.37) / 50;
         const first = pickEnemyType(act, roll);
@@ -789,9 +798,9 @@ describe('roster：敌人数据与三幕权重', () => {
     }
   });
 
-  it('七幕遍历覆盖全部二十六种敌人，且从不返回表外敌人', () => {
+  it('五幕遍历覆盖全部二十六种敌人，且从不返回表外敌人', () => {
     const appeared = new Set();
-    for (const act of [1, 2, 3, 4, 5, 6, 7]) {
+    for (const act of [1, 2, 3, 4, 5]) {
       for (let i = 0; i < 200; i++) {
         const def = pickEnemyType(act, i / 200);
         expect(ENEMY_TYPES[def.id]).toBe(def);
@@ -808,9 +817,9 @@ describe('roster：敌人数据与三幕权重', () => {
   });
 
   it.each([
-    [0, 0.5], [8, 0.5], [-1, 0.5], [1.5, 0.5], ['2', 0.5], [null, 0.5], [undefined, 0.5],
+    [0, 0.5], [6, 0.5], [-1, 0.5], [1.5, 0.5], ['2', 0.5], [null, 0.5], [undefined, 0.5],
     [1, -0.1], [1, 1], [1, 1.0001], [1, Number.NaN], [1, Infinity], [1, '0.5'], [1, null], [1, undefined],
-  ])('非法输入 act=%j roll=%j 回退骷髅兵', (act, roll) => {
+  ])('非法输入 chapter=%j roll=%j 回退骷髅兵', (act, roll) => {
     expect(pickEnemyType(act, roll)).toBe(ENEMY_TYPES.skeleton);
   });
 });

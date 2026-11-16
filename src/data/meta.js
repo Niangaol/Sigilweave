@@ -1,4 +1,6 @@
 // 「残响祭坛」局外成长的静态常量：纯数据、零副作用，逻辑层与 UI 共用。
+import { CHAPTERS, minorBossIdsOfStage, stagesOf } from '../logic/acts.js';
+
 export const META_VERSION = 1;
 
 // 11 条被动按来源分成两条升级线，顺序即 UI 排列顺序。
@@ -31,28 +33,38 @@ export const SETTLE = Object.freeze({
   quickRate: 0.5,
 });
 
-const ACTS = [1, 2, 3, 4, 5, 6, 7];
+const CHAPTER_NUMBERS = CHAPTERS.map((c) => c.chapter);
+const STAGES = CHAPTERS.flatMap((c) => stagesOf(c.chapter));
+const MINOR_SUFFIX_LABELS = ['甲', '乙', '丙', '丁'];
 
-// 24 个契约图鉴节点：7 大 Boss 首杀 + 14 小 Boss 首杀 + 3 个特殊成就。
+// 34 个契约图鉴节点：7 大 Boss 首杀（按场）+ 20 小 Boss 首杀（按场，幕 1-3 各 4 条、幕 4-5 各 2 条）
+// + 5 次幕通关 + 2 个特殊成就。小 Boss 一律由 acts.js 的幕-场表生成，避免手抄漏项。
 export const MILESTONES = Object.freeze([
-  ...ACTS.map((act) => ({
-    id: 'boss-' + act,
+  ...STAGES.map((stage) => ({
+    id: 'boss-' + stage,
     kind: 'major',
-    bossId: 'boss-' + act,
+    bossId: 'boss-' + stage,
     reward: 25,
-    ...(CAP_UNLOCKS['boss-' + act] ? { unlockCap: CAP_UNLOCKS['boss-' + act] } : {}),
-    label: '契约主 · 第 ' + act + ' 幕',
+    ...(CAP_UNLOCKS['boss-' + stage] ? { unlockCap: CAP_UNLOCKS['boss-' + stage] } : {}),
+    label: '契约主 · 第 ' + stage + ' 场',
   })),
-  ...ACTS.flatMap((act) => ['a', 'b'].map((suffix) => ({
-    id: 'miniboss-' + act + suffix,
-    kind: 'minor',
-    bossId: 'miniboss-' + act + suffix,
-    reward: 8,
-    label: '小契约 · 第 ' + act + ' 幕' + (suffix === 'a' ? '甲' : '乙'),
-  }))),
+  ...CHAPTERS.flatMap((chapter) => stagesOf(chapter.chapter).flatMap((stage) => (
+    minorBossIdsOfStage(stage).map((id, index) => ({
+      id,
+      kind: 'minor',
+      bossId: id,
+      reward: 8,
+      label: '小契约 · 第 ' + stage + ' 场' + (MINOR_SUFFIX_LABELS[index] || ''),
+    }))
+  ))),
+  ...CHAPTER_NUMBERS.map((chapter) => ({
+    id: 'clear-' + chapter,
+    kind: 'chapter',
+    reward: 30,
+    label: '通关 · 第 ' + chapter + ' 幕',
+  })),
   { id: 'quiz-5', kind: 'special', reward: 60, label: '破局者 · 问答击破 5 次' },
   { id: 'kills-300', kind: 'special', reward: 40, label: '清扫者 · 单局击杀 300' },
-  { id: 'clear', kind: 'special', reward: 80, label: '尽解 · 七幕通关' },
 ]);
 
 export const MILESTONE_IDS = Object.freeze(MILESTONES.map((m) => m.id));

@@ -10,8 +10,13 @@ import {
   PASSIVE_IDS,
   SETTLE,
 } from '../data/meta.js';
+import { CHAPTERS } from './acts.js';
 
 export const STORAGE_KEY = 'sigilweave:meta:v1';
+
+const CHAPTER_LIMIT = CHAPTERS.length;
+// 幕号只有 1..5：旧档的 act 可到 7，读进来一律夹到合法范围。
+const clampChapter = (value) => (Number.isSafeInteger(value) && value >= 1 ? Math.min(CHAPTER_LIMIT, value) : 1);
 
 const MILESTONE_BY_ID = new Map(MILESTONES.map((m) => [m.id, m]));
 const levelOf = (value) => (Number.isSafeInteger(value) && value > 0 ? Math.min(MAX_META_LEVEL, value) : 0);
@@ -73,7 +78,7 @@ export function sanitizeMeta(raw) {
     runs: countOf(rawCounters.runs),
     wins: countOf(rawCounters.wins),
     quizWins: countOf(rawCounters.quizWins),
-    bestAct: Math.max(1, countOf(rawCounters.bestAct)),
+    bestAct: Math.min(CHAPTER_LIMIT, Math.max(1, countOf(rawCounters.bestAct))),
     bestKills: countOf(rawCounters.bestKills),
   };
 
@@ -165,7 +170,8 @@ export function settleRun(save, summary) {
   // 演武、压测、中途退出都不结算，避免刷分。
   if (summary.trainingComplete || summary.dnf || summary.stress) return none;
 
-  const act = Number.isSafeInteger(summary.act) && summary.act >= 1 ? Math.min(7, summary.act) : 1;
+  // 幕号以 summary.chapter 为准；旧数据只有 act，回退兼容后同样夹到 1..5。
+  const chapter = clampChapter(summary.chapter ?? summary.act);
   const kills = countOf(summary.kills);
   const victory = summary.victory === true;
 
@@ -173,7 +179,7 @@ export function settleRun(save, summary) {
   const mini = receipts(summary.miniBossResolutions);
   const quizWins = [...major, ...mini].filter((r) => r.method === 'quiz').length;
 
-  const rawBase = act * SETTLE.actWeight
+  const rawBase = chapter * SETTLE.actWeight
     + Math.floor(kills / SETTLE.killStep) * SETTLE.killPoint
     + mini.length * SETTLE.miniBoss
     + major.length * SETTLE.majorBoss
@@ -186,17 +192,23 @@ export function settleRun(save, summary) {
     runs: base.counters.runs + 1,
     wins: base.counters.wins + (victory ? 1 : 0),
     quizWins: base.counters.quizWins + quizWins,
-    bestAct: Math.max(base.counters.bestAct, act),
+    bestAct: Math.max(base.counters.bestAct, chapter),
     bestKills: Math.max(base.counters.bestKills, kills),
   };
 
+  // 幕通关：通关一次记满 clear-1..5；中途阵亡只记已走完的幕（第 N 幕阵亡 → clear-1..N-1）。
+  const clearedChapters = victory
+    ? CHAPTERS.map((c) => c.chapter)
+    : Array.from({ length: Math.max(0, chapter - 1) }, (_, i) => i + 1);
+
   // 首杀与特殊成就：候选按 MILESTONES 顺序收敛，已点亮的过滤掉。
+  // 大 Boss 的记账键改成场号（receipt.stage）；旧数据没有 stage 时回退 act。
   const candidates = [
-    ...major.map((r) => 'boss-' + r.act),
+    ...major.map((r) => 'boss-' + (r.stage ?? r.act)),
     ...mini.map((r) => r.bossId),
     counters.quizWins >= 5 ? 'quiz-5' : null,
     kills >= 300 ? 'kills-300' : null,
-    victory ? 'clear' : null,
+    ...clearedChapters.map((n) => 'clear-' + n),
   ].filter((id) => typeof id === 'string' && MILESTONE_BY_ID.has(id));
 
   const owned = new Set(base.milestones);
