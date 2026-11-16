@@ -3,10 +3,33 @@ dist/
 *.log
 .DS_Store
 docs/p2-调试.png
-# ���������ĵ���һ����̽�룬�����ֿ�
-�½� DOC �ĵ�.doc
+# 根目录 Word 文档是一次性探索素材，不进仓库
+新建 DOC 文档.doc
+法术与道具.doc
 vitest.probe.config.mjs
-# ̽��ű�һ�ɲ����
+# 探测脚本一律不进仓库
 *-probe.*
 *probe*.mjs
 _probe*.mjs
+
+# desktop build artifacts / caches
+.cache-electron/
+release/
+release-out/
+.tmp-userdata/
+desktop/dist/
+packaging/*.zip
+
+# WebView2 SDK 缓存与解包产物（构建脚本会按需重新拉取）
+tools/wv2.nupkg
+tools/wv2.zip
+tools/wv2pkg/
+tools/webview2/
+
+# webhost 构建产物（build-webexe.ps1 按需重生成）
+tools/webhost/Sigilweave.exe
+tools/webhost/sigilweave.ico
+
+# 小体积版构建输出
+release-web/
+release-web.zip

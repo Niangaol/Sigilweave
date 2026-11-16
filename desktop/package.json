@@ -1,0 +1,9 @@
+{
+  "name": "sigilweave-desktop",
+  "productName": "Sigilweave",
+  "version": "0.2.0",
+  "description": "共振法阵 Sigilweave 桌面版",
+  "main": "main.cjs",
+  "author": "Niangaol",
+  "license": "MIT"
+}
