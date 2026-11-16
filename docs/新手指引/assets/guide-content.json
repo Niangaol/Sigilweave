@@ -3,7 +3,7 @@
     "game": "共振法阵 Sigilweave",
     "skill": "sigilweave-newbie-guide",
     "version": "0.2.0-draft",
-    "status": "待领导确认，确认前不得接入游戏源码",
+    "status": "已接入游戏源码（2026-11-16），待领导验收；可用 ?guide=0 关闭",
     "coverage": "第一幕 G00-G04；第二幕 G05-G08；第三幕星陨王庭 G09-G11；第四幕及以后一句话 G12",
     "artStyle": "西幻像素风：480x270 逻辑画布、硬边色块、Palette.js 色板、无渐变无模糊；见 references/visual-style.md",
     "sourceCommit": "0a48bab",

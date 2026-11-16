@@ -5,6 +5,10 @@ import { STARTING_KITS, createRun } from '../logic/run.js';
 import { SIGIL_DEFS } from '../logic/effects.js';
 import { sectorLabel } from '../data/roster.js';
 import { playCutscene } from '../ui/transition.js';
+import { fireGuide, hideGuide } from '../logic/guide.js';
+
+// 选套装阶段 run 尚未创建，用一个会话级占位对象承载引导去重状态。
+const LOADOUT_GUIDE_STATE = { guideSeen: {} };
 
 const CARD = Object.freeze({ left: 12, gap: 12, width: 144, top: 48, height: 164 });
 const ACCENT = Object.freeze({ bolt: C.brassLight, flame: C.arcane, ward: C.parchment });
@@ -41,6 +45,8 @@ export default class LoadoutScene extends Phaser.Scene {
     });
 
     this.paint();
+    // 新手引导 G00：墨宝自我介绍（选套装阶段）
+    this.time.delayedCall(220, () => fireGuide(this, LOADOUT_GUIDE_STATE, 'G00'));
   }
 
   text(x, y, value, size = 8, color = HEX.parchment, extra = {}) {
@@ -65,6 +71,7 @@ export default class LoadoutScene extends Phaser.Scene {
 
   startBattle() {
     if (this.started) return;
+    hideGuide(this);
     this.started = true;
     window.__SIGILWEAVE_LOADOUT__ = { kitId: this.kitId, started: true };
     this.paint();

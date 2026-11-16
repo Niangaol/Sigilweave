@@ -11,6 +11,7 @@ import { ACTS, ORTHO_DIRS } from '../logic/constants.js';
 import { playCutscene } from '../ui/transition.js';
 import { kitPanel, kitBoard, kitBoardMotion, kitHeader, kitSteps, kitCell, kitHandRow, clipText } from '../ui/editor-ui.js';
 import { CARD_HINTS } from '../data/card-hints.js';
+import { fireGuide, hideGuide } from '../logic/guide.js';
 
 const names = { ...SIGIL_DEFS, ...AUX_DEFS, ...RUNE_DEFS };
 const hints = CARD_HINTS;
@@ -48,8 +49,21 @@ export default class IntermissionScene extends Phaser.Scene {
     this.animAcc = 0;
     this.animFrames = 0;
     this.paint();
+    // 新手引导：第一幕通关进幕间 G05 过渡语；准备第二幕时 G06 构筑台逐区讲解。
+    // chapter 在此即「即将准备的第几幕」（createWorkshop 用 act:chapter）。
+    this.time.delayedCall(this.__cine ? 3200 : 300, () => {
+      if (!this.scene.isActive() || this.departed) return;
+      // 准备第二幕：先播 G05 过渡语，再接 G06 构筑台逐区讲解（覆盖层内部串行播放）
+      if (chapter === 2) {
+        fireGuide(this, this.run, 'G05', { act: chapter });
+        fireGuide(this, this.run, 'G06', { act: chapter });
+      } else {
+        fireGuide(this, this.run, 'G05', { act: chapter });
+      }
+    });
     window.__SIGILWEAVE_WORKSHOP__ = this;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      hideGuide(this);
       this.animG?.destroy(); this.animG = null;
       if (window.__SIGILWEAVE_WORKSHOP__ === this) window.__SIGILWEAVE_WORKSHOP__ = null;
     });

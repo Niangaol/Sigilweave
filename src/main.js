@@ -13,6 +13,7 @@ import IntermissionScene from './scenes/IntermissionScene.js';
 import StoryScene from './scenes/StoryScene.js';
 import MetaScene from './scenes/MetaScene.js';
 import CutsceneScene from './scenes/CutsceneScene.js';
+import GuideScene from './scenes/GuideScene.js';
 import { setRenderScale, setPortrait, setTouchUI, CANVAS_H_PORTRAIT, BASE_W, BASE_H } from './ui/Palette.js';
 
 // 竖屏判定：高明显大于宽（含手机竖持与窄窗口）
@@ -53,7 +54,8 @@ const game = new Phaser.Game({
     roundPixels: true,
   },
   // CutsceneScene 必须排在最后：它是覆盖层，渲染顺序在后才能盖住所有正式场景
-  scene: [BootScene, TitleScene, MetaScene, LoadoutScene, BattleScene, IntermissionScene, GameOverScene, StoryScene, CutsceneScene],
+  // GuideScene 同属覆盖层（灵宠引导），排在 CutsceneScene 之后，确保盖在过场之上。
+  scene: [BootScene, TitleScene, MetaScene, LoadoutScene, BattleScene, IntermissionScene, GameOverScene, StoryScene, CutsceneScene, GuideScene],
 });
 
 // 方便调试与验收时查看实例；不影响正式流程

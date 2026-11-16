@@ -67,6 +67,7 @@ const SPRITE_IMAGES = {
   floor_act7: 'assets/textures/floor_act7.png',
   title_wall: 'assets/ui/title_wall.png',
   hero_title: 'assets/ui/hero_title.png',
+  guide_pet: 'assets/ui/lingchong-mobao.png',
   rune_shard: 'assets/effects/rune_shard.png',
   attack_warning: 'assets/effects/attack_warning.png',
 };
@@ -108,6 +109,10 @@ export default class BootScene extends Phaser.Scene {
     this.createAnims();
     applyPixelZoom(this);
     this.cameras.main.setBackgroundColor('#0d0a17');
+    // 灵宠引导覆盖层常驻（active:false，等事件驱动；纹理已在本场景 preload 完成）
+    // GuideScene 自己在 create 里 bringToTop，这里只负责启动，兼容缺少 ScenePlugin 的测试环境。
+    this.scene.launch('GuideScene');
+    this.scene.bringToTop?.('GuideScene');
     const params = new URLSearchParams(window.location.search);
     // 调试/压测/调试直达保持原路径；正常路径先播全屏开场，再由开场交接标题
     if (cutscenesDisabled() || params.get('scene')) {
