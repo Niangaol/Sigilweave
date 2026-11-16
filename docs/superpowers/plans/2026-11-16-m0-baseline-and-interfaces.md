@@ -2,13 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把一份 30k 行的单人项目切成三块互不重叠的代码所有权，并落好双语内容管线与引导挂接点，让三个人能在一周内各自提交而不撞车。
+**Goal:** 把一份 30k 行单人项目切成三块互不重叠的代码所有权，落好双语内容管线（M0 以题库为样板）与引导挂接点，让三个人能在一周内各自提交而不撞车。
 
-**Architecture:** 内容层从 `src/data/*.js` 里拆出到 `content/*.json`，文本一律 `{zh, en}`，靠 `src/logic/locale.js` 的 `t()` 在读取点取当前语言；`src/logic/bus.js` 提供零依赖事件总线，`BattleScene` 只往里发四个引导事件，表现层订阅；数值按「全局系数进 `constants.js`、单体数值留 `roster.js`」两层切开。每个任务都能独立跑测试、独立提交。
+**Architecture:** 内容层从 `src/data/*.js` 里逐步拆出到 `content/*.json`（M0 先迁题库），文本一律 `{zh, en}`，靠 `src/logic/locale.js` 的 `t()` 在读取点取当前语言；`src/logic/bus.js` 提供零依赖事件总线，`BattleScene` 只往里发四个引导事件，表现层订阅；数值按「全局系数进 `constants.js`、单体数值留 `roster.js`」两层切开。每个任务都能独立跑测试、独立提交。
 
 **Tech Stack:** Phaser 3.90、原生 JS ESM、Vite 8、Vitest 5、Node 24（本机）/ Node 22（CI）。不引入任何新依赖。
 
-**Spec:** `docs/superpowers/specs/2026-11-16-tga2027-polish-roadmap-design.md`（v1.2）
+**Spec:** `docs/superpowers/specs/2026-11-16-tga2027-polish-roadmap-design.md`（v1.3）
+
+**范围（v1.3 改口径，年糕选定）：** M0 的内容外置**只做题库与问答面板**（约 386 条）。叙事、场次卡、卡牌提示、标题页说明随 M1 各自功能重写一起迁，`roster.js` / `map-events.js` 随 M2 迁。完整波次表见下方「内容外置的分三波」.
 
 ## Global Constraints
 
@@ -22,36 +24,38 @@
 - 不加新依赖；不迁移框架；不重写 TypeScript。
 - `package.json`、`vite.config.js`、`.github/**`、`scripts/**` 归 A（年糕）独写；本计划里其他人需要动这三处的任务，必须先跟 A 说，由 A 落。
 
-## 内容外置的分两波（对 spec 决策 13 的时序调整）
+## 内容外置的分三波（spec 决策 13，v1.3 改口径）
 
-spec 决策 13 说「M0 外置全部玩家可见文本」。实测清点后，全项目约 **1000+ 条**中文字面量分布在 35 个文件里，其中大半在下面这些文件里，而它们在 M1/M2 本来就要被重写（标题页重构、战斗反馈强化、事件点表达）：
+实测清点：全项目约 **1000+ 条**玩家可见中文字面量，分布在 35 个文件里。原本 spec 要求 M0 全量迁完，但其中大半所在文件在 M1/M2 本来就要被重写（标题页重构、战斗反馈强化、构筑台改版、事件点表达），M0 全迁等于同一个文件迁两遍。年糕拍板：**M0 只迁题库**。
 
-| 文件 | 中文字面量 | 本计划处置 |
+| 文件 | 中文字面量 | 波次 |
 |---|---|---|
 | `src/data/encounters.js` | 374 | **M0 迁移**（Task 8） |
-| `src/data/cinematics.js` | 65 | **M0 迁移**（Task 9） |
-| `src/data/card-hints.js` | 26 | **M0 迁移**（Task 10） |
-| `src/data/story.js` | 19 | **M0 迁移**（Task 9） |
 | `src/ui/EncounterPanel.js` | 12 | **M0 迁移**（Task 8） |
-| `src/scenes/TitleScene.js` | 12 | **M0 迁移**（Task 10） |
-| `src/scenes/BattleScene.js` | 95 | M1 随「战斗反馈强化」一起迁 |
-| `src/scenes/IntermissionScene.js` | 92 | M1 随「构筑台改版」一起迁 |
-| `src/data/roster.js`（符印/怪物名） | 72 | M2 随「敌人与 Boss 表达」一起迁 |
-| `src/data/map-events.js`（事件点提示） | 41 | M2 随「事件点可发现性」一起迁 |
-| `src/logic/*`（校验与反馈消息） | ~117 | M1 随「反馈强化」一起迁 |
-| 其余场景与 UI 零散文案 | ~90 | M1/M2 按文件重写节奏迁 |
+| `src/data/story.js`（开场六镜/幕间/结局含名单） | 19 | M1 随「开场节奏重排」 |
+| `src/data/cinematics.js`（七张场次卡） | 65 | M1 随「开场节奏重排」 |
+| `src/data/card-hints.js`（26 条卡牌提示） | 26 | M1 随「战斗反馈强化」 |
+| `src/scenes/TitleScene.js`（玩法说明整页） | 12 | M1 随「标题页重构」 |
+| `src/scenes/BattleScene.js`（内联文案） | 95 | M1 随「战斗反馈强化」 |
+| `src/scenes/IntermissionScene.js`（内联文案） | 92 | M1 随「构筑台改版」 |
+| `src/logic/*`（校验与反馈消息） | ~117 | M1 |
+| `src/data/roster.js`（符印/怪物名） | 72 | M2 随「敌人与 Boss 表达」 |
+| `src/data/map-events.js`（事件点提示） | 41 | M2 随「事件点可发现性」 |
+| 其余场景与 UI 零散文案 | ~90 | M1/M2 按文件重写节奏 |
 
-**改的理由**：先把「管线 + 会被重写的部分」分开。M0 落管线并把不会被重写的叙事与题库锁死，M1/M2 那批文件在改功能时顺手外置，避免同一个文件迁两遍、同一个面板改两次。代价是「全部可见文本双语」这个状态要到 M2 末才成立，M4 定稿时仍需一次全量核对（spec 的 M4 本来就留了整月做这件事）。
+**M0 为什么只挑题库**：题库与问答面板的内容形态已经定型（34 条遭遇、题面/线索/三选一/解析/成败文案），M1/M2 不会重写，迁一次就锁死；而且它是全项目文本量最大、结构最规整的一块（374 条），拿它当管线的样板最有说服力 —— 后面几波照抄同一套 `{zh,en}` + 校验器 + `t()` 取值即可。
+
+**代价与对冲**：「全部可见文本双语」要到 M2 末才成立。对冲有三条：每波都带 en 态断言（不许有中文残留）；校验器随每波扩一类 schema，坏内容在 CI 就被拦；M4 留了整月做全量核对（spec 本来就有），Task 12 收口时用 `git grep` 列出剩余中文字面量清单交给 M1。
 
 ## Review Focus
 
-这五件事 spec 没写死、但最可能坑到真实玩家，每个都在对应任务的测试里钉住：
+这五件事 spec 没写死、但最可能坑到真实玩家，每个都在对应任务的测试里钉住（第 1、2、5 条在 M0 只看题库这一波，后续波次照同一套断言扩）：
 
-1. **切到英文后仍有文案走中文**：任何没接 `t()` 的读取点都会在中英混排里露出来 —— Task 2/8/9/10 各有一条「en 态下取到英文」的断言；Task 14 用一次 `?lang=en` 全流程冒烟兜底。
-2. **英文太长把 480×270 面板撑破**：`EncounterPanel` 的三选一按钮、场次卡 `hint` 是最危险的两处 —— Task 8/10 断言英文长度上限（选项 ≤ 44 字符，其它 ≤ 200）。
+1. **切到英文后仍有文案走中文**：任何没接 `t()` 的读取点都会在中英混排里露出来 —— Task 2/8 各有一条「en 态下取到英文」的断言；Task 12 用一次 `?lang=en` 全流程冒烟兜底。
+2. **英文太长把 480×270 面板撑破**：`EncounterPanel` 的三选一按钮与题面是最危险的两处 —— Task 8 断言英文长度上限（选项 ≤ 40 字符，题面/解析 ≤ 200），并按 `getLocale() === 'en'` 收窄换行宽度。
 3. **漏写 `en` 时界面静默变空**：`t()` 对坏数据返回 `''`，界面就白一块 —— Task 7 的校验器把「两键缺一」判为构建失败，Task 2 测 `t({zh})` 回退到中文而不是空串。
 4. **引导状态机的乱序与重入**：玩家第二次装牌、跨幕升级、重复触发同一事件 —— Task 4 断言乱序不推进、重复不推进。
-5. **内容 JSON 在 CI（Node 22）与本机（Node 24）加载不一致**：CI 只跑 vitest（走 Vite 转换），`with { type: 'json' }` 已在本机 Node 24 与 vitest 下实测通过；任何需要 `node` 直跑的脚本必须用 `JSON.parse(readFileSync())`，不许依赖 import 属性 —— Task 8/9/10 的验收步骤里都有一条 `git grep` 检查。
+5. **内容 JSON 在 CI（Node 22）与本机（Node 24）加载不一致**：CI 只跑 vitest（走 Vite 转换），`with { type: 'json' }` 已在本机 Node 24 与 vitest 下实测通过；任何需要 `node` 直跑的脚本必须用 `JSON.parse(readFileSync())`，不许依赖 import 属性 —— Task 8 的验收步骤里有一条 `git grep` 检查。
 
 ---
 
@@ -68,7 +72,7 @@ spec 决策 13 说「M0 外置全部玩家可见文本」。实测清点后，�
 - [ ] **Step 1: 写 `docs/分工与协作.md`，四个小节**
 
 1. **文件归属表**：三列（A 年糕 / B 同学 B / C 同学 C），逐条列全路径。范围直接从 spec 第六节的三张表抄下来，补上本计划新增的 `content/**`、`src/tutorial/**`、`src/logic/locale.js`、`src/logic/bus.js`、`src/data/content-schema.js`、`scripts/verify-content.mjs`。写清一句：**同一个文件只归一个人，其他人提 issue/在同步里说，不直接改。**
-2. **接口清单**：`t(value, locale)`、`createBus(options)`、`createTutorial(options)`、`TUTORIAL_STEPS`、`TUTORIAL_EVENTS`、`validateContent()`、`content/*.json` 的字段表。每个接口一行签名。
+2. **接口清单**：`t(value, locale)`、`isText(value)`、`createBus(options)`、`createTutorial(options)`、`TUTORIAL_STEPS`、`TUTORIAL_EVENTS`、`validateContent(files)`、`validateEncounters(json)`、`validateUiCopy(json)`，以及 `content/*.json` 的字段表。每个接口一行签名。字段表只列**已迁**的文件（M0 是 `encounters.json` 与 `ui-copy.json`），后续波次迁到哪写哪，不预先画饼。
 3. **分支与合并纪律**：每周五出可玩版本；`main` 全绿；测试失败当天修；接口变更先同步；内容 JSON 不合规即构建失败。
 4. **术语表**（中 → 英，一个词只有一个译法）：
 
@@ -615,8 +619,9 @@ git commit -m "refactor: 全局难度曲线归 constants.js，单体数值留 ro
 - Produces:
   - `isText(value): boolean` —— 是不是合法的 `{zh, en}` 双非空字符串对象（只允许这两个键）
   - `collectTextErrors(node, path, maxLen, out): void` —— 递归找所有「看起来是文本」的位置并校验
-  - `validateEncounters(json): string[]`、`validateStory(json): string[]`、`validateCinematics(json): string[]` —— 返回错误消息数组，空数组表示通过
-  - `validateContent(files: Record<string, object>): string[]` —— 按文件名分派（`encounters` / `story` / `cinematics` / `cards` / `ui-copy`），未知文件名报错
+  - `validateEncounters(json): string[]`、`validateUiCopy(json): string[]` —— 返回错误消息数组，空数组表示通过
+  - `validateContent(files: Record<string, object>): string[]` —— 按文件名分派（M0 只有 `encounters` 与 `ui-copy`），未知文件名报错
+  - 后续波次（`story` / `cinematics` / `cards` / `title`）在各自迁移任务里往这里加一个 `validateXxx` 并在 `validateContent` 里注册一行；M0 不提前写空壳
   - CLI：`node scripts/verify-content.mjs` 读 `content/*.json`，打印 `{ "ok": true, "errors": [] }` 或错误数组，有错时 `process.exitCode = 1`
 
 - [ ] **Step 1: 写失败测试 `tests/content-schema.test.js`**
@@ -704,8 +709,7 @@ Expected: FAIL，模块不存在
 - 文本对象：恰好 `zh`、`en` 两个键，都是非空字符串；`zh` 至少含一个中日韩字符；`en` 不含中日韩字符；`en !== zh`。
 - 长度上限：`name`/`title`/`choice.label`/`star` ≤ 40 字（按 `zh` 计）；`clue`/`question`/`explanation`/`success`/`failure` ≤ 200 字。
 - 遭遇：34 条；key 与 `id` 一致；`type ∈ {npc, boss}`；`clues` 恰好 2 条且 `id` 不重复；`choices` 恰好 3 个且 `id` 不重复；`correctChoiceId` 必须在 `choices` 里；`npc` 不得有 `tier`；`miniboss-` 前缀必须 `tier === 'mini'` 且 `bossId === id`；题面不得包含正确选项的 `zh` 文案（不泄漏答案）。
-- 叙事：`OPENING_SHOTS` 6 条、`ms` 合计 36000；`ENDING_SHOTS` 4 条；每条 `id` 唯一。
-- 场次卡：`ACT_CARDS`、`STAGE_CARDS` 键必须是 1..7。
+- 问答面板文案（`ui-copy`）：`encounterPanel` 下十个键一个不许少；每个都是合法文本对象；`bossRule`/`npcRule`/`note` 长度上限 200，按钮文案上限 40。
 
 - [ ] **Step 4: 实现 `scripts/verify-content.mjs` 并接到 CI**
 
@@ -727,7 +731,7 @@ npx vitest run tests/content-schema.test.js --pool=threads
 node scripts/verify-content.mjs
 ```
 
-Expected: 测试 PASS（6 项）；脚本此时因为 `content/` 还不存在而打印 `{ "ok": true, "errors": [] }`（空目录算通过），退出码 0
+Expected: 测试 PASS（6 项）；脚本此时因为 `content/` 还不存在而打印 `{ "ok": true, "errors": [] }`（空目录算通过），退出码 0。Task 8 落地 `content/` 之后这个脚本才真正开始拦东西。
 
 - [ ] **Step 6: Commit**
 
@@ -895,252 +899,7 @@ git commit -m "feat: 34 条遭遇外置为双语 JSON，问答面板按语言取
 
 ---
 
-### Task 9: 叙事与场次卡双语化
-
-**归属：C（同学 C）** ｜ 约 10 小时 ｜ **依赖 Task 2、Task 7**
-
-**Files:**
-- Create: `content/story.json`、`content/cinematics.json`
-- Modify: `src/data/story.js`、`src/data/cinematics.js`
-- Modify: `src/scenes/CutsceneScene.js:121`（`this.journey.subtitle` 改为取本地化后的值）
-- Modify: `src/ui/Hud.js:4`（`STAGE_CARDS` 改为 `stageCard(stage)`）
-- Modify: `tests/story-data.test.js`、`tests/cinematics.test.js`（机械加 `.zh` / 改用本地化访问器）
-- Test: `tests/narrative-i18n.test.js`（新建）
-
-**Interfaces:**
-- Produces:
-  - `story.js`：`OPENING_SHOTS`、`JOURNEYS`、`ENDING_SHOTS` 的文本字段变 `{zh,en}`；`buildOpeningTimeline()`/`buildEndingTimeline()` 在**调用时**按当前语言把 `subtitle` 与 `credits` 摊平成字符串；新增 `getJourney(chapter)` 返回摊平后的 `{label, subtitle, accent, tint, chapter, stage}`
-  - `cinematics.js`：`ACT_CARDS`、`STAGE_CARDS` 的 `title`/`subtitle`/`hint`/`star` 变 `{zh,en}`；`buildCard()` 内部按当前语言拼 `eyebrow` 与卡片正文；新增 `stageCard(stage)` 返回摊平后的场次卡；`formatReport()` 的 `label` 走 `content/cinematics.json` 的 `labels.report`
-  - `content/cinematics.json` 额外带一个 `labels` 块：
-
-```json
-{
-  "labels": {
-    "eyebrow": { "zh": "第 {numeral} 幕 · 场 {stage} · {star}", "en": "Act {numeral} · Stage {stage} · {star}" },
-    "report": {
-      "elapsed": { "zh": "用时", "en": "Time" },
-      "kills": { "zh": "击杀", "en": "Kills" },
-      "triggers": { "zh": "脉流触发", "en": "Pulses" },
-      "combos": { "zh": "联组", "en": "Combos" }
-    }
-  }
-}
-```
-
-- [ ] **Step 1: 写失败测试 `tests/narrative-i18n.test.js`**
-
-```js
-import { describe, it, expect, beforeEach } from 'vitest';
-import { buildOpeningTimeline, buildEndingTimeline, getJourney } from '../src/data/story.js';
-import { buildCard, stageCard, formatReport } from '../src/data/cinematics.js';
-import { setLocale } from '../src/logic/locale.js';
-
-describe('叙事双语', () => {
-  beforeEach(() => setLocale('zh'));
-
-  it('开场时间轴在中文态给出原句，英文态给出英文', () => {
-    expect(buildOpeningTimeline().shots[0].subtitle).toBe('星陨之年，天外的火在王庭熄灭。');
-    setLocale('en');
-    const en = buildOpeningTimeline().shots[0].subtitle;
-    expect(en).toMatch(/^[A-Za-z]/);
-    expect(en).not.toMatch(/[一-鿿]/);
-  });
-
-  it('幕间与结局也随语言切换，时长不变', () => {
-    const zhTotal = buildEndingTimeline().totalMs;
-    setLocale('en');
-    expect(buildEndingTimeline().totalMs).toBe(zhTotal);
-    expect(getJourney(3).subtitle).not.toMatch(/[一-鿿]/);
-  });
-
-  it('场次卡眉栏按语言拼，标题与星名也切换', () => {
-    expect(buildCard('act', 2).eyebrow).toBe('第 Ⅱ 幕 · 场 2 · 天璇');
-    setLocale('en');
-    expect(buildCard('act', 2).eyebrow).toBe('Act II · Stage 2 · Merak');
-    expect(stageCard(2).title).not.toMatch(/[一-鿿]/);
-  });
-
-  it('结算报表的标签也切换', () => {
-    const zh = formatReport({ elapsedMs: 143000, kills: 312, triggers: 980, combos: 26 });
-    expect(zh.map((r) => r.label)).toEqual(['用时', '击杀', '脉流触发', '联组']);
-    setLocale('en');
-    const en = formatReport({ elapsedMs: 143000, kills: 312, triggers: 980, combos: 26 });
-    expect(en.map((r) => r.label)).toEqual(['Time', 'Kills', 'Pulses', 'Combos']);
-    expect(en.map((r) => r.value)).toEqual(['02:23', '312', '980', '26']);
-  });
-});
-```
-
-- [ ] **Step 2: 跑测试确认失败**
-
-```bash
-export NODE_OPTIONS='--require ./scripts/sandbox-noexec.cjs'
-npx vitest run tests/narrative-i18n.test.js --pool=threads
-```
-
-Expected: FAIL，`getJourney`/`stageCard` 不存在
-
-- [ ] **Step 3: 生成 `content/story.json` 与 `content/cinematics.json`**
-
-字段照搬现有结构，只把文本换成 `{zh,en}`；`ms`、`accent`、`tint`、`stage`、`numeral` 这些非文本字段保持原值。星名英文固定为北斗七星专名：天枢 Dubhe、天璇 Merak、天玑 Phecda、天权 Megrez、玉衡 Alioth、开阳 Mizar、摇光 Alkaid。
-
-- [ ] **Step 4: 改 `src/data/story.js`**
-
-保留 `STORY_SKIP_GRACE_MS`、`STORY_MODES`、`buildTimeline`/`shotAt`/`canSkipStory` 的签名与行为；`buildTimeline` 在摊平时对 `subtitle` 与 `credits` 套 `t()`；新增 `getJourney(chapter)`。
-
-- [ ] **Step 5: 改 `src/data/cinematics.js`**
-
-- `buildCard()` 保留原签名（`kind, stage, report`），内部用 `getLocale()` 拼 `eyebrow`：模板来自 `content/cinematics.json` 的 `labels.eyebrow`，`{numeral}` 用 `ACT_CARDS[stage].numeral`（罗马数字，中英一致）、`{stage}` 用场号、`{star}` 用该场星名的当前语言值。
-- 新增 `stageCard(stage)`：返回 `{ numeral, star, title, accent }`，文本已摊平。
-- `formatReport()` 的四个 `label` 走 `labels.report`。
-- `COMPACT` 里的「起 手 契 约」等标题也进 `content/cinematics.json` 的 `compact` 块。
-
-- [ ] **Step 6: 改两个消费点**
-
-- `src/scenes/CutsceneScene.js:121`：`this.journey.subtitle` → `t(this.journey.subtitle)`（或在取 journey 时就用 `getJourney`）。
-- `src/ui/Hud.js:4`：`import { STAGE_CARDS }` → `import { stageCard }`，下游 `STAGE_CARDS[stage].title` 改 `stageCard(stage).title`。`src/scenes/BattleScene.js:50` 同样处理。
-
-- [ ] **Step 7: 机械更新两个老测试**
-
-`tests/story-data.test.js`：`tl.shots[0].subtitle` 仍是字符串（已摊平），字面量不动；若有直接读 `OPENING_SHOTS[...]` 的地方，加 `.subtitle.zh`。
-`tests/cinematics.test.js:115-124`：`ACT_CARDS[2].title` → `.title.zh`；`card.eyebrow` 的断言在默认 zh 下不变。
-
-- [ ] **Step 8: 跑测试与校验器**
-
-```bash
-export NODE_OPTIONS='--require ./scripts/sandbox-noexec.cjs'
-npx vitest run tests/narrative-i18n.test.js tests/story-data.test.js tests/cinematics.test.js tests/cutscene-scene.test.js tests/hud.test.js --pool=threads
-node scripts/verify-content.mjs
-```
-
-Expected: 全 PASS；校验器 `ok: true`
-
-- [ ] **Step 9: 全量回归**
-
-```bash
-export NODE_OPTIONS='--require ./scripts/sandbox-noexec.cjs'
-npx vitest run --pool=threads
-```
-
-Expected: 全 PASS
-
-- [ ] **Step 10: Commit**
-
-```bash
-git add content/story.json content/cinematics.json src/data/story.js src/data/cinematics.js src/scenes/CutsceneScene.js src/scenes/BattleScene.js src/ui/Hud.js tests/story-data.test.js tests/cinematics.test.js tests/narrative-i18n.test.js
-git commit -m "feat: 开场/幕间/结局与场次卡外置双语，眉栏与报表按语言拼装"
-```
-
----
-
-### Task 10: 卡牌提示与标题页双语化
-
-**归属：C（同学 C）译稿，B（同学 B）改标题页** ｜ 约 8 小时 ｜ **依赖 Task 2、Task 7**
-
-**Files:**
-- Create: `content/cards.json`（`CARD_HINTS` 全量）
-- Create: `content/title.json`（标题页文案）
-- Modify: `src/data/card-hints.js`
-- Modify: `src/scenes/TitleScene.js`
-- Modify: `src/scenes/BattleScene.js:45`、`src/scenes/IntermissionScene.js:13`（`CARD_HINTS[id]` → `hintOf(id)`）
-- Modify: `tests/editor-ui.test.js`（若直接读 `CARD_HINTS`，改用 `hintOf`）
-- Test: `tests/cards-i18n.test.js`（新建）
-
-**Interfaces:**
-- Produces:
-  - `hintOf(defId): string` —— 返回当前语言的卡牌一句话（已存在，改为从 JSON 取并套 `t()`）
-  - `CARD_HINTS` 仍导出，但值是 `{zh, en}`；`hintOf` 是唯一推荐读取方式
-  - `content/title.json` 形状：`{ "title": {zh,en}, "prompt": {...}, "keys": {...}, "help": [...], "helpHeader": {...}, "helpFooter": {...} }`（每项都是文本对象；`help` 是文本对象数组，顺序即显示顺序）
-
-- [ ] **Step 1: 写失败测试 `tests/cards-i18n.test.js`**
-
-```js
-import { describe, it, expect, beforeEach } from 'vitest';
-import { CARD_HINTS, hintOf } from '../src/data/card-hints.js';
-import { setLocale, t } from '../src/logic/locale.js';
-import title from '../content/title.json' with { type: 'json' };
-
-describe('卡牌提示与标题页双语', () => {
-  beforeEach(() => setLocale('zh'));
-
-  it('26 条提示都是双语对象，中文逐字不变', () => {
-    expect(Object.keys(CARD_HINTS)).toHaveLength(26);
-    for (const [id, hint] of Object.entries(CARD_HINTS)) {
-      expect(Object.keys(hint).sort(), id).toEqual(['en', 'zh']);
-    }
-    expect(CARD_HINTS.arcane_bolt.zh).toBe('单体 12 伤害');
-    expect(hintOf('arcane_bolt')).toBe('单体 12 伤害');
-    expect(hintOf('nope')).toBe('');
-  });
-
-  it('英文态下 hintOf 返回英文且长度可控', () => {
-    setLocale('en');
-    expect(hintOf('arcane_bolt')).toMatch(/[A-Za-z]/);
-    for (const hint of Object.values(CARD_HINTS)) expect(hint.en.length).toBeLessThanOrEqual(60);
-  });
-
-  it('标题页文案双语齐全', () => {
-    expect(t(title.title)).toBe('共振法阵');
-    setLocale('en');
-    expect(t(title.title)).toBe('Sigilweave');
-    expect(t(title.keys)).not.toMatch(/[一-鿿]/);
-    expect(title.help.length).toBeGreaterThanOrEqual(6);
-    for (const line of title.help) expect(Object.keys(line).sort()).toEqual(['en', 'zh']);
-  });
-});
-```
-
-- [ ] **Step 2: 跑测试确认失败**
-
-```bash
-export NODE_OPTIONS='--require ./scripts/sandbox-noexec.cjs'
-npx vitest run tests/cards-i18n.test.js --pool=threads
-```
-
-Expected: FAIL，`content/title.json` 不存在
-
-- [ ] **Step 3: 生成 `content/cards.json` 与 `content/title.json`**
-
-`cards.json` = 现有 `CARD_HINTS` 26 条，值改 `{zh,en}`。
-`title.json` 从 `src/scenes/TitleScene.js` 的 12 条中文字面量（标题、开始提示、操作键位两行、玩法说明七行、关闭提示）逐字搬出。
-
-- [ ] **Step 4: 改 `src/data/card-hints.js`**
-
-```js
-import raw from '../../content/cards.json' with { type: 'json' };
-import { t } from '../logic/locale.js';
-export const CARD_HINTS = Object.freeze(raw);
-export function hintOf(defId) { return t(CARD_HINTS[defId] ?? ''); }
-```
-
-`t('')` 必须返回 `''`（Task 2 已保证）。
-
-- [ ] **Step 5: 改三个消费点与 `TitleScene`**
-
-- `BattleScene.js:45`、`IntermissionScene.js:13`：`import { CARD_HINTS }` → `import { hintOf }`，下游 `CARD_HINTS[x.id]` → `hintOf(x.id)`。
-- `TitleScene.js`：全部 12 条文案改读 `content/title.json` 并套 `t()`；玩法说明那页改成遍历 `title.help` 逐行渲染（行高沿用现有 `12/40/58/76/102/120/146/172` 的节奏，不要重排版）。英文态下标题字号从 34 收到 26，避免 `Sigilweave` 撑出画布。
-
-- [ ] **Step 6: 跑测试、校验器与全量回归**
-
-```bash
-export NODE_OPTIONS='--require ./scripts/sandbox-noexec.cjs'
-npx vitest run tests/cards-i18n.test.js tests/editor-ui.test.js tests/hud.test.js --pool=threads
-node scripts/verify-content.mjs
-npx vitest run --pool=threads
-```
-
-Expected: 全 PASS；校验器 `ok: true`
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add content/cards.json content/title.json src/data/card-hints.js src/scenes/TitleScene.js src/scenes/BattleScene.js src/scenes/IntermissionScene.js tests/editor-ui.test.js tests/cards-i18n.test.js
-git commit -m "feat: 卡牌提示与标题页外置双语，标题页说明改为按行渲染"
-```
-
----
-
-### Task 11: 试玩清单与 R1 报告模板
+### Task 9: 试玩清单与 R1 报告模板
 
 **归属：C（同学 C）** ｜ 约 4 小时 ｜ **无依赖**
 
@@ -1187,9 +946,9 @@ git commit -m "docs: 试玩清单与报告模板，四步引导按秒记录"
 
 ---
 
-### Task 12: 前 15 分钟现状时间轴
+### Task 10: 前 15 分钟现状时间轴
 
-**归属：C（同学 C）** ｜ 约 8 小时 ｜ **依赖 Task 11 的清单口径**
+**归属：C（同学 C）** ｜ 约 8 小时 ｜ **依赖 Task 9 的清单口径**
 
 **Files:**
 - Create: `docs/前15分钟时间轴.md`
@@ -1228,7 +987,7 @@ git commit -m "docs: 前 15 分钟现状时间轴与空走段清单"
 
 ---
 
-### Task 13: UI 可读性现状清单（带截图）
+### Task 11: UI 可读性现状清单（带截图）
 
 **归属：B（同学 B）** ｜ 约 6 小时 ｜ **无依赖**
 
@@ -1277,7 +1036,7 @@ git commit -m "docs: UI 可读性截图清单与分阶段待办"
 
 ---
 
-### Task 14: 一个完整周循环收口
+### Task 12: 一个完整周循环收口
 
 **归属：A（年糕）** ｜ 约 4 小时 ｜ **依赖前面全部任务**
 
@@ -1309,17 +1068,18 @@ npm run build      # 用 sandbox-netuse.cjs 前缀
 
 Expected: 测试全 PASS（原 1363 项 + 本计划新增约 30 项）；校验器 `ok: true`；文档 `missing: []`；构建成功（只允许 chunk 体积警告）
 
-- [ ] **Step 3: 英文态全流程冒烟**
+- [ ] **Step 3: 英文态冒烟（只验题库这一波）**
 
-在本地起 preview，浏览器里执行 `localStorage` 无关的临时开关（本轮没有语言切换 UI，测试用）：
+M0 不做语言切换 UI（那是 M1 标题页重构的一部分），所以用一次性的默认语言改动来验：
 
-```bash
-node -e "console.log('手动步骤：打开 http://127.0.0.1:4173 ，在控制台执行 window.__SIGILWEAVE_LANG__')"
-```
+1. 把 `src/logic/locale.js` 的 `DEFAULT_LOCALE` 临时改成 `'en'`；
+2. `npm run dev`，浏览器打开 `http://127.0.0.1:5173`，玩到第一个 NPC；
+3. 逐条核对：问答面板的题面、两条线索、三个选项、`确认作答`按钮、答完的`破局成功`/`解析`文字、`继续前进`/`准备战斗`按钮，**全部为英文且没有中文残留**；英文题面不溢出面板、按钮文字不撑破边框；
+4. 把 `DEFAULT_LOCALE` 改回 `'zh'`，`git diff` 确认这一步没有留下任何改动。
 
-Expected: 检查项清单（逐条勾）：标题页全英文；开场六镜字幕全英文；与 NPC 对话面板题面/线索/选项全英文；场次卡眉栏为 `Act II · Stage 2 · Merak` 形态；结算报表标签为 `Time/Kills/Pulses/Combos`。**发现任何一处中文残留，记进 `docs/分工与协作.md` 的 M1 待办，不在本任务里修。**
+Expected: 四类文案全英文，无溢出。**标题页、开场字幕、场次卡、结算报表此时仍是中文，属正常** —— 它们在 M1/M2 迁。发现题库一路有中文残留或溢出，记进 `docs/分工与协作.md` 的 M1 待办，不在本任务里修。
 
-> 注：M0 不做语言切换 UI（那是 M1 标题页重构的一部分）。本轮用临时全局钩子验证，验证完把钩子删掉，不留死代码。
+> 起 dev server 用: `export NODE_OPTIONS='--require ./scripts/sandbox-netuse.cjs'; npx vite`
 
 - [ ] **Step 4: 追加收口记录并改 README**
 
@@ -1339,33 +1099,45 @@ Expected: push 成功；GitHub Actions 的 build/deploy 两个 job 都绿；Page
 
 ## Self-Review
 
-**1. Spec 覆盖**
+**1. Spec 覆盖（对照 v1.3 的 M0 表）**
 
 | spec 要求（M0） | 落在哪个任务 |
 |---|---|
-| 三块所有权落地 `docs/分工与协作.md` | Task 1、Task 14 |
-| 全部玩家可见文本外置 `{zh,en}` | Task 8、9、10（一波）+ 本文档「分两波」表格（二波进 M1/M2） |
+| 三块所有权落地 `docs/分工与协作.md` | Task 1、Task 12 |
+| 题库与问答面板外置 `{zh,en}`（决策 13 的 M0 波次，约 386 条） | Task 8 |
 | `scripts/verify-content.mjs` + CI | Task 7 |
 | `src/tutorial` 挂接点与事件总线 | Task 3、4、5 |
 | 数值两层拆分 | Task 6 |
-| 第一轮试玩（5~8 人） | Task 11（清单与模板）；**实际执行需要真人，是 M0 期间的组织工作，不是本计划的代码任务** |
-| 开场 15 分钟时间轴诊断 | Task 12 |
-| UI 可读性清单 | Task 13 |
-| M0 出口：三块跑通一次周循环 | Task 14 |
+| 第一轮试玩（5~8 人） | Task 9（清单与模板）；**实际执行需要真人，是 M0 期间的组织工作，不是本计划的代码任务** |
+| 开场 15 分钟时间轴诊断 | Task 10 |
+| UI 可读性清单 | Task 11 |
+| M0 出口：三块跑通一次周循环 | Task 12 |
+| 第二波（叙事/场次卡/卡牌/标题页/两场景内联文案/逻辑层消息） | **不在本计划，见「待办移交」** |
+| 第三波（`roster.js` / `map-events.js`） | **不在本计划，见「待办移交」** |
 
-**2. 步骤扫描**：每个任务都有「写测试 → 跑失败 → 实现 → 跑通过 → 提交」的闭环；纯文档任务（1、11、12、13）用 `check-docs.mjs` 与路径存在性脚本代替代码测试，结论可验。没有出现「TBD」「处理边界情况」这类不决定任何事的步骤。
+**2. 步骤扫描**：12 个任务都有「写测试 → 跑失败 → 实现 → 跑通过 → 提交」的闭环；纯文档任务（1、9、10、11）用 `check-docs.mjs` 与路径存在性脚本代替代码测试，结论可验。没有出现「TBD」「处理边界情况」这类不决定任何事的步骤。
 
-**3. 类型一致性**：`t(value, locale)` 在 Task 2 定义、Task 8/9/10 使用，参数形状一致；`createBus` 的 `on` 返回值在 Task 3 定义、Task 4 的 `destroy` 使用；`TUTORIAL_EVENTS` 的四个值在 Task 4 定义、Task 5 的 `emitTutorial` 与测试引用同一常量而非字面量；`hintOf(defId)` 在 Task 10 定义并统一了三个消费点；`stageCard(stage)` 在 Task 9 定义，Hud 与 BattleScene 都改用它。
+**3. 类型一致性**：`t(value, locale)` 在 Task 2 定义、Task 8 使用，参数形状一致；`createBus` 的 `on` 返回值在 Task 3 定义、Task 4 的 `destroy` 使用；`TUTORIAL_EVENTS` 的四个值在 Task 4 定义、Task 5 的 `emitTutorial` 与测试引用同一常量而非字面量；`isText(value)` 在 Task 7 定义，Task 8 的 `src/logic/encounters.js` 复用它校验 `{zh,en}` 而不是另写一套。
 
-**4. Review Focus 的测试归属**：第 1 条（英文残留）→ Task 2 的显式 locale 测试 + Task 8/9/10 各一条 en 断言 + Task 14 的全流程冒烟；第 2 条（英文过长）→ Task 8 Step 1 的 `length <= 200`、Task 10 Step 1 的 `<= 60`、Task 8 Step 7 的换行宽度；第 3 条（漏写 en 静默变空）→ Task 7 的 `isText` 与 `validateEncounters`、Task 2 的回退断言；第 4 条（状态机乱序重入）→ Task 4 的第 3 条测试；第 5 条（Node 22 与 Node 24 差异）→ Task 7 Step 4 与 Task 8 Step 10 的 `git grep` 检查。
+**4. Review Focus 的测试归属**：第 1 条（英文残留）→ Task 2 的显式 locale 测试 + Task 8 的 en 断言 + Task 12 的全流程冒烟；第 2 条（英文过长）→ Task 8 的 `length <= 200` / `<= 40` 与换行宽度收窄；第 3 条（漏写 en 静默变空）→ Task 7 的 `isText` 与 `validateEncounters`、Task 2 的回退断言；第 4 条（状态机乱序重入）→ Task 4 的第 3 条测试；第 5 条（Node 22 与 Node 24 差异）→ Task 7 Step 4 与 Task 8 Step 10 的 `git grep` 检查。
 
-**5. 篇幅**：本计划约 600 行，spec 约 400 行；代码块只保留测试断言与接口骨架，实现体一律描述而非转录。
+**5. 篇幅与工作量**：本计划约 520 行，spec 约 400 行；代码块只保留测试断言与接口骨架，实现体一律描述而非转录。12 个任务的估算合计约 **150 人时**（A 约 55、B 约 30、C 约 65），低于 spec 给 M0 留的 240 人时 —— 差额是试玩组织、译稿人工校对与首次协作的磨合成本，留下当缓冲，不再塞任务。
 
-## 待办移交下一份计划（不属于 M0）
+## 待办移交下一份计划（M1 / M2，不属于 M0）
 
-- 语言切换 UI 与持久化（M1，标题页重构时一起做）。
-- `src/tutorial/overlay.js` 引导绘制与四步完成率埋点上报（M1）。
-- `BattleScene` / `IntermissionScene` / `GameOverScene` / `PauseMenu` / `meta-ui` / `Hud` / `LoadoutScene` / `StoryScene` / `CutsceneScene` 的内联文案外置（M1/M2 随各自功能重写）。
-- `src/data/roster.js` 符印与怪物名、`src/data/map-events.js` 事件点提示外置（M2）。
-- `src/logic/*` 的校验与反馈消息外置（M1）。
+**M1（随各自功能重写一起做，别单独迁）**
+- 叙事与场次卡外置：`content/story.json` + `content/cinematics.json`（约 84 条），随「开场节奏重排」迁；同时给 `content-schema.js` 加 `validateStory` / `validateCinematics`。
+- 卡牌提示与标题页说明外置：`content/cards.json` + `content/title.json`（约 38 条），随「战斗反馈强化」与「标题页重构」迁。
+- `BattleScene.js`（95）与 `IntermissionScene.js`（92）内联文案，随各自改版迁；逻辑层校验与反馈消息（约 117 条）同批。
+- 语言切换 UI 与持久化（`localStorage`）、`?lang=en` 查询参数。
+- `src/tutorial/overlay.js` 引导绘制与四步完成率埋点上报。
+
+**M2**
+- `src/data/roster.js` 符印与怪物名（72）、`src/data/map-events.js` 事件点提示（41）。
+- 其余场景与 UI 零散文案（约 90）。
+
+**M4**
+- 全量核对：`npm run verify:content` 必须覆盖全部 6 类内容文件；再跑一次 en 态全流程冒烟与术语表一致性检查。
+
+**其余功能项**
 - 拖放装阵（M1）、配乐三段（M2）、大 Boss 多阶段（M3）。
