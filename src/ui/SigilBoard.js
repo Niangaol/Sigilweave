@@ -9,8 +9,8 @@ import { decoratePlan } from './board-decor.js';
 // 竖屏（手机）时罗盘放大搬到触控台：面板 448 宽、格子 100×30，点得动看得清。
 const BOARD_LANDSCAPE = {
   // 右下角固定小窗：整屏地图是主画面，法阵只作为罗盘常驻
-  panel: { x: 326, y: 174, w: 152, h: 86 },
-  left: 346,
+  panel: { x: 318, y: 174, w: 152, h: 86 },
+  left: 338,
   top: 200,
   cellW: 29,
   cellH: 11,
@@ -81,11 +81,11 @@ export default class SigilBoard {
     this.flashes = new Map(); // cellId -> { kind, start, dur }
     this.startCell = null;
     this.detailVisible = false;
-    this.detailTitle = addText(scene, 8, 196, '最闲六格', 8, HEX.brassLight).setDepth(520).setVisible(false).setScrollFactor(0);
-    this.detailNote = addText(scene, 62, 196, '2.0s/跳', 7, HEX.mute).setDepth(520).setVisible(false).setScrollFactor(0);
+    this.detailTitle = addText(scene, 11, 196, '最闲六格', 8, HEX.brassLight).setDepth(520).setVisible(false).setScrollFactor(0);
+    this.detailNote = addText(scene, 65, 196, '2.0s/跳', 7, HEX.mute).setDepth(520).setVisible(false).setScrollFactor(0);
     this.detailLines = [];
     for (let i = 0; i < 6; i++) {
-      const t = addText(scene, 8, 208 + i * 9, '', 8, HEX.parchment).setDepth(521).setVisible(false).setScrollFactor(0);
+      const t = addText(scene, 11, 208 + i * 9, '', 8, HEX.parchment).setDepth(521).setVisible(false).setScrollFactor(0);
       this.detailLines.push(t);
     }
     this.drawBase();

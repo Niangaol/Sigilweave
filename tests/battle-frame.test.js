@@ -234,3 +234,17 @@ describe('画框接入战斗场景', () => {
     expect(createBattleFrame(frameScene(), { seed: 'run-x', stage: 1 })).toBeUndefined();
   });
 });
+
+import { applyBoardLayout, BOARD, hullPoints } from '../src/ui/SigilBoard.js';
+
+describe('罗盘为画框让位', () => {
+  it('横屏面板与台面都不越过内开口（右沿 <= 472，下沿 <= 262）', () => {
+    applyBoardLayout(false);
+    expect(BOARD.panel.x).toBe(318);
+    expect(BOARD.panel.x + BOARD.panel.w).toBeLessThanOrEqual(472);
+    expect(BOARD.panel.y + BOARD.panel.h).toBeLessThanOrEqual(262);
+    const hull = hullPoints();
+    expect(Math.max(...hull.map((p) => p.x))).toBeLessThanOrEqual(472);
+    expect(Math.max(...hull.map((p) => p.y))).toBeLessThanOrEqual(262);
+  });
+});
