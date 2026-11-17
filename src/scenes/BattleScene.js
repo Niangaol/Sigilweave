@@ -95,6 +95,8 @@ export default class BattleScene extends Phaser.Scene {
     this.run.encounters ??= createEncounterState(this.run.seed);
     this.run.bossResolutions ??= {};
     // —— 道具技能库（本场有效，随断点存档一起持久化）——
+    // 技能库只来自玩家在升级三选一中实际选中的法术卡：选哪张，哪张就成为 1/2/3 技能。
+    // 开局不预置任何技能；换场清空，读档回到同一场时保留已经选到的技能。
     this.run.skillLibrary ??= [];
     // skillStage 记录技能库归属的场：进新场时清空，读档回到同一场时保留。
     if (this.run.skillStage !== this.stage) {
@@ -106,18 +108,6 @@ export default class BattleScene extends Phaser.Scene {
     // 引擎时间每次进场从 0 重新起算，存档里的 cooldownUntil 是旧时间轴上的值，需清零。
     for (const entry of this.run.skillLibrary) entry.cooldownUntil = 0;
     this.__resume = !!data.__resume;
-    // 第一幕开局：把所选套装的四张主槽法术作为「起手道具」登记进技能库，
-    // 玩家一进场就有 1/2/3 可试；后续随机发放的卡会继续入池并顶替。
-    if (this.stage === 1 && this.run.skillLibrary.length === 0) {
-      const seen = new Set();
-      for (const slot of Object.values(this.run.draft?.slots ?? {})) {
-        if (slot?.kind !== 'sigil' || !SIGIL_DEFS[slot.defId] || seen.has(slot.defId)) continue;
-        seen.add(slot.defId);
-        const def = SIGIL_DEFS[slot.defId];
-        this.run.skillLibrary.push({ defId: slot.defId, name: def.name, kind: def.kind, cdMs: this.skillCdOf(def), cooldownUntil: 0 });
-        if (this.run.skillLibrary.length >= SKILL_SLOT_MAX) break;
-      }
-    }
     // 局外成长档：只读，宝箱/罗盘抽到被动时按此档的等级加成。
     this.metaSave = loadMeta();
     this.playerSlowUntil = 0;
@@ -967,7 +957,8 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   // ---------- 道具技能库（按 1/2/3 主动释放，王者式冷却，每场重置） ----------
-  // 随机发放的法术卡入手时登记进本场技能库；技能库随断点存档持久化，换场清空。
+  // 只有升级三选一里玩家选中的法术卡才会登记进本场技能库：选哪张就是哪个技能。
+  // 辅助卡不入技能库（没有主动法术）；技能库随断点存档持久化，换场清空。
   grantSkill(defId) {
     if (!Object.hasOwn(SIGIL_DEFS, defId)) return;
     const def = SIGIL_DEFS[defId];
@@ -1637,7 +1628,8 @@ export default class BattleScene extends Phaser.Scene {
     if (this.phase !== 'levelup' || !card) return;
     const key = card.kind + ':' + card.defId;
     this.run.hand[key] = (this.run.hand[key] ?? 0) + 1;
-    // 随机发放的符印卡同时登记进本场技能库（辅助卡无对应法术，grantSkill 内部会安全忽略）。
+    // 三选一里玩家选中的这张卡就是本场技能：选攻击就是攻击技能，选防御（圣光壁垒/圣环）就是护盾技能。
+    // 辅助卡没有主动法术，grantSkill 内部会安全忽略，不会占用技能格。
     this.grantSkill(card.defId);
     if (this.levelupHandler) { this.input.off('pointerdown', this.levelupHandler); this.levelupHandler = null; }
     for (const key of ['ONE', 'TWO', 'THREE']) this.input.keyboard?.off('keydown-' + key);
@@ -2029,11 +2021,10 @@ export default class BattleScene extends Phaser.Scene {
     const receipt = resolveBossOnce(this.run, this.stage, bossId, method, tier);
     if (!receipt.ok) return;
     this.shardCount += receipt.reward; this.kills++;
-    // Boss 战利品：问答定义给出法术卡进手牌 + 随机一个罗盘本体增益
+    // Boss 战利品：问答定义给出法术卡进手牌 + 随机一个罗盘本体增益。
+    // 注意：这张卡只进手牌，不自动进技能库——技能库严格来自升级三选一玩家自己选的卡。
     const spellKey = 'sigil:' + stageSpellCard(this.stage);
     this.run.hand[spellKey] = (this.run.hand[spellKey] ?? 0) + 1;
-    // Boss 掉落的法术卡同样进本场技能库。
-    this.grantSkill(stageSpellCard(this.stage));
     const buff = rollBuff(COMPASS_BUFFS, () => this.combatRng.next());
     if (buff) {
       const level = metaLevel(this.metaSave, buff.id);

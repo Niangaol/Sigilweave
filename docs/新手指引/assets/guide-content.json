@@ -2,8 +2,8 @@
   "meta": {
     "game": "共振法阵 Sigilweave",
     "skill": "sigilweave-newbie-guide",
-    "version": "0.4.0",
-    "status": "已接入游戏源码（2026-11-17），答题反应+难度递进+断点存档+道具技能库；待领导验收；可用 ?guide=0 关闭",
+    "version": "0.4.1",
+    "status": "已接入游戏源码（2026-11-17），答题反应+难度递进+断点存档+道具技能库（技能来自升级三选一玩家所选卡，含防御卡）；待领导验收；可用 ?guide=0 关闭",
     "coverage": "第一幕 G00-G04；第二幕 G05-G08；第三幕 G09-G11；第四幕及以后 G12；答题反应 QUIZ_FIRST_CORRECT/QUIZ_WRONG；新功能 SKILL_GAIN/SKILL_CAST/SAVE_RESUME（整局各一次）",
     "artStyle": "西幻像素风：480x270 逻辑画布、硬边色块、Palette.js 色板、无渐变无模糊；见 references/visual-style.md",
     "sourceCommit": "0a48bab",
@@ -54,8 +54,8 @@
       "pet": { "emotion": "happy", "action": "符印亮了一下" },
       "lines": [
         "叮！升级啦～",
-        "三张牌选一张进手牌就好，它不会自己上阵哦。",
-        "点一张，或者按 1 / 2 / 3！"
+        "三张牌里选一张——符印卡会成为你这一场的技能哦。",
+        "辅助卡是被动增益、不占技能格；点一张，或者按 1 / 2 / 3！"
       ],
       "highlight": null,
       "advance": { "type": "tap" },
@@ -322,9 +322,9 @@
       "trigger": { "scene": "BattleScene", "event": "skillGranted", "oncePerRun": true },
       "pet": { "emotion": "excited", "action": "爪子点亮一枚技能符印" },
       "lines": [
-        "喵！新道具进技能库啦——按 1 / 2 / 3 就能放～",
-        "放一次要等冷却，技能格子暗下去就是还没好哦！",
-        "每换一场技能库会清零，这一场捡到什么就用什么～"
+        "喵！你选的卡进技能库啦——按 1 / 2 / 3 就能放～",
+        "选攻击就是攻击法术，选圣光壁垒这类防御卡就是护盾哦！",
+        "放一次要等冷却；换一场技能库清零，这一场选到什么就有什么技能～"
       ],
       "highlight": null,
       "advance": { "type": "tap" },
