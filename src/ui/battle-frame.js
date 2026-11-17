@@ -106,6 +106,11 @@ function toCanvas(edge, along, inward) {
 const W = 480;
 const H = 270;
 const INK = C.outline;
+export const FRAME_DEBRIS_CAP = 8;
+// 设计文档写的是 0.06 px/ms²，那是 1 秒内位移 3 万像素的加速度：1px 碎屑 100ms 内就飞出画面，
+// 6 帧一闪根本看不见。这里按「1 秒掉出画面」反解，取 0.0006 px/ms²。
+const GRAVITY = 0.0006;    // px/ms²，碎屑下落
+const DEBRIS_LIFE = 1600;  // ms，一颗碎屑的存活时长
 
 // 框体五层：从外到内 1/2/1/3/1，加起来正好 8px
 function paintBands(g, stone, brass, brassDark) {
@@ -183,6 +188,9 @@ export default class BattleFrame {
     this.base = scene.add.graphics().setScrollFactor(0).setDepth(6000);
     this.wear = scene.add.graphics().setScrollFactor(0).setDepth(6001);
     this.dyn = scene.add.graphics().setScrollFactor(0).setDepth(6002);
+    this.debris = [];
+    this.rng = new Rng(`frame-debris:${this.seed}`);
+    this.spawnAcc = 0;
     this.drawBase(this.tone);
     this.drawWear(this.tone);
   }
@@ -228,6 +236,118 @@ export default class BattleFrame {
       }
     }
   }
+
+  // 每帧入口。dt<=0（暂停、顿帧）时碎屑既不生成也不推进，画面彻底静止
+  update({ ratio, now, dt } = {}) {
+    const step = Number.isFinite(dt) ? Math.max(0, dt) : 0;
+    const t = Number.isFinite(now) ? now : 0;
+    this.setRatio(ratio);
+    this.dyn.clear();
+    this.stepDebris(step);
+    this.spawnDebris(step);
+    this.paintDyn(t);
+  }
+
+  stepDebris(dt) {
+    if (dt <= 0) return;
+    const alive = [];
+    for (const d of this.debris) {
+      d.vy += GRAVITY * dt;
+      d.x += d.vx * dt;
+      d.y += d.vy * dt;
+      d.life -= dt;
+      if (d.life > 0 && d.y < H && d.x > 0 && d.x < W) alive.push(d);
+    }
+    this.debris = alive;
+  }
+
+  // 期望生成率攒够一颗就掉一颗：低帧率下不会漏，也不会一帧爆一堆
+  spawnDebris(dt) {
+    const perMs = this.tone.debrisPerSec / 1000;
+    if (dt <= 0 || perMs <= 0) return;
+    this.spawnAcc += perMs * dt;
+    while (this.spawnAcc >= 1) {
+      this.spawnAcc -= 1;
+      if (this.debris.length >= FRAME_DEBRIS_CAP) continue;
+      this.debris.push(this.makeDebris());
+    }
+  }
+
+  makeDebris() {
+    const r = this.rng;
+    const side = r.int(4);
+    const along = 8 + r.int(side < 2 ? W - 16 : H - 16);
+    const size = r.int(2) === 0 ? 1 : 2;
+    const x = side === 0 ? along : side === 1 ? along : side === 2 ? 4 : W - 5;
+    const y = side === 0 ? 4 : side === 1 ? H - 5 : along;
+    return {
+      x,
+      y,
+      vx: (r.next() - 0.5) * 0.04,
+      vy: 0.02 + r.next() * 0.03,
+      life: DEBRIS_LIFE * (0.7 + r.next() * 0.6),
+      size,
+      tone: r.int(2) === 0 ? 'brass' : 'stone',
+    };
+  }
+
+  // 动态层只用 fillRect：单帧图元控制在 60 以内，斜线交给静态层
+  paintDyn(now) {
+    const tone = this.tone;
+    const g = this.dyn;
+    const glow = mixColor(C.brassLight, C.blood, tone.bloodMix);
+
+    // 呼吸：内缘 1px 高光，缓慢明灭；脉动档这层交给心跳
+    if (tone.breathHz > 0) {
+      const a = 0.18 + 0.12 * Math.sin((2 * Math.PI * tone.breathHz * now) / 1000);
+      pxFrame(g, 7, 7, W - 14, H - 14, glow, 1, a);
+    }
+
+    // 心跳：低血时内缘 2px 血色光晕，与 HUD 的低血闪烁同频
+    if (tone.pulseHz > 0) {
+      const k = 0.5 + 0.5 * Math.sin((2 * Math.PI * tone.pulseHz * now) / 1000);
+      pxFrame(g, 8, 8, W - 16, H - 16, C.blood, 2, 0.15 + 0.4 * k);
+    }
+
+    // 渗血：四角内侧竖向渗痕，长度随呼吸伸缩
+    if (tone.seep > 0) {
+      const len = Math.round((4 + 6 * (0.5 + 0.5 * Math.sin(now / 900))) * tone.seep);
+      const seepColor = mixColor(C.bloodDark, C.blood, tone.seep);
+      if (len > 0) {
+        for (const [x, y] of cornerStreaks()) pxRect(g, x, y, 2, len, seepColor, 0.85);
+      }
+    }
+
+    // 宝石高光：四角一像素反光，转得慢，读作"还有一口气"
+    const gemA = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(now / 1400));
+    for (const [x, y] of gemSpots()) pxRect(g, x, y, 1, 1, C.bone, gemA);
+
+    // 碎屑
+    for (const d of this.debris) {
+      const color = d.tone === 'brass' ? C.brassDark : C.stoneDark;
+      pxRect(g, d.x, d.y, d.size, d.size, color, Math.max(0, Math.min(1, d.life / DEBRIS_LIFE)));
+    }
+  }
+}
+
+// 四角渗血起点（内缘内侧 1px）
+function cornerStreaks() {
+  return [
+    [9, 8],
+    [W - 11, 8],
+    [9, H - 8],
+    [W - 11, H - 8],
+  ];
+}
+
+// 四角宝石中心（14×14 角花，中心 7,7）
+function gemSpots() {
+  return [
+    [7, 7],
+    [W - 7, 7],
+    [7, H - 7],
+    [W - 7, H - 7],
+  ];
 }
 
 function clampX(x) { return Math.max(0, Math.min(W - 1, x)); }

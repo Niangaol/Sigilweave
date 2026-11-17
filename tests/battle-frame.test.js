@@ -165,3 +165,40 @@ describe('BattleFrame 静态层', () => {
     expect(frame.wear.calls.length).toBe(before);
   });
 });
+
+import { FRAME_DEBRIS_CAP } from '../src/ui/battle-frame.js';
+
+describe('BattleFrame 动态层', () => {
+  it('完好档动态层只有呼吸，不产生碎屑', () => {
+    const frame = new BattleFrame(fakeScene(), 'seed');
+    for (let t = 0; t < 3000; t += 16) frame.update({ ratio: 1, now: t, dt: 16 });
+    expect(frame.debris).toHaveLength(0);
+  });
+  it('破损档 3 秒内产生碎屑且不超过上限', () => {
+    const frame = new BattleFrame(fakeScene(), 'seed');
+    let now = 0;
+    for (let i = 0; i < 190; i++) { now += 16; frame.update({ ratio: 0.1, now, dt: 16 }); }
+    expect(frame.debris.length).toBeGreaterThan(0);
+    expect(frame.debris.length).toBeLessThanOrEqual(FRAME_DEBRIS_CAP);
+  });
+  it('暂停（dt=0 且 now 不前进）时不新增碎屑、不动画', () => {
+    const frame = new BattleFrame(fakeScene(), 'seed');
+    for (let t = 0; t < 2000; t += 16) frame.update({ ratio: 0.1, now: t, dt: 16 });
+    const before = frame.debris.map((d) => ({ ...d }));
+    for (let i = 0; i < 30; i++) frame.update({ ratio: 0.1, now: 2000, dt: 0 });
+    expect(frame.debris).toEqual(before);
+  });
+  it('单帧动态层图元不超过 60 个', () => {
+    const frame = new BattleFrame(fakeScene(), 'seed');
+    frame.update({ ratio: 0.1, now: 1234, dt: 16 });
+    const rects = frame.dyn.calls.filter((c) => c[0] === 'rect').length;
+    expect(rects).toBeLessThanOrEqual(60);
+  });
+  it('血量比例喂入后 ratio 被夹到 0..1', () => {
+    const frame = new BattleFrame(fakeScene(), 'seed');
+    frame.update({ ratio: 5, now: 0, dt: 16 });
+    expect(frame.ratio).toBe(1);
+    frame.update({ ratio: -2, now: 16, dt: 16 });
+    expect(frame.ratio).toBe(0);
+  });
+});
