@@ -2,7 +2,9 @@
 
 H5 单页游戏：类幸存者 × 牌组构筑 × 空间编程。西幻像素风，480×270 逻辑画布，按屏幕尺寸整数倍原生渲染（大屏同样清晰）；摄像机跟随大世界，法术罗盘固定右下角。
 
-**在线试玩**：<https://niangaol.github.io/Sigilweave/> ｜ **源码**：<https://github.com/Niangaol/Sigilweave>
+**在线试玩**：<https://wangbichun.github.io/Sigilweave/> ｜ **源码**：<https://github.com/wangbichun/Sigilweave>
+
+> 新手指引（灵宠墨宝）现已接入在线版本。想直接查看引导效果，打开 <https://wangbichun.github.io/Sigilweave/?review=1> 可跳过开场剧情、立即弹出墨宝的开场引导；正常游玩不加参数即可，引导会在「选择初始套装」界面首次出现。
 
 ## 快速开始
 
