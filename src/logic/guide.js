@@ -11,8 +11,12 @@ const CARDS = new Map((GUIDE.guides ?? []).map((g) => [g.id, g]));
 const STUCK = new Map((GUIDE.stuckHints ?? []).map((h) => [h.when, h]));
 
 // URL ?guide=0 可整机关闭引导；默认开启。评审阶段方便对比有/无引导。
-export function guideEnabled(params = new URLSearchParams(window.location.search)) {
-  return params.get(GUIDE_ENABLED_KEY) !== '0';
+// 无 window 环境（Node 单测）默认开启，不在参数默认值里访问 window。
+export function guideEnabled(params) {
+  const p = params ?? (typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search)
+    : new URLSearchParams());
+  return p.get(GUIDE_ENABLED_KEY) !== '0';
 }
 
 export function getCard(id) {

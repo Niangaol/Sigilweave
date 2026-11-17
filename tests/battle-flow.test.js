@@ -174,7 +174,7 @@ function makeScene(stage = 1, opts = {}) {
   scene.engine.now = opts.now ?? 120000;
   // 被测方法彼此调用（finishStage → swapStage / buildSummary），把原型方法绑到替身上，
   // 只顶掉渲染与实体重活，流程逻辑全部走真实实现。
-  for (const name of ['finishStage', 'swapStage', 'startBossClearTransition', 'defeatBoss', 'buildSummary', 'checkProgressEvents', 'update']) {
+  for (const name of ['finishStage', 'swapStage', 'startBossClearTransition', 'defeatBoss', 'buildSummary', 'checkProgressEvents', 'update', 'grantSkill', 'skillCdOf', 'saveProgress']) {
     scene[name] = BattleScene.prototype[name].bind(scene);
   }
   return scene;

@@ -1,7 +1,9 @@
 // 标题页：像素祭坛、旋转符环、操作说明；Enter/空格/点击开始
 import Phaser from 'phaser';
-import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, applyPixelZoom, FONT_DISPLAY } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, applyPixelZoom, getRenderScale, FONT_DISPLAY } from '../ui/Palette.js';
 import { playCutscene } from '../ui/transition.js';
+import { describeSave, loadRun } from '../logic/save.js';
+import { chapterOf } from '../logic/acts.js';
 
 // ?scene=xxx 调试跳转只在本次页面加载后生效一次：从祭坛 ESC 回标题时不该被再弹回去
 let jumpConsumed = false;
@@ -73,12 +75,13 @@ export default class TitleScene extends Phaser.Scene {
     const hasHero = this.textures.exists('hero_title');
     const px = hasHero ? 166 : 240;
     const ox = hasHero ? 0 : 0.5;
-    this.prompt = addText(this, px, 201, '按 Enter / 空格 开始　·　选择初始套装', 10, HEX.arcaneLight)
+    this.prompt = addText(this, px, 194, '按 Enter / 空格 开始　·　选择初始套装', 10, HEX.arcaneLight)
       .setOrigin(ox, 0).setDepth(10);
-    addText(this, px, 220, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 暂停菜单', 8, HEX.mute)
+    addText(this, px, 213, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 暂停菜单', 8, HEX.mute)
       .setOrigin(ox, 0).setDepth(10);
-    addText(this, px, 236, 'H 玩法说明　·　B 残响祭坛　·　沿途问答 · 幕间构筑 · 识破契约', 7, HEX.brassDark)
+    addText(this, px, 229, 'H 玩法说明　·　B 残响祭坛　·　沿途问答 · 幕间构筑 · 识破契约', 7, HEX.brassDark)
       .setOrigin(ox, 0).setDepth(10);
+    this.buildContinue(px, ox);
     this.buildHelp();
 
     // 输入：三种方式都能开始
@@ -87,14 +90,47 @@ export default class TitleScene extends Phaser.Scene {
     this.input.on('pointerdown', this.begin, this);
     // B：局外成长入口（帮说明面板开着时不抢按键）
     this.input.keyboard.on('keydown-B', this.openMeta, this);
+    // C：断点续玩（有存档时）
+    this.input.keyboard.on('keydown-C', this.continueGame, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.keyboard.off('keydown-ENTER', this.begin, this);
       this.input.keyboard.off('keydown-SPACE', this.begin, this);
       this.input.keyboard.off('keydown-B', this.openMeta, this);
+      this.input.keyboard.off('keydown-C', this.continueGame, this);
       this.input.off('pointerdown', this.begin, this);
     });
 
     this.drawRing(0);
+  }
+
+  // 断点续玩入口：检测到存档时在标题下方画一条醒目提示，按 C 或点击均可。
+  buildContinue(px, ox) {
+    this.saveInfo = describeSave();
+    if (!this.saveInfo) return;
+    const label = '按 C 继续冒险 · 第 ' + this.saveInfo.chapter + ' 幕 · 第 ' + this.saveInfo.stage + ' 场';
+    this.continueText = addText(this, px, 176, label, 10, HEX.teal, {
+      stroke: '#0d0a17', strokeThickness: 2,
+    }).setOrigin(ox, 0).setDepth(11);
+    // 点击热区（文案范围）；begin 的全局 pointerdown 已在 started 时自我保护。
+    const w = label.length * 11 + 16;
+    const hx = ox === 0.5 ? px - w / 2 : px;
+    const zone = this.add.zone(hx, 174, w, 16).setOrigin(0).setDepth(12).setInteractive({ useHandCursor: true });
+    zone.on('pointerdown', (pointer, lx, ly, event) => {
+      event?.stopPropagation?.();
+      this.continueGame();
+    });
+  }
+
+  continueGame() {
+    if (this.started || this.helpOpen) return;
+    const run = loadRun();
+    if (!run) return;
+    this.started = true;
+    // 读档直达战斗场：幕号以 run.stage 为准重算，跳过选套（套装已固化在 run.draft）。
+    playCutscene(this, {
+      kind: 'act', act: chapterOf(run.stage), to: 'BattleScene',
+      payload: { run, __cine: true, __resume: true },
+    });
   }
 
   // 玩法说明：常驻可查，不打断标题
@@ -138,8 +174,14 @@ export default class TitleScene extends Phaser.Scene {
     this.scene.start('MetaScene');
   }
 
-  begin() {
+  begin(pointer) {
     if (this.started) return;
+    // 点击落在「继续冒险」提示条上时，走续玩而不是新游戏（规避全局 pointerdown 与热区顺序问题）
+    if (this.saveInfo && pointer && Number.isFinite(pointer.x) && Number.isFinite(pointer.y)) {
+      const scale = getRenderScale();
+      const lx = pointer.x / scale, ly = pointer.y / scale;
+      if (ly >= 172 && ly <= 192) { this.continueGame(); return; }
+    }
     this.started = true;
     // 标题 → 选套：符文收拢的无缝转场（不压大标题，避免和标题页重复）
     playCutscene(this, { kind: 'sigil', to: 'LoadoutScene', payload: { __cine: true } });

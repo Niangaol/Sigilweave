@@ -58,7 +58,7 @@ export function createRun(seed = 'sigil', kitId = 'bolt') {
   for (const [cellId, slot] of Object.entries(kit.slots)) {
     draft.slots[cellId] = { ...slot };
   }
-  return { seed: String(seed), chapter: 1, stage: 1, shards: 0, draft, hand: {}, runeCosts: {}, reports: [], guideSeen: {} };
+  return { seed: String(seed), chapter: 1, stage: 1, shards: 0, draft, hand: {}, runeCosts: {}, reports: [], guideSeen: {}, skillLibrary: [], skillStage: 1 };
 }
 
 // 幕间报告按「幕」去重：同一幕内的换场不重复记录，进下一幕才写第二条。
