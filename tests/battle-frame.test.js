@@ -233,6 +233,24 @@ describe('BattleFrame 动态层', () => {
     expect(frame.debris).toEqual(debrisBefore);
     expect(lastFrame()).toBe(callsBefore);
   });
+  it('碎屑只在左右两条竖框里下落，30 秒里没有一颗飘进画面（终审 nit 3）', () => {
+    // 上沿掉渣要横穿整幅画面才落地，会被读成画面里的噪点而不是画框在碎；
+    // 所以只从左右竖框生成，且横向抖动也被夹在 8px 框身里。
+    const frame = new BattleFrame(fakeScene(), 'frame:frame:1');
+    let seen = 0;
+    let offBand = 0;
+    for (let now = 16; now <= 30000; now += 16) {
+      frame.update({ ratio: 0.1, now, dt: 16 });
+      for (const d of frame.debris) {
+        seen++;
+        const left = d.x >= 2 && d.x + d.size <= 8;
+        const right = d.x >= 480 - 8 && d.x + d.size <= 480;
+        if (!left && !right) offBand++;
+      }
+    }
+    expect(seen).toBeGreaterThan(100);
+    expect(offBand).toBe(0);
+  });
   it('最坏帧：碎屑撑满 8 颗时，单帧动态层图元仍不超过 60 个', () => {
     const frame = new BattleFrame(fakeScene(), 'seed');
     frame.setRatio(0.1);
@@ -297,10 +315,12 @@ describe('画框接入战斗场景', () => {
 import { applyBoardLayout, BOARD, hullPoints } from '../src/ui/SigilBoard.js';
 
 describe('罗盘为画框让位', () => {
-  it('横屏面板与台面都不越过内开口（右沿 <= 472，下沿 <= 262）', () => {
+  it('横屏面板与台面都不越过内开口，也不被右下角角花咬掉（终审 nit 4）', () => {
     applyBoardLayout(false);
     expect(BOARD.panel.x).toBe(318);
     expect(BOARD.panel.x + BOARD.panel.w).toBeLessThanOrEqual(472);
+    // 右下角角花占 x466..479 × y256..269（14×14），面板下沿早于 y256 才不被咬
+    expect(BOARD.panel.y + BOARD.panel.h).toBeLessThan(256);
     expect(BOARD.panel.y + BOARD.panel.h).toBeLessThanOrEqual(262);
     const hull = hullPoints();
     expect(Math.max(...hull.map((p) => p.x))).toBeLessThanOrEqual(472);

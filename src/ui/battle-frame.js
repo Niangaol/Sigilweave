@@ -278,6 +278,9 @@ export default class BattleFrame {
       d.x += d.vx * dt;
       d.y += d.vy * dt;
       d.life -= dt;
+      // 横向抖动也不许离开框身：碎屑最宽 2px，左窄带 2..6、右窄带 W-7..W-3
+      const lo = d.side === 'right' ? W - 7 : 2;
+      d.x = Math.min(Math.max(d.x, lo), lo + 4);
       if (d.life > 0 && d.y < H && d.x > 0 && d.x < W) next.push(d);
     }
     this.spare = this.debris;
@@ -296,19 +299,18 @@ export default class BattleFrame {
     }
   }
 
-  // 碎屑只从上/左/右三个边掉：下沿起手就在画布边上，一落就出画，等于白掉。
-  // 落点收在框身向内 3..6px 的窄带里，掉渣沿框走，不往 UI 上砸。
+  // 碎屑只从左右两条竖框掉：上沿掉渣要横穿整幅画面才落地（终审 nit：59.7% 的帧
+  // 碎屑悬在画面上方），读作画面里的噪点而不是画框在碎；下沿一生成就出画，也不掉。
+  // 这样每一颗都沿框身下滑，全程不出 8px 框身。
   makeDebris() {
     const r = this.rng;
-    const side = r.int(3);                       // 0=上沿 1=左沿 2=右沿
+    const side = r.int(2) === 0 ? 'left' : 'right';
     const inset = 3 + r.int(4);
-    const along = 8 + r.int(side === 0 ? W - 16 : H - 16);
-    const x = side === 0 ? along : side === 1 ? inset : W - 1 - inset;
-    const y = side === 0 ? inset : along;
     return {
-      x,
-      y,
-      vx: (r.next() - 0.5) * 0.016,
+      side,
+      x: side === 'left' ? inset : W - 1 - inset,
+      y: 10 + r.int(H - 20),
+      vx: (r.next() - 0.5) * 0.008,
       vy: 0.02 + r.next() * 0.03,
       life: DEBRIS_LIFE * (0.7 + r.next() * 0.6),
       size: r.int(3) === 0 ? 1 : 2,              // 2×2 为主：1px 在 480×270 上读作噪点

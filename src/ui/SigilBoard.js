@@ -9,7 +9,7 @@ import { decoratePlan } from './board-decor.js';
 // 竖屏（手机）时罗盘放大搬到触控台：面板 448 宽、格子 100×30，点得动看得清。
 const BOARD_LANDSCAPE = {
   // 右下角固定小窗：整屏地图是主画面，法阵只作为罗盘常驻
-  panel: { x: 318, y: 174, w: 152, h: 86 },
+  panel: { x: 318, y: 174, w: 152, h: 80 },
   left: 338,
   top: 200,
   cellW: 29,
