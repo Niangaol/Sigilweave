@@ -73,3 +73,50 @@ describe('顶栏为画框让出 8px', () => {
     expect(rects.some(([x, y, w, h]) => x === 0 && y === 0 && w === 480 && h === 42)).toBe(true);
   });
 });
+
+describe('画框存在时顶栏不往框身里画', () => {
+  function recording() {
+    const made = [];
+    const recorder = () => {
+      const rects = [];
+      const g = {
+        rects,
+        fillStyle: () => g, lineStyle: () => g, strokePoints: () => g, fillPoints: () => g,
+        setDepth: () => g, setScrollFactor: () => g, clear: () => g,
+        fillRect: (x, y, w, h) => { rects.push([x, y, w, h]); return g; },
+      };
+      made.push(g);
+      return g;
+    };
+    const scene = {
+      time: { now: 0 },
+      add: {
+        graphics: recorder,
+        text: (x, y, t) => {
+          const o = { x, y, text: t, setDepth() { return o; }, setOrigin() { return o; }, setResolution() { return o; }, setScrollFactor() { return o; }, setText(v) { o.text = v; return o; } };
+          return o;
+        },
+      },
+    };
+    const hud = new Hud(scene);
+    // Hud 先建 bg 再建 dyn：dyn 是第二个 graphics
+    return { hud, stat: made[0].rects, dyn: made[1].rects };
+  }
+
+  it('顶栏（含低血警告）不往框身里画可见像素，全部落在内开口 x8..471', () => {
+    const { hud, dyn, stat } = recording();
+    hud.update({ hp: 10, maxHp: 100, shards: 0, rate: 0, elapsedMs: 0, chapter: 1, stage: 1 });
+    // 画框占掉 x0..7 / x472..479：顶栏动态层任何图元都不许落进去
+    expect(dyn.length).toBeGreaterThan(0);
+    for (const [x, , w] of dyn) {
+      expect(x).toBeGreaterThanOrEqual(8);
+      expect(x + w).toBeLessThanOrEqual(472);
+    }
+    for (const [x, , w] of stat) {
+      if (w <= 3) {
+        expect(x).toBeGreaterThanOrEqual(8);
+        expect(x + w).toBeLessThanOrEqual(472);
+      }
+    }
+  });
+});

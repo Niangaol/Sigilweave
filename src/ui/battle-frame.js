@@ -27,7 +27,7 @@ export const FRAME_INNER = Object.freeze({ left: 8, top: 8, right: 472, bottom: 
 const TONE = Object.freeze({
   intact: { tier: 'intact', breathHz: 0.30, pulseHz: 0, crackCount: 0, debrisPerSec: 0, seep: 0, bloodMix: 0 },
   worn: { tier: 'worn', breathHz: 0.20, pulseHz: 0, crackCount: 3, debrisPerSec: 0, seep: 0.35, bloodMix: 0.35 },
-  failing: { tier: 'failing', breathHz: 0, pulseHz: 1.10, crackCount: 6, debrisPerSec: 0.9, seep: 1, bloodMix: 1 },
+  failing: { tier: 'failing', breathHz: 0, pulseHz: 1.10, crackCount: 6, debrisPerSec: 4, seep: 1, bloodMix: 1 },
 });
 
 // 两条 0xRRGGBB 颜色按 t 线性插值；t 越界夹到 0..1，非数值当 0
@@ -49,16 +49,17 @@ export function mixColor(a, b, t) {
 // 落到破损档而不是抛错：血量读不出来时，画面宁可惨一点也别崩。
 export function frameTone(ratio) {
   const r = Number.isFinite(ratio) ? ratio : 0;
-  if (r > 0.6) return { ...TONE.intact };
-  if (r > 0.3) return { ...TONE.worn };
-  return { ...TONE.failing };
+  if (r > 0.6) return TONE.intact;
+  if (r > 0.3) return TONE.worn;
+  return TONE.failing;
 }
 
 // 裂纹走位的四条边，按顺序轮转，6 条正好铺满两圈
 const EDGE_ORDER = Object.freeze(['top', 'bottom', 'left', 'right']);
 
-// 一条裂纹的骨架：从画布最外沿起笔，沿向内方向走 6~14px，
+// 一条裂纹的骨架：从画布最外沿起笔，沿向内方向走 4~6px（加 1px 内衬最多 7px），
 // 中途在一个像素上横向岔一格（裂缝的"拐"，也让画面不像梳子）。
+// 深度必须小于 band(8)：内开口从 x/y=8 起就是 HUD 与罗盘的地盘，裂纹只能裂在框身上。
 // 返回 {edge, points:[{x,y}...]}，点与点之间都是 1px 的一步。
 export function frameCracks(seed, count) {
   const n = Number.isFinite(count) ? Math.floor(count) : 0;
@@ -75,8 +76,8 @@ export function frameCracks(seed, count) {
     // 沿边起点：横向边（上/下）有 480 的余量，竖向边（左/右）只有 270，两边分开取
     const horizontal = edge === 'top' || edge === 'bottom';
     const along = 12 + rng.int(horizontal ? 456 : 246);
-    // 端点曼哈顿距离 = 向内步数 + 横向岔格 = (7..14-1) + 1 = 7..14
-    const span = 7 + rng.int(8);
+    // 终点曼哈顿距离 = 向内步数 = 4..6，加上 1px 内衬高光最多到 7，仍留在 8px 框身里
+    const span = 5 + rng.int(3);
     const inwardSteps = span - 1;
     const jogAt = 1 + rng.int(Math.max(1, inwardSteps - 1));
     const jogDir = rng.int(2) === 0 ? 1 : -1;
@@ -108,17 +109,29 @@ const H = 270;
 const INK = C.outline;
 export const FRAME_DEBRIS_CAP = 8;
 // 设计文档写的是 0.06 px/ms²，那是 1 秒内位移 3 万像素的加速度：1px 碎屑 100ms 内就飞出画面，
-// 6 帧一闪根本看不见。这里按「1 秒掉出画面」反解，取 0.0006 px/ms²。
-const GRAVITY = 0.0006;    // px/ms²，碎屑下落
-const DEBRIS_LIFE = 1600;  // ms，一颗碎屑的存活时长
+// 6 帧一闪根本看不见。这里按「1.5 秒左右从框上掉到画布底」反解：0.0002 px/ms² + 初速 0.02~0.05。
+const GRAVITY = 0.0002;    // px/ms²，碎屑下落
+const DEBRIS_LIFE = 2600;  // ms，一颗碎屑的存活时长（长于落地时间，寿命不再是隐形原因）
 
-// 框体五层：从外到内 1/2/1/3/1，加起来正好 8px
+// 框体五层的偏移由 FRAME 递推：从外到内 1/2/1/3/1，加起来正好 8px。
+// 不要把这些数字写死，改厚度时几何会悄悄错位。
+const BAND_OFFSETS = Object.freeze((() => {
+  const out = [];
+  let at = 0;
+  for (const thickness of [FRAME.outer, FRAME.brassDark, FRAME.brass, FRAME.stone, FRAME.inner]) {
+    out.push(Object.freeze({ at, thickness }));
+    at += thickness;
+  }
+  return out;
+})());
+
 function paintBands(g, stone, brass, brassDark) {
-  pxFrame(g, 0, 0, W, H, INK, FRAME.outer);
-  pxFrame(g, FRAME.outer, FRAME.outer, W - FRAME.outer * 2, H - FRAME.outer * 2, brassDark, FRAME.brassDark);
-  pxFrame(g, 3, 3, W - 6, H - 6, brass, FRAME.brass);
-  pxFrame(g, 4, 4, W - 8, H - 8, stone, FRAME.stone);
-  pxFrame(g, 7, 7, W - 14, H - 14, INK, FRAME.inner);
+  const [outer, dark, light, body, line] = BAND_OFFSETS;
+  pxFrame(g, outer.at, outer.at, W - outer.at * 2, H - outer.at * 2, INK, outer.thickness);
+  pxFrame(g, dark.at, dark.at, W - dark.at * 2, H - dark.at * 2, brassDark, dark.thickness);
+  pxFrame(g, light.at, light.at, W - light.at * 2, H - light.at * 2, brass, light.thickness);
+  pxFrame(g, body.at, body.at, W - body.at * 2, H - body.at * 2, stone, body.thickness);
+  pxFrame(g, line.at, line.at, W - line.at * 2, H - line.at * 2, INK, line.thickness);
 }
 
 // 侧边凹槽：框身石面上每 32px 一道 3×2 的暗槽，读作"框是分段的"
@@ -127,8 +140,10 @@ function paintNotches(g, stoneDark) {
     pxRect(g, 4, y, 3, 2, stoneDark, 0.75);
     pxRect(g, W - 7, y, 3, 2, stoneDark, 0.75);
   }
-  for (let x = 24; x <= W - 24; x += FRAME.notchStep) {
-    pxRect(g, x, H - 6, 4, 2, stoneDark, 0.75);
+  // 下沿凹槽严格对称：以 x=W/2 为轴成对落槽，避免中线偏半格
+  for (let d = 8; W / 2 - d - 4 >= 24; d += FRAME.notchStep) {
+    pxRect(g, W / 2 - d - 4, H - 6, 4, 2, stoneDark, 0.75);
+    pxRect(g, W / 2 + d, H - 6, 4, 2, stoneDark, 0.75);
   }
 }
 
@@ -144,6 +159,11 @@ function paintBeam(g, stone, brass, brassDark) {
   }
   pxRect(g, x0 + 8, 4, 12, 1, brass);
   pxRect(g, x0 + FRAME.beamW - 20, 4, 12, 1, brass);
+  // 横梁两侧各 40px 短竖纹（每 8px 一道竖槽），把横梁"钉"在上沿石面上
+  for (let i = 1; i <= 5; i++) {
+    pxRect(g, x0 - i * 8, 2, 1, 4, brassDark);
+    pxRect(g, x0 + FRAME.beamW + i * 8 - 1, 2, 1, 4, brassDark);
+  }
 }
 
 // 四角角花：14×14 黄铜底 + 内凹石面 + 4px 菱形宝石，向画面内凸出 6px
@@ -182,13 +202,13 @@ function diamond(cx, cy, r) {
 export default class BattleFrame {
   constructor(scene, seed = 'frame') {
     this.seed = String(seed);
-    this.ratio = 1;
     this.tone = frameTone(1);
     // 三层同步创建：静态框体 / 裂纹磨损 / 每帧动态（Task 4 用）
     this.base = scene.add.graphics().setScrollFactor(0).setDepth(6000);
     this.wear = scene.add.graphics().setScrollFactor(0).setDepth(6001);
     this.dyn = scene.add.graphics().setScrollFactor(0).setDepth(6002);
     this.debris = [];
+    this.spare = [];   // stepDebris 的双缓冲：复用数组，避免每帧新建（也避免自己清自己）
     this.rng = new Rng(`frame-debris:${this.seed}`);
     this.spawnAcc = 0;
     this.drawBase(this.tone);
@@ -199,9 +219,7 @@ export default class BattleFrame {
   setRatio(ratio) {
     const r = Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : 0;
     const next = frameTone(r);
-    const changed = next.tier !== this.tone.tier;
-    this.ratio = r;
-    if (!changed) return;
+    if (next.tier === this.tone.tier) return;
     this.tone = next;
     this.base.clear();
     this.wear.clear();
@@ -227,12 +245,13 @@ export default class BattleFrame {
     const hi = mixColor(C.brassDark, C.blood, tone.bloodMix);
     const cracks = frameCracks(this.seed, tone.crackCount);
     for (const crack of cracks) {
+      const dir = INSET_DIR[crack.edge];
       const pts = crack.points;
       for (let i = 1; i < pts.length; i++) {
         const a = pts[i - 1];
         const b = pts[i];
         pxLine(this.wear, a.x, a.y, b.x, b.y, C.void, 1);
-        pxLine(this.wear, clampX(a.x + 1), clampY(a.y + 1), clampX(b.x + 1), clampY(b.y + 1), hi, 0.85);
+        pxLine(this.wear, clampX(a.x + dir.x), clampY(a.y + dir.y), clampX(b.x + dir.x), clampY(b.y + dir.y), hi, 0.85);
       }
     }
   }
@@ -248,17 +267,21 @@ export default class BattleFrame {
     this.paintDyn(t);
   }
 
+  // 双缓冲：先把活着的搬进 spare，再交换引用。直接在 this.debris 上 length=0
+  // 会把自己清空后再遍历自己（碎屑永远剩不到 2 颗），这个坑吃过一次。
   stepDebris(dt) {
     if (dt <= 0) return;
-    const alive = [];
+    const next = this.spare;
+    next.length = 0;
     for (const d of this.debris) {
       d.vy += GRAVITY * dt;
       d.x += d.vx * dt;
       d.y += d.vy * dt;
       d.life -= dt;
-      if (d.life > 0 && d.y < H && d.x > 0 && d.x < W) alive.push(d);
+      if (d.life > 0 && d.y < H && d.x > 0 && d.x < W) next.push(d);
     }
-    this.debris = alive;
+    this.spare = this.debris;
+    this.debris = next;
   }
 
   // 期望生成率攒够一颗就掉一颗：低帧率下不会漏，也不会一帧爆一堆
@@ -273,20 +296,22 @@ export default class BattleFrame {
     }
   }
 
+  // 碎屑只从上/左/右三个边掉：下沿起手就在画布边上，一落就出画，等于白掉。
+  // 落点收在框身向内 3..6px 的窄带里，掉渣沿框走，不往 UI 上砸。
   makeDebris() {
     const r = this.rng;
-    const side = r.int(4);
-    const along = 8 + r.int(side < 2 ? W - 16 : H - 16);
-    const size = r.int(2) === 0 ? 1 : 2;
-    const x = side === 0 ? along : side === 1 ? along : side === 2 ? 4 : W - 5;
-    const y = side === 0 ? 4 : side === 1 ? H - 5 : along;
+    const side = r.int(3);                       // 0=上沿 1=左沿 2=右沿
+    const inset = 3 + r.int(4);
+    const along = 8 + r.int(side === 0 ? W - 16 : H - 16);
+    const x = side === 0 ? along : side === 1 ? inset : W - 1 - inset;
+    const y = side === 0 ? inset : along;
     return {
       x,
       y,
-      vx: (r.next() - 0.5) * 0.04,
+      vx: (r.next() - 0.5) * 0.016,
       vy: 0.02 + r.next() * 0.03,
       life: DEBRIS_LIFE * (0.7 + r.next() * 0.6),
-      size,
+      size: r.int(3) === 0 ? 1 : 2,              // 2×2 为主：1px 在 480×270 上读作噪点
       tone: r.int(2) === 0 ? 'brass' : 'stone',
     };
   }
@@ -315,7 +340,7 @@ export default class BattleFrame {
       const len = Math.round((4 + 6 * (0.5 + 0.5 * Math.sin(now / 900))) * tone.seep);
       const seepColor = mixColor(C.bloodDark, C.blood, tone.seep);
       if (len > 0) {
-        for (const s of cornerStreaks()) {
+        for (const s of CORNER_STREAKS) {
           const l = Math.min(len, s.max);
           if (l <= 0) continue;
           pxRect(g, s.x, s.dir > 0 ? s.y : s.y - l, 2, l, seepColor, 0.85);
@@ -325,7 +350,7 @@ export default class BattleFrame {
 
     // 宝石高光：四角一像素反光，转得慢，读作"还有一口气"
     const gemA = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(now / 1400));
-    for (const [x, y] of gemSpots()) pxRect(g, x, y, 1, 1, C.bone, gemA);
+    for (const [x, y] of GEM_SPOTS) pxRect(g, x, y, 1, 1, C.bone, gemA);
 
     // 碎屑
     for (const d of this.debris) {
@@ -336,24 +361,28 @@ export default class BattleFrame {
 }
 
 // 四角渗血起点（内缘内侧 1px）。dir=1 向下渗，dir=-1 向上渗；max 是该角允许的最大长度
-function cornerStreaks() {
-  return [
-    { x: 15, y: 8, dir: 1, max: 5 },
-    { x: W - 17, y: 8, dir: 1, max: 5 },
-    { x: 15, y: H - 8, dir: 1, max: 7 },
-    { x: W - 17, y: H - 8, dir: 1, max: 7 },
-  ];
-}
+const CORNER_STREAKS = Object.freeze([
+  Object.freeze({ x: 15, y: 8, dir: 1, max: 5 }),
+  Object.freeze({ x: W - 17, y: 8, dir: 1, max: 5 }),
+  Object.freeze({ x: 15, y: H - 8, dir: 1, max: 7 }),
+  Object.freeze({ x: W - 17, y: H - 8, dir: 1, max: 7 }),
+]);
 
 // 四角宝石中心（14×14 角花，中心 7,7）
-function gemSpots() {
-  return [
-    [7, 7],
-    [W - 7, 7],
-    [7, H - 7],
-    [W - 7, H - 7],
-  ];
-}
+const GEM_SPOTS = Object.freeze([
+  Object.freeze([7, 7]),
+  Object.freeze([W - 7, 7]),
+  Object.freeze([7, H - 7]),
+  Object.freeze([W - 7, H - 7]),
+]);
+
+// 裂纹高光往"框身内侧"偏 1px：上/左加、下/右减。深度 <= 6 时偏移后仍 <= 7，不会越界
+const INSET_DIR = Object.freeze({
+  top: Object.freeze({ x: 0, y: 1 }),
+  bottom: Object.freeze({ x: 0, y: -1 }),
+  left: Object.freeze({ x: 1, y: 0 }),
+  right: Object.freeze({ x: -1, y: 0 }),
+});
 
 function clampX(x) { return Math.max(0, Math.min(W - 1, x)); }
 function clampY(y) { return Math.max(0, Math.min(H - 1, y)); }

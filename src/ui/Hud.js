@@ -42,11 +42,8 @@ export default class Hud {
     pxRect(g, 0, 0, 480, 42, C.ink, 1);
     pxRect(g, 0, 42, 480, 1, C.brassDark, 1);
     pxRect(g, 0, 27, 480, 1, C.ink, 1);
-    // 边角铆钉
-    for (const x of [3, 474]) {
-      pxRect(g, x, 12, 2, 2, C.brass, 0.7);
-      pxRect(g, x, 23, 2, 2, C.brass, 0.4);
-    }
+    // 顶栏不画边角铆钉：这圈位置现在是画框的框身与角花（8px，depth 6000），
+    // 顶栏的任何像素都会被盖住，画了等于没画。
     // 血条槽与刻度
     pxRect(g, 14, 16, 74, 6, C.nightDeep, 1);
     pxFrame(g, 14, 16, 74, 6, C.stoneDark, 1, 1);
@@ -73,11 +70,8 @@ export default class Hud {
     for (let i = 1; i < 10; i++) {
       pxRect(g, 14 + i * 7, 16, 1, 6, C.nightDeep, 0.45);
     }
-    // 低血警告：左右各闪一条短红边
-    if (ratio <= 0.3 && Math.floor(this.scene.time.now / 260) % 2 === 0) {
-      pxRect(g, 0, 0, 3, 28, C.blood, 0.7);
-      pxRect(g, 477, 0, 3, 28, C.blood, 0.7);
-    }
+    // 低血警告不再画左右短红边：内开口从 x=8 起就被心形与 LV 文字占满，
+    // 任何贴边红条都会压住它们。低血的同频信号交给心形闪白 + 画框的 1.1Hz 血色脉动。
 
     const expRatio = Math.max(0, Math.min(1, exp / Math.max(1, expNeed)));
     pxRect(g, 52, 33, 108, 5, C.nightDeep, 1);
