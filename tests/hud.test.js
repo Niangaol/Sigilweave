@@ -43,3 +43,33 @@ describe('等级经验HUD', () => {
     }
   });
 });
+
+describe('顶栏为画框让出 8px', () => {
+  it('两行文字都落在 y>=12，不会被画框压住', () => {
+    const hud = fixture();
+    expect(hud.hpText.y).toBe(13);
+    expect(hud.timeText.y).toBe(13);
+    expect(hud.lvText.y).toBe(29);
+    expect(hud.expText.y).toBe(29);
+  });
+  it('顶栏底板覆盖到 y=42，画框不再压住任何字', () => {
+    const rects = [];
+    const g = {
+      fillStyle: () => g, lineStyle: () => g, strokePoints: () => g, fillPoints: () => g,
+      setDepth: () => g, setScrollFactor: () => g, clear: () => g,
+      fillRect: (x, y, w, h) => { rects.push([x, y, w, h]); return g; },
+    };
+    const scene = {
+      time: { now: 0 },
+      add: {
+        graphics: () => g,
+        text: (x, y, s) => {
+          const t = { x, y, text: s, setDepth() { return t; }, setOrigin() { return t; }, setResolution() { return t; }, setScrollFactor() { return t; }, setText(v) { t.text = v; return t; } };
+          return t;
+        },
+      },
+    };
+    new Hud(scene);
+    expect(rects.some(([x, y, w, h]) => x === 0 && y === 0 && w === 480 && h === 42)).toBe(true);
+  });
+});
