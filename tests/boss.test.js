@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createBossModel, stepBoss, resolveBossOnce, bossPattern } from '../src/logic/boss.js';
+import { createBossModel, stepBoss, resolveBossOnce, bossPattern, bossStats, BOSS_HP, BOSS_ARMOR } from '../src/logic/boss.js';
 
 const fireOnce = (stage, position = { x: 0, y: 0 }, target = { x: 100, y: 0 }) => {
   const boss = createBossModel(stage);
@@ -126,4 +126,38 @@ describe('统一Boss击败收据', () => {
     expect(resolveBossOnce(run,1,'boss-1','quiz').ok).toBe(false);
   });
   it('未知通关方式不发奖励', () => expect(resolveBossOnce({stage:1},1,'boss-1','skip')).toEqual({ok:false,reward:0}));
+});
+
+describe('Boss 血量与专属固定减伤', () => {
+  it('小 Boss 血量 = base + perStage × 场，场 Boss 再乘 majorMul', () => {
+    expect(BOSS_HP.base).toBeGreaterThan(0);
+    expect(BOSS_HP.perStage).toBeGreaterThan(0);
+    expect(BOSS_HP.majorMul).toBeGreaterThan(1);
+    for (let stage = 1; stage <= 7; stage++) {
+      const base = BOSS_HP.base + BOSS_HP.perStage * stage;
+      expect(bossStats(stage, 'mini').hp).toBe(base);
+      expect(bossStats(stage).hp).toBe(Math.round(base * BOSS_HP.majorMul));
+      expect(bossStats(stage, 'major').hp).toBe(bossStats(stage).hp);
+    }
+    // 血量必须严格随场号上涨（这是「Boss 越来越硬」的契约）
+    for (let stage = 2; stage <= 7; stage++) {
+      expect(bossStats(stage, 'mini').hp).toBeGreaterThan(bossStats(stage - 1, 'mini').hp);
+    }
+  });
+
+  it('减伤固定：小 Boss 25%、场 Boss 30%，且走 armor 通道', () => {
+    expect(BOSS_ARMOR).toEqual({ mini: 0.25, major: 0.30 });
+    for (let stage = 1; stage <= 7; stage++) {
+      expect(bossStats(stage, 'mini').armor).toBe(0.25);
+      expect(bossStats(stage).armor).toBe(0.30);
+    }
+  });
+
+  it('非法场号回退第一场，未知 tier 按场 Boss 处理', () => {
+    expect(bossStats(0, 'mini')).toEqual(bossStats(1, 'mini'));
+    expect(bossStats(99, 'mini')).toEqual(bossStats(1, 'mini'));
+    expect(bossStats(2, 'weird')).toEqual(bossStats(2, 'major'));
+    // 具体基准值由数值表决定，这里只钉死「回退/别名」行为
+    expect(Object.keys(BOSS_HP).sort()).toEqual(['base', 'majorMul', 'perStage']);
+  });
 });

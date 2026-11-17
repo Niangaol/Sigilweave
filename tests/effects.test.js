@@ -97,7 +97,7 @@ describe("符印触发", () => {
     for (let i = 0; i < 5; i++) {
       resolveSigilTrigger({ grid: g, cellId: 5, defId: "holy_ward", state: st, enemies: [], half: 120 });
     }
-    expect(st.player.shield).toBe(40);
+    expect(st.player.shield).toBe(24);
   });
 
   it("熔炉铭文让本次伤害提升 50%", () => {

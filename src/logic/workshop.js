@@ -4,6 +4,7 @@ import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS } from './effects.js';
 import { VARIANT_DEFS, rollVariant } from '../data/variants.js';
 import { CELL_COUNT } from './constants.js';
 import { Rng } from './rng.js';
+import { cardsForAct, sigilsForAct } from './spell-gating.js';
 
 // 完整卡池：16 符印 + 6 辅助。符印在前，保证首轮三选一必出输出。
 export const CARD_POOL = Object.freeze([
@@ -68,13 +69,19 @@ function returnCard(state, card) {
   if (card) state.hand[keyOf(card)] = (state.hand[keyOf(card)] ?? 0) + 1;
 }
 
-export function createWorkshop({ draft = emptyDraft(), shards = 0, seed = 'workshop' } = {}) {
+export function createWorkshop({ draft = emptyDraft(), shards = 0, seed = 'workshop', act = 1 } = {}) {
   const copy = clone(draft);
   // 不改写调用方的冻结快照；补齐构筑协议允许省略的映射。
   for (const name of ['slots', 'runes', 'exits', 'auxTargets']) copy[name] ??= {};
   const rng = new Rng(seed);
+  // 按幕解锁：前期只出轻/中档法术，重档要幕 3、演出级要幕 4（见 logic/spell-gating.js）。
+  const legal = cardsForAct(CARD_POOL, act);
+  // 首轮保证有输出：只从「当前幕已解锁的符印」里抽，按档位从轻到重排。
+  const openerSigils = sigilsForAct(CARD_POOL.filter(c => c.kind === 'sigil').map(c => c.defId), act)
+    .map(defId => CARD_POOL.find(c => c.kind === 'sigil' && c.defId === defId))
+    .filter(Boolean);
   const offers = Array.from({ length: 3 }, (_, round) => {
-    const pool = [...(round === 0 ? CARD_POOL.slice(0, 4) : CARD_POOL)];
+    const pool = [...(round === 0 ? openerSigils : legal)];
     const cards = [];
     while (cards.length < 3) {
       const base = pool.splice(rng.int(pool.length), 1)[0];

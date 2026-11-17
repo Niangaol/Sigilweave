@@ -369,19 +369,19 @@ describe('返回结构与既有行为回归', () => {
     expect(r.damage).toBeCloseTo(27, 6);
   });
 
-  it('圣光壁垒给盾、贴身伤害与 40 上限保持', () => {
+  it('圣光壁垒给盾、贴身伤害与 24 上限保持', () => {
     const g = full();
     sigil(g, 5, 'holy_ward');
     const close = enemy(1, -30, 0);
     const far = enemy(2, -100, 0);
     const st = state(0);
     const r = resolveSigilTrigger({ grid: g, cellId: 5, defId: 'holy_ward', state: st, enemies: [close, far] });
-    expect(st.player.shield).toBe(14);
+    expect(st.player.shield).toBe(7);
     expect(close.hp).toBeCloseTo(94, 6);
     expect(far.hp).toBe(100);
     expect(r.hits).toBe(1);
     for (let i = 0; i < 4; i++) resolveSigilTrigger({ grid: g, cellId: 5, defId: 'holy_ward', state: st, enemies: [] });
-    expect(st.player.shield).toBe(40);
+    expect(st.player.shield).toBe(24);
   });
 
   it('寒霜箭减速与伤害保持', () => {

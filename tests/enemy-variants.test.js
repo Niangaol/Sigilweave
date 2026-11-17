@@ -37,7 +37,7 @@ describe('ENEMY_VARIANTS 变体表', () => {
 
   it('heavy 字段：铁甲（生命/移速/伤害）与持盾（护甲值）合并后的数值', () => {
     expect(ENEMY_VARIANTS.heavy).toEqual({
-      id: 'heavy', name: '重甲', prefix: '重甲', hpMul: 1.60, speedMul: 0.82, damageMul: 1.10,
+      id: 'heavy', name: '重甲', prefix: '重甲', hpMul: 1.90, speedMul: 0.82, damageMul: 1.30,
       scale: 1.10, radiusMul: 1.06, shardsAdd: 3, cost: 2, minChapter: 2,
       tint: null, parts: ['pauldron', 'shield'], shieldHpMul: 0.60,
     });
@@ -45,7 +45,7 @@ describe('ENEMY_VARIANTS 变体表', () => {
 
   it('elite 字段与 spec §2 逐字一致，且只有 elite 带 elite:true', () => {
     expect(ENEMY_VARIANTS.elite).toEqual({
-      id: 'elite', name: '精英', prefix: '精英', hpMul: 2.20, speedMul: 0.95, damageMul: 1.35,
+      id: 'elite', name: '精英', prefix: '精英', hpMul: 2.60, speedMul: 0.95, damageMul: 1.60,
       scale: 1.30, radiusMul: 1.18, shardsAdd: 3, cost: 2, minChapter: 2,
       tint: null, parts: ['crown'], shieldHpMul: 0, elite: true,
     });
@@ -251,12 +251,12 @@ describe('composeEnemyDef 合成', () => {
     expect(def.speed).toBe(40);
   });
 
-  it('heavy 乘率/取整/额外碎片正确（生命 1.6 倍 + 0.6 倍护甲）', () => {
+  it('heavy 乘率/取整/额外碎片正确（生命 1.9 倍 + 0.6 倍护甲）', () => {
     const def = composeEnemyDef(makeBase(), ENEMY_VARIANTS.heavy);
     expect(def.name).toBe('重甲骷髅');
-    expect(def.hpMul).toBeCloseTo(1.6, 12);
+    expect(def.hpMul).toBeCloseTo(1.9, 12);
     expect(def.speedMul).toBeCloseTo(0.82, 12);
-    expect(def.damage).toBe(8); // round(7 * 1.10) = 8
+    expect(def.damage).toBe(9); // round(7 * 1.30) = 9
     expect(def.shards).toBe(4); // 1 + 3
     expect(def.radius).toBe(6); // round(6.36)
     expect(def.elite).toBeUndefined();
@@ -265,9 +265,9 @@ describe('composeEnemyDef 合成', () => {
   it('elite 乘率/取整/额外碎片/精英标记正确', () => {
     const def = composeEnemyDef(makeBase(), ENEMY_VARIANTS.elite);
     expect(def.name).toBe('精英骷髅');
-    expect(def.hpMul).toBeCloseTo(2.2, 12);
+    expect(def.hpMul).toBeCloseTo(2.6, 12);
     expect(def.speedMul).toBeCloseTo(0.95, 12);
-    expect(def.damage).toBe(9); // round(7 * 1.35) = round(9.45) = 9
+    expect(def.damage).toBe(11); // round(7 * 1.60) = 11
     expect(def.radius).toBe(7); // round(6 * 1.18) = round(7.08) = 7
     expect(def.shards).toBe(4);
     expect(def.elite).toBe(true);
@@ -285,17 +285,17 @@ describe('composeEnemyDef 合成', () => {
       makeBase({ hpMul: 1.2, speedMul: 1.1, damageMul: 1.5, shardsAdd: 5 }),
       ENEMY_VARIANTS.heavy,
     );
-    expect(def.hpMul).toBeCloseTo(1.92, 12);
+    expect(def.hpMul).toBeCloseTo(2.28, 12);
     expect(def.speedMul).toBeCloseTo(0.902, 12);
-    // spec 公式只读 variant.damageMul，base.damageMul 不参与：round(7 * 1.10) = 8
-    expect(def.damage).toBe(8);
+    // spec 公式只读 variant.damageMul，base.damageMul 不参与：round(7 * 1.30) = 9
+    expect(def.damage).toBe(9);
     // spec 公式只读 base.shards 与 variant.shardsAdd，base.shardsAdd 不参与：1 + 3 = 4
     expect(def.shards).toBe(4);
   });
 
   it('damage/radius 有 Math.max 下限与 Math.round 取整', () => {
     expect(composeEnemyDef(makeBase({ damage: 0.2 }), ENEMY_VARIANTS.swift).damage).toBe(1);
-    expect(composeEnemyDef(makeBase({ damage: 5 }), ENEMY_VARIANTS.heavy).damage).toBe(6); // 5.5 → 6
+    expect(composeEnemyDef(makeBase({ damage: 5 }), ENEMY_VARIANTS.heavy).damage).toBe(7); // 6.5 → 7
     expect(composeEnemyDef(makeBase({ damage: 5 }), ENEMY_VARIANTS.swift).damage).toBe(5);
     expect(composeEnemyDef(makeBase({ radius: 0 }), ENEMY_VARIANTS.swift).radius).toBe(3);
     expect(composeEnemyDef(makeBase({ radius: 10 }), ENEMY_VARIANTS.swift).radius).toBe(10); // 9.5 → 10

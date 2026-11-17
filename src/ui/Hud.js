@@ -2,6 +2,7 @@
 // 黄铜刻度尺式血条，整体保持「羊皮纸面板 + 黄铜边」的 UI 语言。
 import { C, HEX, addText, pxRect, pxFrame, pxHeart, pxShard, fmtTime } from './Palette.js';
 import { STAGE_CARDS } from '../data/cinematics.js';
+import { passiveHudText } from './passive-summary.js';
 
 // 幕是 1..5 的叙事单位，场是 1..7 的玩法单位。
 // 前三幕各一场，顶栏用星名（第3幕 · 天玑）；合并幕用当前场的地名（第4幕 · 沉钟书库 → 衡律法庭）。
@@ -26,11 +27,14 @@ export default class Hud {
     this.actText = addText(scene, 300, 13, '第一幕 · 天枢', 8, HEX.brassLight).setDepth(1002);
     this.timeText = addText(scene, 468, 13, '00:00', 9, HEX.parchment).setDepth(1002).setOrigin(1, 0);
     // 成长信息单列第二行，延续黄铜刻度与青色经验。
+    // 第二行右半是空的：EXP 文案到 ~215 收尾，这里从 236 起放局内被动计数，
+    // 7px 字最多长到 ~305，够不到第一行的场次名（300）与右边的时间（468 右对齐）。
+    this.passiveText = addText(scene, 236, 29, '被动 · 按 Esc 查看', 7, HEX.mute).setDepth(1002);
     this.lvText = addText(scene, 8, 29, 'LV 1', 9, HEX.brassLight).setDepth(1002);
     this.expText = addText(scene, 170, 29, 'EXP 0/10', 9, HEX.teal).setDepth(1002);
-    for (const text of [this.hpText, this.shardText, this.freqText, this.actText, this.timeText, this.lvText, this.expText]) text.setScrollFactor(0);
+    for (const text of [this.hpText, this.shardText, this.freqText, this.actText, this.timeText, this.lvText, this.expText, this.passiveText]) text.setScrollFactor(0);
     // act 存的是「幕:场」缓存键，不是文案；换场要能靠 key 变化触发重绘
-    this.cache = { hp: -1, shard: -1, freq: '', time: '', act: '', progression: '' };
+    this.cache = { hp: -1, shard: -1, freq: '', time: '', act: '', progression: '', passive: '' };
 
     this.drawStatic();
   }
@@ -56,7 +60,7 @@ export default class Hud {
   }
 
   update(data) {
-    const { hp, maxHp, shield = 0, shards, rate, buckets, elapsedMs, chapter = 1, stage = 1, lv = 1, exp = 0, expNeed = 10 } = data;
+    const { hp, maxHp, shield = 0, shards, rate, buckets, elapsedMs, chapter = 1, stage = 1, lv = 1, exp = 0, expNeed = 10, passives = null } = data;
     const g = this.dyn;
     g.clear();
 
@@ -113,6 +117,12 @@ export default class Hud {
     if (this.cache.time !== timeStr) {
       this.cache.time = timeStr;
       this.timeText.setText(timeStr);
+    }
+    // 局内被动：只在拿到新被动（计数变化）时重设文本
+    const passiveStr = passiveHudText(passives);
+    if (this.cache.passive !== passiveStr) {
+      this.cache.passive = passiveStr;
+      this.passiveText.setText(passiveStr);
     }
     // 缓存键必须含「幕:场」：第 4 幕内场 4→5 换场时场名会变，只比文案会漏刷新
     const actKey = chapter + ':' + stage;

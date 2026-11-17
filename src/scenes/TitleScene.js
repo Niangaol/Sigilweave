@@ -1,10 +1,22 @@
-// 标题页：像素祭坛、旋转符环、操作说明；Enter/空格/点击开始
+// 标题页 = 正经游戏主菜单：祭坛背景 + 中央竖排六项（开始 / 祭坛 / 说明 / 设置 / 档案 / 名单）。
+// 键盘 ↑↓ + Enter、鼠标悬停 + 点击都能操作；Esc 关子面板。
 import Phaser from 'phaser';
-import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, applyPixelZoom, FONT_DISPLAY } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, applyPixelZoom, FONT_DISPLAY, getRenderScale } from '../ui/Palette.js';
 import { playCutscene } from '../ui/transition.js';
+import { loadMeta, resetMeta } from '../logic/meta.js';
+import { loadSettings, applySettings, SETTING_ROWS } from '../logic/settings.js';
+import { setSoundEnabled } from '../audio/Sfx.js';
+import {
+  TITLE_MENU, MENU_GEOM, menuRowY, moveIndex, hitMenuRow, menuLayout,
+  statusLine, recordLines, HELP_PAGES, HELP_PAGE_GEOM, pageLabel, movePage,
+  CREDITS_LINES, PANEL_TITLES,
+} from '../ui/title-menu.js';
 
 // ?scene=xxx 调试跳转只在本次页面加载后生效一次：从祭坛 ESC 回标题时不该被再弹回去
 let jumpConsumed = false;
+
+// 面板统一占位：480×270 画布上留出标题与状态条，44..234 是内容区。
+const PANEL = Object.freeze({ x: 20, y: 44, w: 440, h: 190 });
 
 export default class TitleScene extends Phaser.Scene {
   constructor() {
@@ -42,6 +54,12 @@ export default class TitleScene extends Phaser.Scene {
     this.started = false;
     this.lastRingStep = -1;
     this.ringStep = 0;
+    this.menuIndex = 0;
+    this.panel = null;
+    this.panelIndex = 0;
+    this.confirmingReset = false;
+    this.meta = loadMeta();
+    this.settings = loadSettings();
     if (!this.__cine) this.cameras.main.fadeIn(220, 0, 0, 0);
 
     this.drawBackdrop();
@@ -69,71 +87,299 @@ export default class TitleScene extends Phaser.Scene {
     pxDiamond(rule, 74, 94, 2, C.brass, 0.7, true);
     pxDiamond(rule, 406, 94, 2, C.brass, 0.7, true);
 
-    // 有主角立绘时提示左对齐到 166，避免压住左侧人物；无立绘时保持居中。
-    const hasHero = this.textures.exists('hero_title');
-    const px = hasHero ? 166 : 240;
-    const ox = hasHero ? 0 : 0.5;
-    this.prompt = addText(this, px, 201, '按 Enter / 空格 开始　·　选择初始套装', 10, HEX.arcaneLight)
-      .setOrigin(ox, 0).setDepth(10);
-    addText(this, px, 220, 'WASD / 方向键 走位　·　按住空格 暂停观察　·　Esc 暂停菜单', 8, HEX.mute)
-      .setOrigin(ox, 0).setDepth(10);
-    addText(this, px, 236, 'H 玩法说明　·　B 残响祭坛　·　沿途问答 · 幕间构筑 · 识破契约', 7, HEX.brassDark)
-      .setOrigin(ox, 0).setDepth(10);
-    this.buildHelp();
+    this.buildMenu();
+    this.status = addText(this, this.menu.cx, 232, statusLine(this.meta), 8, HEX.brassLight)
+      .setOrigin(0.5, 0).setDepth(10);
+    this.footer = addText(this, this.menu.cx, 248, '↑↓ 选择　Enter 确认　·　鼠标可点', 7, HEX.mute)
+      .setOrigin(0.5, 0).setDepth(10);
 
-    // 输入：三种方式都能开始
-    this.input.keyboard.on('keydown-ENTER', this.begin, this);
-    this.input.keyboard.on('keydown-SPACE', this.begin, this);
-    this.input.on('pointerdown', this.begin, this);
-    // B：局外成长入口（帮说明面板开着时不抢按键）
-    this.input.keyboard.on('keydown-B', this.openMeta, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      this.input.keyboard.off('keydown-ENTER', this.begin, this);
-      this.input.keyboard.off('keydown-SPACE', this.begin, this);
-      this.input.keyboard.off('keydown-B', this.openMeta, this);
-      this.input.off('pointerdown', this.begin, this);
+    // 子面板：一层图形 + 一组文字，打开时重建
+    this.panelG = this.add.graphics().setDepth(40).setVisible(false);
+    this.panelTexts = [];
+    this.panelRows = [];
+    this.helpPage = 0;
+
+    this.bindInput();
+    this.drawRing(0);
+    this.refreshMenu();
+    this.publishDebug();
+  }
+
+  // ---------- 菜单 ----------
+
+  buildMenu() {
+    // 有主角立绘时菜单右移，避免按钮压到人物身上（立绘占 x≈10..142）
+    this.menu = menuLayout(this.textures.exists('hero_title'));
+    this.rowG = this.add.graphics().setDepth(8);
+    this.caret = this.add.graphics().setDepth(11);
+    this.labels = [];
+    this.hints = [];
+    TITLE_MENU.forEach((item, i) => {
+      const y = menuRowY(i);
+      this.labels.push(addText(this, this.menu.cx, y + MENU_GEOM.h / 2, item.label, 10, HEX.parchment)
+        .setOrigin(0.5, 0.5).setDepth(10));
+      this.hints.push(addText(this, this.menu.x + this.menu.w - 8, y + MENU_GEOM.h / 2, item.hint, 6, HEX.brassDark)
+        .setOrigin(1, 0.5).setDepth(10));
+    });
+  }
+
+  refreshMenu() {
+    const g = this.rowG;
+    g.clear();
+    if (!this.panel) {
+      // 一整块压暗的菜单底板：六行零散方框看着像调试面板，铺一层底才像正经菜单
+      pxRect(g, this.menu.x - 18, MENU_GEOM.top - 6, this.menu.w + 36, TITLE_MENU.length * MENU_GEOM.step + 4, C.void, 0.45);
+      pxFrame(g, this.menu.x - 18, MENU_GEOM.top - 6, this.menu.w + 36, TITLE_MENU.length * MENU_GEOM.step + 4, C.brassDark, 1, 0.5);
+    } else if (this.caret) {
+      this.caret.clear();
+    }
+    TITLE_MENU.forEach((item, i) => {
+      const y = menuRowY(i);
+      const selected = i === this.menuIndex && !this.panel;
+      pxRect(g, this.menu.x, y, this.menu.w, MENU_GEOM.h, selected ? C.stone : C.nightDeep, selected ? 0.94 : 0.88);
+      pxFrame(g, this.menu.x, y, this.menu.w, MENU_GEOM.h, selected ? C.brass : C.stoneDark, 1, selected ? 1 : 0.8);
+      if (selected) {
+        pxRect(g, this.menu.x + 1, y + 1, this.menu.w - 2, 1, C.brassLight, 0.35);
+        pxDiamond(g, this.menu.x - 8, y + MENU_GEOM.h / 2, 3, C.brass, 0.95, true);
+      }
+      this.labels[i].setColor(selected ? HEX.white : HEX.parchment)
+        .setAlpha(selected ? 1 : 0.72);
+      this.hints[i].setColor(selected ? HEX.brassLight : HEX.brassDark)
+        .setVisible(!this.panel);
+    });
+    if (this.status) this.status.setVisible(!this.panel);
+    // 面板自带页脚提示，标题页这条就收起来，免得两行字隔着半透明底打架
+    if (this.footer) this.footer.setVisible(!this.panel);
+  }
+
+  moveSelection(delta) {
+    if (this.panel) return;
+    this.menuIndex = moveIndex(this.menuIndex, delta, TITLE_MENU.length);
+    this.refreshMenu();
+  }
+
+  activate(index = this.menuIndex) {
+    const item = TITLE_MENU[index];
+    if (!item || this.started) return;
+    switch (item.id) {
+      case 'start':
+        this.begin();
+        break;
+      case 'meta':
+        this.openMeta();
+        break;
+      case 'help':
+      case 'settings':
+      case 'record':
+      case 'credits':
+        this.openPanel(item.id);
+        break;
+      default:
+        break;
+    }
+  }
+
+  // ---------- 子面板 ----------
+
+  openPanel(kind) {
+    this.panel = kind;
+    this.panelIndex = 0;
+    this.helpPage = 0;
+    this.confirmingReset = false;
+    this.panelG.setVisible(true);
+    this.refreshMenu();
+    this.drawPanel();
+    this.publishDebug();
+  }
+
+  closePanel() {
+    this.panel = null;
+    this.confirmingReset = false;
+    this.panelG.setVisible(false).clear();
+    for (const t of this.panelTexts) t.destroy();
+    this.panelTexts = [];
+    this.panelRows = [];
+    this.refreshMenu();
+    this.publishDebug();
+  }
+
+  panelText(x, y, str, size = 9, color = HEX.parchment, extra = {}) {
+    const t = addText(this, x, y, str, size, color, extra).setDepth(41);
+    this.panelTexts.push(t);
+    return t;
+  }
+
+  drawPanel() {
+    const g = this.panelG;
+    g.clear();
+    for (const t of this.panelTexts) t.destroy();
+    this.panelTexts = [];
+    this.panelRows = [];
+    if (!this.panel) return;
+
+    // 全屏压暗 + 石质面板 + 双层黄铜边
+    pxRect(g, 0, 0, 480, 270, C.void, 0.55);
+    pxRect(g, PANEL.x, PANEL.y, PANEL.w, PANEL.h, C.ink, 0.98);
+    pxFrame(g, PANEL.x - 1, PANEL.y - 1, PANEL.w + 2, PANEL.h + 2, C.outline, 1, 1);
+    pxFrame(g, PANEL.x, PANEL.y, PANEL.w, PANEL.h, C.brassDark, 2, 1);
+    pxFrame(g, PANEL.x + 4, PANEL.y + 4, PANEL.w - 8, PANEL.h - 8, C.brass, 0.45, 1);
+    pxRect(g, PANEL.x + 8, PANEL.y + 22, PANEL.w - 16, 1, C.brassDark, 0.8);
+    this.panelText(PANEL.x + 12, PANEL.y + 8, PANEL_TITLES[this.panel] ?? '', 11, HEX.brassLight);
+    pxDiamond(g, PANEL.x + PANEL.w - 14, PANEL.y + 14, 3, C.brass, 0.8, false);
+
+    if (this.panel === 'help') this.drawHelpPanel(g);
+    if (this.panel === 'settings') this.drawSettingsPanel(g);
+    if (this.panel === 'record') this.drawRecordPanel(g);
+    if (this.panel === 'credits') this.drawCreditsPanel();
+
+    // 说明面板自带满页文案，页脚提示会压到最后一行，故跳过。
+    if (this.panel !== 'help') {
+      this.panelText(240, PANEL.y + PANEL.h - 16, this.panelHint(), 7, HEX.mute)
+        .setOrigin(0.5, 0);
+    }
+  }
+
+  panelHint() {
+    if (this.panel === 'settings') return '↑↓ 选择　Enter 切换　Esc 返回';
+    if (this.panel === 'record') return '↑↓ 选择　Enter 确认　Esc 返回';
+    return 'Esc 返回菜单';
+  }
+
+  drawHelpPanel(g) {
+    const page = HELP_PAGES[this.helpPage] ?? HELP_PAGES[0];
+    const X = PANEL.x + 12;
+    this.panelText(X, PANEL.y + HELP_PAGE_GEOM.titleY, page.title, 9, HEX.teal);
+    page.lines.forEach((line, i) => {
+      this.panelText(X, PANEL.y + HELP_PAGE_GEOM.top + i * HELP_PAGE_GEOM.step, line, 8, HEX.parchment, {
+        wordWrap: { width: PANEL.w - 24 }, lineSpacing: 3,
+      });
     });
 
-    this.drawRing(0);
+    // 页脚：左右箭头 + 页码 + 键位提示，箭头同时是鼠标热区
+    const fy = PANEL.y + HELP_PAGE_GEOM.footY;
+    const prevX = PANEL.x + 14;
+    const nextX = PANEL.x + PANEL.w - 14;
+    this.panelRows.push({ id: 'help-prev', x: prevX - 4, w: 18, y: fy - 2, h: 12, kind: 'help' });
+    this.panelRows.push({ id: 'help-next', x: nextX - 14, w: 18, y: fy - 2, h: 12, kind: 'help' });
+    pxRect(g, prevX - 4, fy - 2, 18, 12, C.nightDeep, 0.9);
+    pxFrame(g, prevX - 4, fy - 2, 18, 12, C.brassDark, 1, 0.8);
+    pxRect(g, nextX - 14, fy - 2, 18, 12, C.nightDeep, 0.9);
+    pxFrame(g, nextX - 14, fy - 2, 18, 12, C.brassDark, 1, 0.8);
+    this.panelText(prevX, fy, '◂', 8, HEX.brassLight).setOrigin(0.5, 0);
+    this.panelText(nextX, fy, '▸', 8, HEX.brassLight).setOrigin(0.5, 0);
+    this.panelText(240, fy, pageLabel(this.helpPage) + '　←→ 翻页　Esc 返回', 7, HEX.mute)
+      .setOrigin(0.5, 0);
   }
 
-  // 玩法说明：常驻可查，不打断标题
-  buildHelp() {
-    this.helpOpen = false;
-    const W = 440, H = 190, X = 20, Y = 44;
-    this.helpG = this.add.graphics().setDepth(30).setVisible(false);
-    pxRect(this.helpG, X, Y, W, H, C.ink, 0.98);
-    pxFrame(this.helpG, X, Y, W, H, C.brass, 1, 1);
-    pxFrame(this.helpG, X + 3, Y + 3, W - 6, H - 6, C.brassDark, 0.5, 1);
-    pxFrame(this.helpG, X - 1, Y - 1, W + 2, H + 2, C.outline, 1, 1);
-    const lines = [
-      ['玩法说明', 12, HEX.brassLight, 12],
-      ['右下角罗盘 = 你周围的 4×4 方位。格子在左 = 你左侧区域，踩中即向该区域出手。', 9, HEX.parchment, 40],
-      ['共鸣石：让正交相邻格的间隔与冷却 -25%。放在中心格，能同时加速四邻。', 9, HEX.teal, 58],
-      ['脉流：金线在格间跳跃，踩到就触发该格符印；冷却没好会被吞跳（受阻）。', 9, HEX.parchment, 76],
-      ['联组：同一条脉流连续踩中指定形状（对偶／直线／折线／环封）追加伤害。', 9, HEX.teal, 102],
-      ['断链：吞跳、保底改道、脉流消散都会打断进行中的联组；战斗中会提示断因。', 9, HEX.blood, 120],
-      ['问答：线索都在当次对白与碑文里。答对可直接消灭 Boss，答错则进入实战。', 9, HEX.parchment, 146],
-      ['再按 H 关闭', 7, HEX.brass, 172],
-    ];
-    this.helpTexts = lines.map(([text, size, color, offsetY]) => addText(this, X + 12, Y + offsetY, text, size, color, {
-      wordWrap: { width: W - 24 }, lineSpacing: 3,
-    }).setDepth(31).setVisible(false));
-    this.helpKey = this.input.keyboard.addKey('H');
-    this.helpKey.on('down', () => this.toggleHelp());
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.helpKey?.removeAllListeners());
+  // 翻页：非法目标一律夹回合法页，避免面板空白
+  turnPage(delta) {
+    const next = movePage(this.helpPage, delta);
+    if (next === this.helpPage) return;
+    this.helpPage = next;
+    this.drawPanel();
   }
 
-  toggleHelp() {
-    this.helpOpen = !this.helpOpen;
-    this.helpG.setVisible(this.helpOpen);
-    for (const t of this.helpTexts) t.setVisible(this.helpOpen);
-    this.prompt.setVisible(!this.helpOpen);
-    window.__SIGILWEAVE_TITLE_HELP__ = this.helpOpen;
+  drawSettingsPanel(g) {
+    SETTING_ROWS.forEach((row, i) => {
+      const y = PANEL.y + 36 + i * 26;
+      const selected = i === this.panelIndex;
+      this.panelRows.push({ id: row.key, y, h: 22, kind: 'setting' });
+      if (selected) {
+        pxRect(g, PANEL.x + 10, y - 3, PANEL.w - 20, 22, C.stone, 0.55);
+        pxFrame(g, PANEL.x + 10, y - 3, PANEL.w - 20, 22, C.brass, 1, 1);
+        pxDiamond(g, PANEL.x + 16, y + 8, 2, C.brassLight, 1, true);
+      }
+      const on = this.settings[row.key] !== false;
+      this.panelText(PANEL.x + 26, y, row.label, 10, selected ? HEX.white : HEX.parchment);
+      this.panelText(PANEL.x + PANEL.w - 18, y - 1, on ? row.on : row.off, 10,
+        on ? HEX.teal : HEX.mute).setOrigin(1, 0);
+      this.panelText(PANEL.x + 26, y + 12, row.hint, 7, HEX.mute);
+    });
+    this.panelText(PANEL.x + 12, PANEL.y + PANEL.h - 44, '设置会记住，下次打开网页仍然生效。', 7, HEX.brass);
   }
+
+  drawRecordPanel(g) {
+    const lines = recordLines(this.meta);
+    lines.forEach((line, i) => {
+      const y = PANEL.y + 30 + i * 15;
+      this.panelText(PANEL.x + 18, y, line.label, 8, HEX.parchment);
+      this.panelText(PANEL.x + PANEL.w - 18, y, line.value, 8, HEX.brassLight).setOrigin(1, 0);
+    });
+    // 最后一行是「清空存档」：需要连按两次 Enter，防误触
+    const y = PANEL.y + 30 + lines.length * 15 + 6;
+    const selected = this.panelIndex === lines.length;
+    this.panelRows.push({ id: 'reset', y, h: 14, kind: 'reset' });
+    if (selected) {
+      pxRect(g, PANEL.x + 12, y - 2, PANEL.w - 24, 14, C.bloodDark, 0.5);
+      pxFrame(g, PANEL.x + 12, y - 2, PANEL.w - 24, 14, C.blood, 1, 0.9);
+    }
+    this.panelText(PANEL.x + 18, y, this.confirmingReset ? '再按一次 Enter 确认清空存档' : '清空存档', 8,
+      this.confirmingReset ? HEX.blood : HEX.mute);
+  }
+
+  drawCreditsPanel() {
+    const top = PANEL.y + 36;
+    CREDITS_LINES.forEach((line, i) => {
+      // 第一行是标题、第二行是三个人名：人名给到 11px，别跟小字注脚挤在一起
+      const size = i === 0 ? 14 : i === 1 ? 11 : 9;
+      const color = i === 0 ? HEX.parchment : i === 1 ? HEX.white : HEX.brassLight;
+      this.panelText(240, top + i * 26, line, size, color).setOrigin(0.5, 0);
+    });
+    this.panelText(240, PANEL.y + PANEL.h - 30, ' Resonance Sigil · 480×270 像素单页游戏', 7, HEX.mute)
+      .setOrigin(0.5, 0);
+  }
+
+  // ---------- 面板交互 ----------
+
+  movePanel(delta) {
+    // 说明面板没有列表，↑↓ 直接当翻页用，省一套键
+    if (this.panel === 'help') {
+      this.turnPage(delta);
+      return;
+    }
+    const count = this.panel === 'settings' ? SETTING_ROWS.length
+      : this.panel === 'record' ? recordLines(this.meta).length + 1 : 0;
+    if (!count) return;
+    this.panelIndex = moveIndex(this.panelIndex, delta, count);
+    this.drawPanel();
+  }
+
+  activatePanel() {
+    if (this.panel === 'help') {
+      // 鼠标点到的方向箭头：面板里只有这两个热区
+      const row = this.panelRows[this.panelIndex];
+      if (row?.id === 'help-prev') this.turnPage(-1);
+      else if (row?.id === 'help-next') this.turnPage(1);
+      return;
+    }
+    if (this.panel === 'settings') {
+      const row = SETTING_ROWS[this.panelIndex];
+      if (!row) return;
+      this.settings = applySettings({ ...this.settings, [row.key]: this.settings[row.key] === false });
+      if (row.key === 'sfx') setSoundEnabled(this.settings.sfx);
+      this.drawPanel();
+      return;
+    }
+    if (this.panel === 'record') {
+      const lines = recordLines(this.meta);
+      if (this.panelIndex !== lines.length) return;
+      if (!this.confirmingReset) {
+        this.confirmingReset = true;
+        this.drawPanel();
+        return;
+      }
+      this.meta = resetMeta();
+      this.confirmingReset = false;
+      this.panelIndex = 0;
+      this.status.setText(statusLine(this.meta));
+      this.drawPanel();
+    }
+  }
+
+  // ---------- 入口动作 ----------
 
   openMeta() {
-    if (this.helpOpen) return;
+    if (this.started) return;
     this.started = true;
     this.scene.start('MetaScene');
   }
@@ -144,6 +390,76 @@ export default class TitleScene extends Phaser.Scene {
     // 标题 → 选套：符文收拢的无缝转场（不压大标题，避免和标题页重复）
     playCutscene(this, { kind: 'sigil', to: 'LoadoutScene', payload: { __cine: true } });
   }
+
+  // ---------- 输入 ----------
+
+  bindInput() {
+    const kb = this.input.keyboard;
+    const on = (event, fn) => {
+      kb.on(event, fn);
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => kb.off(event, fn));
+    };
+    on('keydown-UP', () => (this.panel ? this.movePanel(-1) : this.moveSelection(-1)));
+    on('keydown-W', () => (this.panel ? this.movePanel(-1) : this.moveSelection(-1)));
+    on('keydown-DOWN', () => (this.panel ? this.movePanel(1) : this.moveSelection(1)));
+    on('keydown-S', () => (this.panel ? this.movePanel(1) : this.moveSelection(1)));
+    // 说明面板左右翻页；菜单里左右不做事
+    on('keydown-LEFT', () => { if (this.panel === 'help') this.turnPage(-1); });
+    on('keydown-A', () => { if (this.panel === 'help') this.turnPage(-1); });
+    on('keydown-RIGHT', () => { if (this.panel === 'help') this.turnPage(1); });
+    on('keydown-D', () => { if (this.panel === 'help') this.turnPage(1); });
+    on('keydown-ENTER', () => (this.panel ? this.activatePanel() : this.activate()));
+    on('keydown-SPACE', () => (this.panel ? this.activatePanel() : this.activate()));
+    on('keydown-ESC', () => { if (this.panel) this.closePanel(); });
+    // H 直接看说明、B 直接进祭坛：老习惯保留，但不再是唯一入口
+    on('keydown-H', () => { if (!this.started) { if (this.panel === 'help') this.closePanel(); else this.openPanel('help'); } });
+    on('keydown-B', () => { if (!this.panel) this.openMeta(); });
+
+    const logical = (pointer) => ({ x: pointer.x / getRenderScale(), y: pointer.y / getRenderScale() });
+    const pointerMove = (pointer) => {
+      if (this.panel) return;
+      const { y } = logical(pointer);
+      const idx = hitMenuRow(0, y, TITLE_MENU.length);
+      if (idx >= 0 && idx !== this.menuIndex) { this.menuIndex = idx; this.refreshMenu(); }
+    };
+    const pointerDown = (pointer) => {
+      const { x, y } = logical(pointer);
+      if (this.panel) {
+        for (let i = 0; i < this.panelRows.length; i++) {
+          const row = this.panelRows[i];
+          // 带 x/w 的行是窄热区（说明面板的左右箭头），要连横向一起判；其余整行可点
+          if (row.x !== undefined
+            ? x >= row.x && x <= row.x + row.w && y >= row.y && y <= row.y + row.h
+            : y >= row.y - 3 && y <= row.y + row.h) {
+            this.panelIndex = i;
+            this.activatePanel();
+            return;
+          }
+        }
+        return;
+      }
+      const idx = hitMenuRow(x, y, TITLE_MENU.length);
+      if (idx >= 0) { this.menuIndex = idx; this.refreshMenu(); this.activate(idx); }
+    };
+    this.input.on('pointermove', pointerMove);
+    this.input.on('pointerdown', pointerDown);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.input.off('pointermove', pointerMove);
+      this.input.off('pointerdown', pointerDown);
+    });
+  }
+
+  // 验收钩子：外部（脚本 / 冒烟测试）读当前菜单与面板状态
+  publishDebug() {
+    if (typeof window === 'undefined') return;
+    window.__SIGILWEAVE_TITLE__ = {
+      index: this.menuIndex, panel: this.panel, page: this.helpPage,
+      pages: HELP_PAGES.length, items: TITLE_MENU.map((m) => m.id),
+    };
+    window.__SIGILWEAVE_TITLE_HELP__ = this.panel === 'help';
+  }
+
+  // ---------- 背景（沿用旧版祭坛场景） ----------
 
   buildEmbers() {
     const rng = (() => {
@@ -326,8 +642,12 @@ export default class TitleScene extends Phaser.Scene {
       const x = Math.round(e.x + Math.sin(time * 0.001 + e.phase) * 3);
       pxRect(g, x, Math.round(y), e.size, e.size, C.arcane, 0.18 + (e.size === 2 ? 0.16 : 0.08));
     }
-    if (this.prompt) {
-      this.prompt.setAlpha(Math.floor(time / 480) % 2 === 0 ? 1 : 0.4);
+    // 选中项左侧的菱形呼吸：告诉玩家「这行现在是你选的」
+    if (this.caret && !this.panel) {
+      const y = menuRowY(this.menuIndex) + MENU_GEOM.h / 2;
+      this.caret.clear();
+      const a = Math.floor(time / 420) % 2 === 0 ? 1 : 0.55;
+      pxDiamond(this.caret, this.menu.x - 8, y, 3, C.brass, a, true);
     }
   }
 }

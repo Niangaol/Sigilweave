@@ -3,7 +3,7 @@ export const SIGIL_DEFS = {
   arcane_bolt:     { name: "奥术飞弹", damage: 12, cdMul: 1.00, kind: "single" },
   frost_arrow:     { name: "寒霜箭",   damage: 10, cdMul: 1.00, kind: "single", slow: 0.4, slowMs: 2000 },
   flame_burst:     { name: "烈焰喷涌", damage: 9,  cdMul: 1.10, kind: "fan3" },
-  holy_ward:       { name: "圣光壁垒", damage: 6,  cdMul: 1.00, kind: "ward", shield: 14, shieldCap: 40, radius: 40 },
+  holy_ward:       { name: "圣光壁垒", damage: 6,  cdMul: 1.00, kind: "ward", shield: 7,  shieldCap: 24, radius: 40 },
   mana_siphon:     { name: "秘能汲取", damage: 8,  cdMul: 0.90, kind: "single", heal: 2 },
   judgment_hammer: { name: "审判之锤", damage: 18, cdMul: 1.25, kind: "single", armorBonus: 0.5 },
   thorn_vine:      { name: "荆棘藤蔓", damage: 5,  cdMul: 1.20, kind: "area", rootMs: 1200, radius: 46 },
@@ -17,7 +17,7 @@ export const SIGIL_DEFS = {
   ember_fan:       { name: "余烬扇",   damage: 10, cdMul: 1.15, kind: "fan3", slow: 0.25, slowMs: 1200 },
   quake_maw:       { name: "地裂之颚", damage: 14, cdMul: 1.40, kind: "area", radius: 80, rootMs: 600 },
   soul_lance:      { name: "噬魂箭",   damage: 15, cdMul: 1.20, kind: "single", heal: 3 },
-  aegis_ring:      { name: "圣环",     damage: 8,  cdMul: 1.35, kind: "ward", shield: 20, shieldCap: 60, radius: 55 },
+  aegis_ring:      { name: "圣环",     damage: 8,  cdMul: 1.35, kind: "ward", shield: 10, shieldCap: 36, radius: 55 },
   meteor_judgment: { name: "陨星裁决", damage: 26, cdMul: 1.60, kind: "area", radius: 95, innerRadius: 40, innerMul: 0.6 },
 
   // —— 第三批：元素学派与终极法术 ——
@@ -26,7 +26,7 @@ export const SIGIL_DEFS = {
   thunder_storm:   { name: "雷霆风暴", damage: 16, cdMul: 1.50, kind: "area", radius: 110, freezeMs: 200, castMs: 400 },
   sunflare:        { name: "日轮耀斑", damage: 20, cdMul: 1.45, kind: "pierce", width: 34, length: 460, castMs: 700 },
   void_lance:      { name: "虚空之矛", damage: 18, cdMul: 1.35, kind: "pierce", width: 22, length: 520 },
-  sanctum:         { name: "圣所",     damage: 6,  cdMul: 1.20, kind: "ward", shield: 24, shieldCap: 70, radius: 70 },
+  sanctum:         { name: "圣所",     damage: 6,  cdMul: 1.20, kind: "ward", shield: 12, shieldCap: 44, radius: 70 },
   bramble_maul:    { name: "荆棘巨槌", damage: 17, cdMul: 1.40, kind: "area", radius: 60, rootMs: 1500, castMs: 350 },
   soul_echo:       { name: "魂灵回声", damage: 12, cdMul: 1.25, kind: "echo", heal: 2 },
   glacier:         { name: "冰川裂谷", damage: 15, cdMul: 1.45, kind: "pierce", width: 40, length: 380, slow: 0.5, slowMs: 2200, castMs: 450 },

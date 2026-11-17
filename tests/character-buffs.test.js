@@ -57,9 +57,9 @@ function bareShard(x, y) {
 }
 
 describe('人物宝箱 · 受击无敌帧', () => {
-  it('无增益时保持 1400ms 默认值', () => {
+  it('无增益时保持 660ms 默认值', () => {
     const p = barePlayer();
-    expect(PLAYER.iframesMs).toBe(1400);
+    expect(PLAYER.iframesMs).toBe(660);
     expect(p.takeDamage(10, 1000)).toBe(true);
     expect(p.invulnUntil).toBe(1000 + PLAYER.iframesMs);
     expect(p.takeDamage(10, 1000 + PLAYER.iframesMs - 1)).toBe(false);
@@ -91,19 +91,19 @@ describe('人物宝箱 · 受击无敌帧', () => {
 });
 
 describe('人物宝箱 · 圣光壁垒护盾上限', () => {
-  it('无 player.shieldCap 时仍使用卡面 40', () => {
+  it('无 player.shieldCap 时仍使用卡面 24', () => {
     const g = grid16();
     const st = combatState();
     for (let i = 0; i < 5; i++) trigger(g, 5, 'holy_ward', st, []);
-    expect(st.player.shield).toBe(40);
+    expect(st.player.shield).toBe(24);
   });
 
-  it('读取 player.shieldCap（庇护印记 40 + 10 = 50）', () => {
+  it('读取 player.shieldCap（人物上限高于卡面时按人物算）', () => {
     const g = grid16();
-    const st = combatState({ player: { shieldCap: 50 } });
+    const st = combatState({ player: { shieldCap: 20 } });
     for (let i = 0; i < 4; i++) trigger(g, 5, 'holy_ward', st, []);
-    // 14 × 4 = 56，应被人物上限 50 截断
-    expect(st.player.shield).toBe(50);
+    // 7 × 4 = 28，应被人物上限 20 截断
+    expect(st.player.shield).toBe(20);
   });
 
   it('player.shieldCap 为 0 时不能获得护盾', () => {
@@ -118,7 +118,7 @@ describe('人物宝箱 · 圣光壁垒护盾上限', () => {
       const g = grid16();
       const st = combatState({ player: { shieldCap: bad } });
       for (let i = 0; i < 5; i++) trigger(g, 5, 'holy_ward', st, []);
-      expect(st.player.shield).toBe(40);
+      expect(st.player.shield).toBe(24);
       expect(Number.isFinite(st.player.shield)).toBe(true);
     }
   });

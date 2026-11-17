@@ -1,5 +1,5 @@
 import { C, pxRect, pxLine, pxDiamond, pxRing } from '../ui/Palette.js';
-import { createBossModel, stepBoss } from '../logic/boss.js';
+import { createBossModel, stepBoss, bossStats } from '../logic/boss.js';
 
 // 每场小 Boss / 场 Boss 各一张专属立绘；脚底仍对齐 y+21。
 // 场 4-7 是 2026-11-11 新画的八张专属立绘，不再复用前三场素材
@@ -21,8 +21,11 @@ export default class Boss {
   constructor(scene, definition, stage, id) {
     this.scene = scene; this.definition = definition; this.id = id; this.isBoss = true;
     this.x = 240; this.y = 72; this.radius = 14;
-    // 强度按场递增（场 1..7），与幕的叙事划分无关
-    this.hp = this.maxHp = 80 + stage * 40; this.armor = 0;
+    // 强度按场递增（场 1..7），与幕的叙事划分无关；场 Boss 比小 Boss 更硬一档（×1.35 血、5% 额外减伤）。
+    const stats = bossStats(stage, definition?.tier);
+    this.hp = this.maxHp = stats.hp;
+    // Boss 专属固定减伤：直接复用敌人的 armor 通道（applyDamage 里按 (1 - armor) 结算）。
+    this.armor = stats.armor;
     this.alive = true; this.rewarded = false; this.damage = 12; this.hitAt = -9999;
     this.model = createBossModel(stage);
     this.g = scene.add.graphics().setDepth(200);

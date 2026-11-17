@@ -616,7 +616,7 @@ describe('变体刷怪接入（enemySpawnLoad / spawnEnemy / 槽位预算）', (
 });
 
 describe('破盾与护盾受击表现', () => {
-  it('onEnemyShieldBreak：播碎片爆散 + 破盾音 + ≤2px/120ms 轻震屏', () => {
+  it('onEnemyShieldBreak：播碎片爆散 + 破盾音，不震屏', () => {
     const scene = makeScene(3);
     const shieldBreak = vi.fn();
     scene.effects.shieldBreak = shieldBreak;
@@ -624,8 +624,8 @@ describe('破盾与护盾受击表现', () => {
     expect(() => call(scene, 'onEnemyShieldBreak', { x: 100, y: 120 })).not.toThrow();
     expect(shieldBreak).toHaveBeenCalledWith(100, 120);
     expect(sfxLog.some(c => c[0] === 'shieldBreak')).toBe(true);
-    const shake = scene.cameras.main.calls.find(c => c[0] === 'shake');
-    expect(shake).toEqual(['shake', 120, 0.002]);
+    // 破盾不震屏（2026-11-17 收窄：震屏只留受伤/演出级/Boss 事件）
+    expect(scene.cameras.main.calls.find(c => c[0] === 'shake')).toBeUndefined();
   });
 
   it('onEnemyHit：盾吸收时补青钢火花与金属音，低细节档不早退；无盾不补播', () => {

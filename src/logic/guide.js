@@ -2,6 +2,7 @@
 // 文案与触发来自 docs/新手指引（guide-content.json 的运行时副本在 src/data/）。
 // 去重状态挂在 run.guideSeen，一局内每个 id 只出现一次，新局随 createRun 重置。
 import GUIDE from '../data/guide-content.json';
+import { settingValue } from './settings.js';
 
 export const GUIDE_ENABLED_KEY = 'guide';
 export const GUIDE_EVENT = 'guide:show';
@@ -11,8 +12,11 @@ const CARDS = new Map((GUIDE.guides ?? []).map((g) => [g.id, g]));
 const STUCK = new Map((GUIDE.stuckHints ?? []).map((h) => [h.when, h]));
 
 // URL ?guide=0 可整机关闭引导；默认开启。评审阶段方便对比有/无引导。
-export function guideEnabled(params = new URLSearchParams(window.location.search)) {
-  return params.get(GUIDE_ENABLED_KEY) !== '0';
+// 无 window（单测/纯逻辑调用）时按开启处理，避免把引导开关变成场景外的硬依赖。
+// 首页「设置 → 新手引导」也能关；?guide=0 仍然优先，两者任一关掉即不出现。
+export function guideEnabled(params = (typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null)) {
+  if (!settingValue('guide')) return false;
+  return params?.get?.(GUIDE_ENABLED_KEY) !== '0';
 }
 
 export function getCard(id) {

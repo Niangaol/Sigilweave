@@ -80,6 +80,7 @@ const SEED_TAG = flagString('--seed', '');
 
 // 仿真可调档：用环境变量覆盖刷怪端点，方便在改默认值之前先扫一遍平衡。
 // 不传时完全等价于 roster.difficultyAt(now, stage)；--dense 只是给这组覆盖起个名字。
+const STAY = (process.env.SIM_STAY ?? '0') === '1';
 const num = (name, fallback) => {
   const v = Number(process.env[name]);
   return Number.isFinite(v) ? v : fallback;
@@ -525,11 +526,30 @@ function runSim({ stage: stageArg, seconds: secondsArg, kitId: kitArg, burstRati
     // 拥挤分离（与战斗层同参数）
     if (enemies.length > 1) separateEnemiesBucketed(enemies, { gap: 20, player, contactDist: 26 });
 
-    // 接触：怪物撞到玩家就碎，玩家吃一次伤害（900ms 无敌）
+    // 接触：默认（SIM_STAY=0）沿用旧模型「撞到就碎」；SIM_STAY=1 走 2026-11-17 新模型：
+    // 怪不自毁、接触冷却 600ms、把怪顶开 18px，玩家吃一次伤害（600ms 无敌）。
     for (const e of enemies) {
       if (!e.alive) continue;
       const d = Math.hypot(e.x - player.x, e.y - player.y);
       if (d < e.radius + player.radius) {
+        if (STAY) {
+          if (engine.now >= (e.contactCdUntil ?? 0)) {
+            e.contactCdUntil = engine.now + 600;
+            if (engine.now >= invulnUntil) {
+              const CONTACT_MUL = num('SIM_CONTACT_MUL', 1);
+              const IFRAMES = num('SIM_IFRAMES', PLAYER.iframesMs);
+              const dmg = Math.max(1, Math.round(e.damage * CONTACT_MUL));
+              const shield = Number.isFinite(player.shield) && player.shield > 0 ? player.shield : 0;
+              const absorbed = Math.min(shield, dmg);
+              player.shield = shield - absorbed;
+              player.hp -= (dmg - absorbed);
+              damageTaken += dmg;
+              invulnUntil = engine.now + IFRAMES;
+            }
+            if (d > 0.001) { e.x += ((e.x - player.x) / d) * 18; e.y += ((e.y - player.y) / d) * 18; }
+          }
+          continue;
+        }
         if (engine.now >= invulnUntil) {
           // 与 Player.takeDamage 一致：护盾先吃满，再掉血，然后进入 900ms 无敌
           const CONTACT_MUL = num('SIM_CONTACT_MUL', 1);

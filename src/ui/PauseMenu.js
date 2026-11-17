@@ -1,10 +1,23 @@
 // 暂停菜单：Esc 打开，失焦自动打开；每一项都可鼠标点击（键盘快捷键保留为等效操作）。
 import { C, HEX, addText, pxRect, pxFrame, pxDiamond, getRenderScale } from './Palette.js';
 import { isSoundEnabled } from '../audio/Sfx.js';
+import { SIGIL_DEFS } from '../data/cards.js';
+import { summarizePassives } from './passive-summary.js';
 
 // 每一行菜单项：显示用的键位提示 + 对应的动作，命中区由 y 与固定宽高推出。
 const ROW_W = 220;
 const ROW_H = 16;
+
+// 进化文案要「基础法术名→路线名」，这里把 defId 换成中文名（静态表，模块加载时建一次）。
+const SIGIL_NAMES = Object.freeze(Object.fromEntries(
+  Object.entries(SIGIL_DEFS).map(([id, def]) => [id, def?.name ?? id]),
+));
+
+// 「已获」清单：面板内宽 120..360，四边各留 4px；三块小字用同一条左基线。
+// 人物被动 / 罗盘增益最多两层（每层 7px+描边 ≈ 8.2，两层 ≈ 18.4），进化只给一层，
+// 否则会压到下面挪到 233 的诊断行。
+const PASSIVE_X = 124;
+const PASSIVE_W = 232;
 
 // 纯函数：指针落在哪一行。抽出来是为了能在 Node 里单测，不必构造 Phaser 场景。
 export function hitRowAt(rowDefs, x, y) {
@@ -47,10 +60,22 @@ export default class PauseMenu {
     this.muteLine = this.lines[this.rowDefs.findIndex((r) => r.action === 'mute')];
     this.footer = addText(scene, 240, 250, '点击选项，或按对应按键 · 按住空格观察法阵细目', 7, HEX.brass)
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
-    // 实时诊断：联组次数、断链原因分布、冷却受阻次数
-    this.diag = addText(scene, 240, 190, '', 7, HEX.mute, { wordWrap: { width: 230 } })
+    // 实时诊断：联组次数、断链原因分布、冷却受阻次数。
+    // 为了让出 y=176..228 的「已获」清单，诊断行从 190 下移到 233，并压成一行；
+    // 它夹在下移后的分隔线（241）与页脚（250）之间，不与清单重叠。
+    this.diag = addText(scene, 240, 233, '', 7, HEX.mute, { wordWrap: { width: PASSIVE_W }, maxLines: 1 })
       .setOrigin(0.5, 0.5).setDepth(2001).setVisible(false);
-    for (const item of [...this.lines, this.footer, this.diag]) item.setScrollFactor(0);
+    // 已获清单三块：人物被动 / 罗盘增益 / 进化。文案由纯函数拼好，这里只负责排版与显隐。
+    this.passiveChar = addText(scene, PASSIVE_X, 177, '人物被动 · 暂无', 7, HEX.parchment, {
+      wordWrap: { width: PASSIVE_W }, maxLines: 2,
+    }).setDepth(2001).setVisible(false);
+    this.passiveCompass = addText(scene, PASSIVE_X, 197, '罗盘增益 · 暂无', 7, HEX.teal, {
+      wordWrap: { width: PASSIVE_W }, maxLines: 2,
+    }).setDepth(2001).setVisible(false);
+    this.passiveEvo = addText(scene, PASSIVE_X, 217, '', 7, HEX.brassLight, {
+      wordWrap: { width: PASSIVE_W }, maxLines: 1,
+    }).setDepth(2001).setVisible(false);
+    for (const item of [...this.lines, this.footer, this.diag, this.passiveChar, this.passiveCompass, this.passiveEvo]) item.setScrollFactor(0);
     this.draw();
   }
 
@@ -97,7 +122,8 @@ export default class PauseMenu {
     pxFrame(g, 112, 44, 256, 226, C.brassDark, 2, 1);
     pxFrame(g, 116, 48, 248, 218, C.brass, 0.5, 1);
     pxRect(g, 120, 80, 240, 1, C.brassDark, 0.8);
-    pxRect(g, 120, 236, 240, 1, C.brassDark, 0.5);
+    // 分隔线随诊断行下移 5px：236 会从 233 的诊断行里横穿过去
+    pxRect(g, 120, 241, 240, 1, C.brassDark, 0.5);
     for (const [x, y] of [[112, 44], [364, 44], [112, 266], [364, 266]]) {
       pxRect(g, x, y, 3, 3, C.brass, 0.9);
       pxRect(g, x + 1, y + 1, 1, 1, C.brassLight, 1);
@@ -126,6 +152,8 @@ export default class PauseMenu {
     this.title.setVisible(true);
     this.note.setVisible(true);
     this.footer.setVisible(true);
+    // 已获清单每次打开都按 run 的最新状态重算：老调用（失焦/恢复）不传 info 也不会崩。
+    this.setPassives(info);
     if (info) {
       const b = info.breaks ?? {};
       this.diag.setText('联组 ' + (info.combos ?? 0) + '　断链：冷却 ' + (b.cooldown ?? 0)
@@ -146,6 +174,30 @@ export default class PauseMenu {
     this.draw();
   }
 
+  // 已获清单：data 可传 { passives, evolutions, names }；不传就读 scene.run 的现状。
+  // 拆成独立方法是为了让 BattleScene 的 openPause 显式喂数据，同时保留旧调用路径。
+  setPassives(data = null) {
+    const run = this.scene?.run ?? {};
+    const summary = summarizePassives(
+      data?.passives ?? data?.passiveLog ?? run.passiveLog,
+      data?.evolutions ?? run.evolutions,
+      data?.names ?? { sigils: SIGIL_NAMES },
+    );
+    this.passiveSummary = summary;
+    this.passiveChar.setText(summary.character);
+    this.passiveCompass.setText(summary.compass);
+    this.passiveEvo.setText(summary.evolution || '');
+    if (this.visible) this.showPassives();
+    return summary;
+  }
+
+  showPassives() {
+    this.passiveChar.setVisible(true);
+    this.passiveCompass.setVisible(true);
+    // 没有进化时不占位（这一行本来就只给「进化」用）
+    this.passiveEvo.setVisible(!!this.passiveSummary?.evolution);
+  }
+
   hide() {
     this.removeInput();
     this.visible = false;
@@ -154,6 +206,9 @@ export default class PauseMenu {
     this.note.setVisible(false);
     this.footer.setVisible(false);
     this.diag.setVisible(false);
+    this.passiveChar.setVisible(false);
+    this.passiveCompass.setVisible(false);
+    this.passiveEvo.setVisible(false);
     for (const line of this.lines) line.setVisible(false);
   }
 }

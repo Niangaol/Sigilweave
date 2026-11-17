@@ -3,14 +3,29 @@
 // 模板号 = 场号（1..7），场与旧七幕美术一一对应，弹幕表本身不随幕合并而改。
 import { isValidStage } from './acts.js';
 export const BOSS_PATTERNS = Object.freeze({
-  1: { name: '扇形五连', count: 5, spread: 0.42, speed: 53, damage: 8 },
-  2: { name: '环封八向', count: 8, ring: true, speed: 38, damage: 7 },
-  3: { name: '裂空七线', count: 7, spread: 0.62, speed: 69, damage: 8 },
-  4: { name: '书页扇幕', count: 6, spread: 0.5, speed: 56, damage: 8 },
-  5: { name: '天平十向', count: 10, ring: true, speed: 42, damage: 7 },
-  6: { name: '熔火三叉', count: 3, spread: 0.5, speed: 74, damage: 9 },
-  7: { name: '终星九线', count: 9, spread: 0.7, speed: 78, damage: 9 },
+  1: { name: '扇形五连', count: 5, spread: 0.42, speed: 53, damage: 11 },
+  2: { name: '环封八向', count: 8, ring: true, speed: 38, damage: 10 },
+  3: { name: '裂空七线', count: 7, spread: 0.62, speed: 69, damage: 11 },
+  4: { name: '书页扇幕', count: 6, spread: 0.5, speed: 56, damage: 11 },
+  5: { name: '天平十向', count: 10, ring: true, speed: 42, damage: 10 },
+  6: { name: '熔火三叉', count: 3, spread: 0.5, speed: 74, damage: 12 },
+  7: { name: '终星九线', count: 9, spread: 0.7, speed: 78, damage: 12 },
 });
+
+// Boss 血量与专属减伤：小 Boss（tier 'mini'）130 + 65×场；场 Boss（major）再 ×1.35。
+// 减伤走敌人 armor 通道（applyDamage 按 1-armor 结算）：小 Boss 25%，场 Boss 30%。
+export const BOSS_HP = Object.freeze({ base: 170, perStage: 85, majorMul: 1.45 });
+export const BOSS_ARMOR = Object.freeze({ mini: 0.25, major: 0.30 });
+
+export function bossStats(stage, tier = 'major') {
+  const s = isValidStage(stage) ? stage : 1;
+  const isMini = tier === 'mini';
+  const base = BOSS_HP.base + BOSS_HP.perStage * s;
+  return {
+    hp: Math.round(isMini ? base : base * BOSS_HP.majorMul),
+    armor: isMini ? BOSS_ARMOR.mini : BOSS_ARMOR.major,
+  };
+}
 
 export function bossPattern(act) {
   return BOSS_PATTERNS[act] ?? BOSS_PATTERNS[1];

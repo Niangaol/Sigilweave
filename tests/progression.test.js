@@ -6,13 +6,17 @@ const character = () => ({ maxHp: 100, hp: 60, speed: 100, pickupRadius: 40, ifr
 const compass = () => ({ damageMul: 1, intervalMul: 1, cooldownMul: 1, hitBonus: 0, comboWindowMul: 1, expMul: 1 });
 
 describe('经验与等级', () => {
-  it('使用约定公式，单级需求前快后慢', () => {
-    expect(expNeeded(1)).toBe(10);
-    expect(expNeeded(5)).toBe(42);
-    expect(expNeeded(10)).toBe(89);
+  it('使用线性公式：一关 4~5 分钟，后段每级涨幅恒定', () => {
+    expect(expNeeded(1)).toBe(30);
+    expect(expNeeded(5)).toBe(46);
+    expect(expNeeded(10)).toBe(66);
     expect(expNeeded(2)).toBeLessThan(expNeeded(5));
     expect(expNeeded(5)).toBeLessThan(expNeeded(10));
-    for (let level = 1; level <= 30; level++) expect(expNeeded(level)).toBe(Math.round(6 * level ** 1.15) + 4);
+    for (let level = 1; level <= 40; level++) expect(expNeeded(level)).toBe(Math.round(30 + 4 * (level - 1)));
+    // 到 L5 累计 144 杀、到 L30 累计约 2.5k 杀：与七场击杀预算同量级
+    let cum = 0;
+    for (let level = 1; level < 30; level++) cum += expNeeded(level);
+    expect(cum).toBeGreaterThan(2300); expect(cum).toBeLessThan(2700);
   });
   it('创建状态互相独立', () => {
     const a = createProgression(); const b = createProgression();
@@ -20,8 +24,8 @@ describe('经验与等级', () => {
   });
   it('未升级保留经验，恰好达到门槛升级', () => {
     const state = createProgression();
-    expect(grantExp(state, 9)).toEqual({ ok: true, levelsGained: 0 });
-    expect(state).toEqual({ level: 1, exp: 9 });
+    expect(grantExp(state, 29)).toEqual({ ok: true, levelsGained: 0 });
+    expect(state).toEqual({ level: 1, exp: 29 });
     expect(grantExp(state, 1)).toEqual({ ok: true, levelsGained: 1 });
     expect(state).toEqual({ level: 2, exp: 0 });
   });
@@ -73,17 +77,17 @@ describe('等级属性与 Boss 门槛', () => {
   it.each([0, -1, NaN, Infinity, 1.2, '3', null, undefined, {}, Symbol('level')])('非法等级 %s 回退 LV1', (value) => {
     expect(levelStats(value)).toEqual(levelStats(1)); expect(expNeeded(value)).toBe(expNeeded(1));
   });
-  it('大 Boss 触发等级按场：5/10/15/20/24/28/32，精确到达或超过即触发', () => {
-    expect(MAJOR_BOSS_LEVEL).toEqual({ 1: 5, 2: 10, 3: 15, 4: 20, 5: 24, 6: 28, 7: 32 });
-    for (const [stage, threshold] of [[1, 5], [2, 10], [3, 15], [4, 20], [5, 24], [6, 28], [7, 32]]) {
+  it('大 Boss 触发等级按场：5/11/16/20/24/27/30，精确到达或超过即触发', () => {
+    expect(MAJOR_BOSS_LEVEL).toEqual({ 1: 5, 2: 11, 3: 16, 4: 20, 5: 24, 6: 27, 7: 30 });
+    for (const [stage, threshold] of [[1, 5], [2, 11], [3, 16], [4, 20], [5, 24], [6, 27], [7, 30]]) {
       expect(shouldTriggerMajorBoss(stage, threshold - 1)).toBe(false);
       expect(shouldTriggerMajorBoss(stage, threshold)).toBe(true);
       expect(shouldTriggerMajorBoss(stage, threshold + 1)).toBe(true);
     }
-    // 第 4/5 幕各两场，门槛不同：场 4 = 20、场 5 = 24；场 6 = 28、场 7 = 32。
+    // 第 4/5 幕各两场，门槛不同：场 4 = 20、场 5 = 24；场 6 = 27、场 7 = 30。
     expect(shouldTriggerMajorBoss(4, 19)).toBe(false);
     expect(shouldTriggerMajorBoss(5, 20)).toBe(false);
-    expect(shouldTriggerMajorBoss(7, 31)).toBe(false);
+    expect(shouldTriggerMajorBoss(7, 29)).toBe(false);
   });
   it.each([0, 8, '1', null, '__proto__', 'constructor', Symbol('stage')])('拒绝非法场 %s', (stage) => {
     expect(shouldTriggerMajorBoss(stage, 50)).toBe(false);

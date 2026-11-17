@@ -9,7 +9,7 @@ export const PLAYER = {
   hp: 100,
   speed: 96,          // 像素/秒
   radius: 6,
-  iframesMs: 1400,    // 受击无敌（割草密度上调后从 900 提到 1400：仿真里火焰起手包从 115s 阵亡变为满 180s 存活）
+  iframesMs: 660,    // 受击无敌（割草密度上调后从 900 提到 1400：仿真里火焰起手包从 115s 阵亡变为满 180s 存活）
   hurtFlashMs: 180,
 };
 
@@ -479,7 +479,7 @@ export const ENEMY_TYPES = {
     id: 'skeleton',
     name: '骷髅兵',
     radius: 6,
-    damage: 2,
+    damage: 6,
     shards: 1,
     behavior: 'march',
     hpMul: 1,
@@ -490,7 +490,7 @@ export const ENEMY_TYPES = {
     id: 'bat',
     name: '噬魂飞行体',
     radius: 5,
-    damage: 1,
+    damage: 3,
     shards: 1,
     behavior: 'weave',
     hpMul: 0.6,
@@ -501,7 +501,7 @@ export const ENEMY_TYPES = {
     id: 'corpse',
     name: '腐尸',
     radius: 8,
-    damage: 3,
+    damage: 8,
     shards: 2,
     behavior: 'lurch',
     hpMul: 2.2,
@@ -512,7 +512,7 @@ export const ENEMY_TYPES = {
     id: 'cultist',
     name: '邪教徒',
     radius: 6,
-    damage: 2,
+    damage: 6,
     shards: 2,
     behavior: 'orbit',
     hpMul: 1.2,
@@ -523,7 +523,7 @@ export const ENEMY_TYPES = {
     id: 'knight',
     name: '亡灵骑士',
     radius: 8,
-    damage: 2,
+    damage: 6,
     shards: 3,
     behavior: 'charge',
     hpMul: 2,
@@ -535,7 +535,7 @@ export const ENEMY_TYPES = {
     id: 'rune_spider',
     name: '符纹蛛',
     radius: 5,
-    damage: 1,
+    damage: 3,
     shards: 1,
     behavior: 'skitter',
     hpMul: 0.6,
@@ -546,7 +546,7 @@ export const ENEMY_TYPES = {
     id: 'stone_gargoyle',
     name: '熔岩石像鬼',
     radius: 9,
-    damage: 3,
+    damage: 8,
     shards: 3,
     behavior: 'slam_charge',
     hpMul: 2.4,
@@ -557,7 +557,7 @@ export const ENEMY_TYPES = {
     id: 'crystal_dryad',
     name: '晶棘树妖',
     radius: 8,
-    damage: 2,
+    damage: 6,
     shards: 3,
     behavior: 'volley',
     hpMul: 1.6,
@@ -568,7 +568,7 @@ export const ENEMY_TYPES = {
     id: 'clockwork_doll',
     name: '齿轮傀儡',
     radius: 8,
-    damage: 2,
+    damage: 6,
     shards: 3,
     behavior: 'spring',
     hpMul: 2,
@@ -579,7 +579,7 @@ export const ENEMY_TYPES = {
     id: 'void_elemental',
     name: '虚空符灵',
     radius: 7,
-    damage: 2,
+    damage: 6,
     shards: 2,
     behavior: 'phase',
     hpMul: 1.8,
@@ -590,7 +590,7 @@ export const ENEMY_TYPES = {
     id: 'wraith',
     name: '幽誓女妖',
     radius: 6,
-    damage: 2,
+    damage: 6,
     shards: 2,
     behavior: 'stalk',
     hpMul: 1.4,
@@ -601,7 +601,7 @@ export const ENEMY_TYPES = {
     id: 'brass_warden',
     name: '黄铜守誓者',
     radius: 12,
-    damage: 4,
+    damage: 10,
     shards: 6,
     behavior: 'double_charge',
     hpMul: 4.2,
@@ -614,7 +614,7 @@ export const ENEMY_TYPES = {
     id: 'stitch_abomination',
     name: '缝合尸魁',
     radius: 14,
-    damage: 4,
+    damage: 10,
     shards: 5,
     behavior: 'stomp',
     hpMul: 4.5,
@@ -627,7 +627,7 @@ export const ENEMY_TYPES = {
     id: 'oath_bishop',
     name: '咒誓主教',
     radius: 12,
-    damage: 3,
+    damage: 8,
     shards: 8,
     behavior: 'blink_caster',
     hpMul: 3.5,
@@ -638,58 +638,58 @@ export const ENEMY_TYPES = {
   // ================= 北斗后半段专属敌人（第 4-7 幕） =================
   // 四幕·天权（沉钟书库）：墨与纸的机关书库。
   ink_wisp: {
-    id: 'ink_wisp', name: '墨灵', radius: 7, damage: 2, shards: 2,
+    id: 'ink_wisp', name: '墨灵', radius: 7, damage: 6, shards: 2,
     behavior: 'drift', hpMul: 1.3, speedMul: 1.25, color: 0x4a5a8e,
   },
   page_golem: {
-    id: 'page_golem', name: '纸页傀儡', radius: 10, damage: 3, shards: 3,
+    id: 'page_golem', name: '纸页傀儡', radius: 10, damage: 8, shards: 3,
     behavior: 'bulwark', hpMul: 2.0, speedMul: 0.7, color: 0xd8c9a0,
   },
   // 四幕精英：索引猎犬。蓄力后长距扑咬，冲锋期接触伤害翻倍。
   index_hound: {
-    id: 'index_hound', name: '索引猎犬', radius: 12, damage: 4, shards: 6,
+    id: 'index_hound', name: '索引猎犬', radius: 12, damage: 10, shards: 6,
     behavior: 'lunge', hpMul: 3.6, speedMul: 1.0, color: 0x9fb4d8, elite: true,
   },
   // 五幕·玉衡（衡律法庭）：判词与枷锁。
   verdict_wraith: {
-    id: 'verdict_wraith', name: '判词幽灵', radius: 7, damage: 3, shards: 3,
+    id: 'verdict_wraith', name: '判词幽灵', radius: 7, damage: 8, shards: 3,
     behavior: 'lance', hpMul: 1.5, speedMul: 1.15, color: 0xcfd6e0,
   },
   shackle_guard: {
-    id: 'shackle_guard', name: '枷锁守卫', radius: 11, damage: 4, shards: 4,
+    id: 'shackle_guard', name: '枷锁守卫', radius: 11, damage: 10, shards: 4,
     behavior: 'chain', hpMul: 2.4, speedMul: 0.65, color: 0x9aa1ad,
   },
   // 五幕精英：天平裁决者。保持 130px，标记后打一发重判词弹。
   scale_arbiter: {
-    id: 'scale_arbiter', name: '天平裁决者', radius: 12, damage: 4, shards: 7,
+    id: 'scale_arbiter', name: '天平裁决者', radius: 12, damage: 10, shards: 7,
     behavior: 'judge', hpMul: 3.4, speedMul: 0.95, color: 0xe0d6c8, elite: true,
   },
   // 六幕·开阳（熔星锻炉）：炉渣与火星。
   slag_beast: {
-    id: 'slag_beast', name: '炉渣兽', radius: 12, damage: 4, shards: 4,
+    id: 'slag_beast', name: '炉渣兽', radius: 12, damage: 10, shards: 4,
     behavior: 'eruption', hpMul: 2.8, speedMul: 0.6, color: 0x8a4a2a,
   },
   ember_imp: {
-    id: 'ember_imp', name: '火星精', radius: 6, damage: 2, shards: 2,
+    id: 'ember_imp', name: '火星精', radius: 6, damage: 6, shards: 2,
     behavior: 'dart', hpMul: 1.0, speedMul: 1.45, color: 0xff8a4d,
   },
   // 六幕精英：铁砧暴君。贴近后蓄力砸地，大范围震荡。
   anvil_tyrant: {
-    id: 'anvil_tyrant', name: '铁砧暴君', radius: 14, damage: 5, shards: 8,
+    id: 'anvil_tyrant', name: '铁砧暴君', radius: 14, damage: 13, shards: 8,
     behavior: 'slam', hpMul: 4.8, speedMul: 0.5, color: 0x6b543f, elite: true,
   },
   // 七幕·摇光（破晓之座）：晨光与星屑。
   dawn_shade: {
-    id: 'dawn_shade', name: '晓色之影', radius: 8, damage: 3, shards: 3,
+    id: 'dawn_shade', name: '晓色之影', radius: 8, damage: 8, shards: 3,
     behavior: 'mirror', hpMul: 1.8, speedMul: 1.2, color: 0xffd98a,
   },
   stardust_knight: {
-    id: 'stardust_knight', name: '星屑骑士', radius: 10, damage: 4, shards: 5,
+    id: 'stardust_knight', name: '星屑骑士', radius: 10, damage: 10, shards: 5,
     behavior: 'charge_volley', hpMul: 2.6, speedMul: 0.85, color: 0xe8e0ff,
   },
   // 七幕精英：蚀日祭司。保持 100px，蓄力后打八向星环。
   eclipse_priest: {
-    id: 'eclipse_priest', name: '蚀日祭司', radius: 12, damage: 4, shards: 9,
+    id: 'eclipse_priest', name: '蚀日祭司', radius: 12, damage: 10, shards: 9,
     behavior: 'eclipse', hpMul: 4.0, speedMul: 0.9, color: 0x9a7bd8, elite: true,
   },
 };
@@ -738,22 +738,22 @@ export const DIFFICULTY = {
   rampMs: 180000,
   // 五幕后单幕被拉长（合并幕约 6~7 分钟），所以末段数值整体抬一档：
   // 血量 4→12、速度 38→60、同屏 34→66、刷怪 700→500ms，配合按场放大的密度系数。
-  hpStart: 4,
-  hpEnd: 12,
+  hpStart: 14,
+  hpEnd: 42,
   // 刷怪环在屏幕外 275~380px：速度太低会让怪走 7~15 秒才到脸上，屏幕长期空着，
   // 38→58 下 5~9 秒到位；蝙蝠 speedMul 1.6 也只有约 93px/s，仍略低于玩家 96，追不上人。
-  speedStart: 38,
-  speedEnd: 60,
+  speedStart: 52,
+  speedEnd: 82,
   // 刷怪节奏按「玩家实际清怪速度」定，不是拍脑袋往死里堆：
   // 纯逻辑战斗仿真（scripts/density-sim.mjs）测得 2/3/3 脉流下第一幕击杀约 0.8/s、二三幕约 2.2~2.8/s，
   // 所以末段刷怪定在约 2.9/s（520ms × 平均 1.5 只），让同屏稳定在 30~60 而不是顶满上限变成一堵墙。
-  spawnMsStart: 700,
-  spawnMsEnd: 500,
-  maxAliveStart: 34,
-  maxAliveEnd: 66,
+  spawnMsStart: 440,
+  spawnMsEnd: 380,
+  maxAliveStart: 52,
+  maxAliveEnd: 88,
   // 兜底伤害：只有怪种没自带 damage 时才会用到
-  damageStart: 3,
-  damageEnd: 5,
+  damageStart: 6,
+  damageEnd: 10,
   // 每次刷怪波抽 1..wave 只（末段经常 1~2 只同刷）
   waveStart: 1,
   waveEnd: 2,
@@ -762,14 +762,16 @@ export const DIFFICULTY = {
 // 按「场」放大的密度系数：越往后同屏越多、刷得越密（同屏上限仍由 maxAlive 兜住）。
 // 七场封顶 66×1.62≈107 只，仍低于压测过的 150 只档位，留得住帧率。
 // 合并幕（第四、五幕）内部两场的系数不同：换场那一刻密度会实打实再抬一级。
+// 密度梯度按「一关 4~5 分钟、留出走位余地」重排：前两场明显更松，后四场逐场加压，
+// 末场仍是最密的一档但不再突然翻倍（旧表 1.00/1.10/1.20/1.34/1.42/1.52/1.62 太贴上限）。
 export const ACT_DENSITY = {
-  1: { maxAlive: 1.00, spawnMs: 1.00 },
-  2: { maxAlive: 1.10, spawnMs: 0.94 },
-  3: { maxAlive: 1.20, spawnMs: 0.88 },
-  4: { maxAlive: 1.34, spawnMs: 0.83 },
-  5: { maxAlive: 1.42, spawnMs: 0.79 },
-  6: { maxAlive: 1.52, spawnMs: 0.76 },
-  7: { maxAlive: 1.62, spawnMs: 0.73 },
+  1: { maxAlive: 0.70, spawnMs: 1.30 },
+  2: { maxAlive: 0.88, spawnMs: 1.10 },
+  3: { maxAlive: 1.05, spawnMs: 0.96 },
+  4: { maxAlive: 1.20, spawnMs: 0.88 },
+  5: { maxAlive: 1.34, spawnMs: 0.82 },
+  6: { maxAlive: 1.46, spawnMs: 0.78 },
+  7: { maxAlive: 1.58, spawnMs: 0.74 },
 };
 
 // 难度采样：difficultyAt(ms) 保持旧签名，不传场号等价于第一场（老调用点行为不变）。

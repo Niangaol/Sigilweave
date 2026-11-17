@@ -37,7 +37,8 @@ export default class IntermissionScene extends Phaser.Scene {
       ? this.run.chapter
       : (Number.isInteger(this.run.act) && this.run.act >= 1 ? this.run.act : 1);
     unlockToTarget(preview, ACTS[chapter - 1].unlocked);
-    this.workshop = createWorkshop({ draft: draftFromGrid(preview, { act: chapter }), shards: this.run.shards, seed: this.run.seed + ':' + chapter });
+    // act: chapter —— 幕间三选一也按幕解锁，前两幕不出现重档与演出级法术
+    this.workshop = createWorkshop({ draft: draftFromGrid(preview, { act: chapter }), shards: this.run.shards, seed: this.run.seed + ':' + chapter, act: chapter });
     if (this.run.hand) this.workshop.hand = { ...this.workshop.hand, ...this.run.hand };
     if (this.run.runeCosts) this.workshop.runeCosts = structuredClone(this.run.runeCosts);
     this.focusCell = this.workshop.draft.unlocked[0];

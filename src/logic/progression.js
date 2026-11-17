@@ -6,9 +6,13 @@ const finiteNonnegative = (value) => typeof value === 'number' && Number.isFinit
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const numberOr = (value, fallback) => finiteNonnegative(value) ? value : fallback;
 
+// 升级曲线：每场 4~5 分钟，Boss 门槛（5/11/16/20/24/27/30）落在每场末尾。
+// 线性曲线比指数更可控：累计经验与击杀数近似同速增长，后段不会突然爬不动。
+// 实测击杀预算（含第一二场减密度）：L5≈144 杀、L11≈480、L16≈860、L20≈1230、L24≈1670、
+// L27≈2080、L30≈2490；对应每场约 3.8~4.2 分钟（见 scripts/density-sim.mjs 的 killsPerMin）。
 export function expNeeded(level) {
   const L = validLevel(level) ? level : 1;
-  return Math.round(6 * L ** 1.15) + 4;
+  return Math.round(30 + 4 * (L - 1));
 }
 
 export function createProgression() {
@@ -41,9 +45,10 @@ export function levelStats(level) {
   return { hpMul: 1 + 0.16 * L, damageMul: 1 + 0.08 * L, speedMul: 1 + Math.min(0.3, 0.02 * L) };
 }
 
-// 七场大 Boss 触发等级（按场）：前五场每场 +5，后两场 +4。
-// 等级与经验跨场保留，所以后四场的入场等级本来就高；第 4/5 幕各两场，门槛不同（20 与 24、28 与 32）。
-export const MAJOR_BOSS_LEVEL = Object.freeze({ 1: 5, 2: 10, 3: 15, 4: 20, 5: 24, 6: 28, 7: 32 });
+// 七场大 Boss 触发等级（按场）：按「每场 4~5 分钟」的击杀预算反推，
+// 第 2/3/6/7 场比旧表各错开一档，让门槛落在场次末尾而不是刚开场。
+// 等级与经验跨场保留，所以后四场的入场等级本来就高。
+export const MAJOR_BOSS_LEVEL = Object.freeze({ 1: 5, 2: 11, 3: 16, 4: 20, 5: 24, 6: 27, 7: 30 });
 
 export function shouldTriggerMajorBoss(stage, level) {
   return isValidStage(stage) && validLevel(level) && level >= MAJOR_BOSS_LEVEL[stage];

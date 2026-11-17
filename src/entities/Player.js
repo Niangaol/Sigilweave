@@ -35,6 +35,12 @@ export default class Player {
     // 人物宝箱增益：额外受击无敌时间，单位「秒」；默认 0 时行为与旧版完全一致。
     this.iframesBonus = 0;
     this.invulnUntil = 0;
+    // 硬控（2026-11-17 怪物重做）：stun/root 期间无法移动，slow 期间降速。
+    this.stunUntil = 0;
+    this.rootUntil = 0;
+    this.slowUntil = 0;
+    this.slowFactor = 1;
+    this.controlAt = 0;
     this.hurtAt = -9999;
     this.walkPhase = 0;
     this.facing = 1;
@@ -69,6 +75,26 @@ export default class Player {
   }
 
   // 返回是否真的吃到伤害（无敌帧内返回 false）
+  // 硬控入口：只由场景侧在敌人招式命中时调用，叠加以「更晚结束」为准。
+  applyControl(kind, ms, now) {
+    if (!this.alive || !(ms > 0) || !Number.isFinite(ms)) return false;
+    const until = now + ms;
+    if (kind === 'stun') this.stunUntil = Math.max(this.stunUntil, until);
+    else if (kind === 'root') this.rootUntil = Math.max(this.rootUntil, until);
+    else if (kind === 'slow') this.slowUntil = Math.max(this.slowUntil, until);
+    else return false;
+    this.controlAt = now;
+    return true;
+  }
+
+  moveBlocked(now) {
+    return now < this.stunUntil || now < this.rootUntil;
+  }
+
+  speedFactorAt(now) {
+    return now < this.slowUntil ? this.slowFactor : 1;
+  }
+
   takeDamage(amount, now) {
     if (!this.alive) return false;
     if (now < this.invulnUntil) return false;
@@ -131,11 +157,11 @@ export default class Player {
         s.play('player-idle', true);
       }
     }
-    this.drawStaff(x, y);
+    this.drawStaff(x, y, now);
   }
 
   // 地面投影 + 法杖：像素与 staffTipOf 严格对齐，材质路径两条都走这里
-  drawStaff(x, y) {
+  drawStaff(x, y, now = 0) {
     const g = this.g;
     g.clear();
     pxRect(g, x - 4, y + 7, 9, 1, C.void, 0.5);
@@ -148,6 +174,33 @@ export default class Player {
     pxRect(g, staffX, y - 27 - bob, 1, 1, this.kitStyle?.accentLight ?? C.teal, 1);
     pxRect(g, staffX - 2, y - 27 - bob, 5, 1, C.brassDark, 0.55);
     this.drawKitAccents(x, staffX, y - 27 - bob, y - 20 - bob);
+    this.drawControl(x, y, now);
+  }
+
+  // 硬控表现（2026-11-17 怪物重做）：眩晕头顶转星星、定身脚下一圈冷点、迟滞脚边一道紫线。
+  // 全部走既有的 this.g，不新增图层；时间取 now，暂停/顿帧时自然停住。
+  drawControl(x, y, now) {
+    const g = this.g;
+    if (!g || !this.alive) return;
+    if (now < this.stunUntil) {
+      for (let i = 0; i < 3; i++) {
+        const a = now / 140 + (i * Math.PI * 2) / 3;
+        const sx = Math.round(x + Math.cos(a) * 10);
+        const sy = Math.round(y - 34 + Math.sin(a) * 4);
+        pxRect(g, sx, sy, 2, 2, 0xfff0a0, 0.95);
+        pxRect(g, sx - 1, sy + 2, 4, 1, 0xfff0a0, 0.45);
+      }
+    }
+    if (now < this.rootUntil) {
+      const r = 9 + Math.round(Math.sin(now / 110));
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        pxRect(g, Math.round(x + Math.cos(a) * r), Math.round(y + 6 + Math.sin(a) * r * 0.45), 2, 2, 0x9fe8ff, 0.9);
+      }
+    }
+    if (now < this.slowUntil) {
+      pxRect(g, x - 6, y + 8, 13, 1, 0xa88bd8, 0.5);
+    }
   }
 
   // 职业小配件：披风拖尾（背向侧）+ 胸章 + 法杖尖端换色。

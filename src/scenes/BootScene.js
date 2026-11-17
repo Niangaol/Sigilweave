@@ -4,6 +4,8 @@ import Phaser from 'phaser';
 import { applyPixelZoom } from '../ui/Palette.js';
 import { ensureVariantTextures } from '../ui/variant-parts.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
+import { loadSettings, primeSettings } from '../logic/settings.js';
+import { setSoundEnabled } from '../audio/Sfx.js';
 
 // 精灵表：key 与文稿参数总表一致；frameWidth/Height 即文稿规定的单帧像素尺寸
 // 2026-11 美术升级包：三张精灵表统一为 64×56 / 12 帧（原 32/28/30px）
@@ -107,6 +109,10 @@ export default class BootScene extends Phaser.Scene {
   }
 
   create() {
+    // 玩家设置（音效 / 震动 / 引导）在读档后立刻生效：标题页进来就是玩家上次的选择
+    const settings = loadSettings();
+    primeSettings(settings);
+    setSoundEnabled(settings.sfx);
     // 变体配件纹理：必须在任何敌人实例创建前生成（幂等，已有同名美术 PNG 时跳过）
     ensureVariantTextures(this);
     this.createAnims();

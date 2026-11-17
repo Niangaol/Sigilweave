@@ -15,6 +15,7 @@ import { getEventPoints } from '../data/map-events.js';
 import { getEncounterById } from '../data/encounters.js';
 import { Rng } from '../logic/rng.js';
 import { CARD_POOL, cardKeyOf, cardOf } from '../logic/workshop.js';
+import { cardsForAct } from '../logic/spell-gating.js';
 import { slotComboEligible, variantOf, rollVariant } from '../data/variants.js';
 import { EVOLUTIONS, evolutionOf } from '../data/evolutions.js';
 import { REACTIONS, FACTIONS, factionOf } from '../data/factions.js';
@@ -26,6 +27,7 @@ import { pickEnemyVariant, composeEnemyDef } from '../data/enemy-variants.js';
 import { getEncounterForStage } from '../data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../logic/encounters.js';
 import { resolveBossOnce } from '../logic/boss.js';
+import { controlFor, CONTROL_DEFS, DEFAULT_CONTACT_CONTROL, DEFAULT_SHOT_CONTROL } from '../data/control.js';
 import { HOSTILE_LIMITS, stepHostileShots, stepSummons, meleeHits, makeShot, normalizeSummon } from '../logic/hostile.js';
 import { chapterOf, isValidStage, nextStage, firstStageOf } from '../logic/acts.js';
 import { chapterDurationMs, stageSpellCard, stageAdvanceDecision } from './battle-pure.js';
@@ -40,6 +42,7 @@ import Background from '../ui/Background.js';
 import SigilBoard, { cellCenter } from '../ui/SigilBoard.js';
 import EffectsLayer from '../ui/EffectsLayer.js';
 import Hud from '../ui/Hud.js';
+import { countPassives, appendPassive } from '../ui/passive-summary.js';
 import BattleFrame from '../ui/battle-frame.js';
 import PauseMenu from '../ui/PauseMenu.js';
 import Player from '../entities/Player.js';
@@ -51,6 +54,8 @@ import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, pxRing, applyPixel
 import { kitPanel, kitBoard, kitBoardMotion, kitHeader, kitSteps, kitCell, kitHandRow, kitDetail, kitAction, clipText } from '../ui/editor-ui.js';
 import { CARD_HINTS } from '../data/card-hints.js';
 import { punchFor, shouldPunch, strikePunchFor } from '../ui/spell-punch.js';
+import { shakeCamera } from '../ui/camera-shake.js';
+import { bossFrameOffset, clampFollowOffset, leashIntoView, playerVisible, DEFAULT_DEADZONE_H } from '../ui/boss-framing.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -104,6 +109,9 @@ export default class BattleScene extends Phaser.Scene {
     // 成长状态：跨幕持久在 run 上
     this.run.progression ??= createProgression();
     this.run.compassBuffs ??= { damageMul: 1, intervalMul: 1, cooldownMul: 1, hitBonus: 0, comboWindowMul: 1, expMul: 1 };
+    // 局内被动清单：跨场持久在 run 上，暂停菜单直接读它，HUD 只读统计好的计数。
+    this.run.passiveLog ??= [];
+    this.passiveCounts = countPassives(this.run.passiveLog);
     this.run.hand ??= {};
     this.run.completedEvents ??= {};
     this.run.majorBossStages ??= {};
@@ -631,6 +639,9 @@ export default class BattleScene extends Phaser.Scene {
       combos: this.engine.stats.combos,
       breaks: this.engine.summary(this.engine.now).comboBreaks,
       blocked: this.engine.stats.blocked,
+      // 已获清单：直接把 run 上的被动流水与进化表喂给暂停菜单
+      passives: this.run.passiveLog,
+      evolutions: this.run.evolutions,
     });
     this.board.setDetailVisible(true);
     this.hint.setVisible(false);
@@ -666,8 +677,19 @@ export default class BattleScene extends Phaser.Scene {
       this.updatePlayer(dt);
       this.updateSpawner(dt);
       this.updateEnemies(dt);
+      this.updateBossCamera();
+      if (this.boss?.alive) {
+        // Boss 拴绳：它停在原地放招时玩家会跑开，不夹回来就整只留在画面外。
+        // 上边界要再让出大立绘的身高（脚在 boss.y，头顶在 boss.y - (displayH - 21)）。
+        const view = this.viewRect();
+        const headroom = Math.max(0, (this.boss.sprite?.displayHeight ?? 0) - 21);
+        const feetView = { x: view.x, y: view.y + headroom, w: view.w, h: Math.max(40, view.h - headroom) };
+        if (leashIntoView(this.boss, feetView)) this.boss.sprite?.setPosition(Math.round(this.boss.x), Math.round(this.boss.y) + 21);
+      }
       this.updateHostileShots(dt);
       this.updateSummons(dt);
+      // 新手引导 G16：第一次拿到护盾时解释蓝条与上限。
+      if (this.player.shield > 0) fireGuide(this, this.run, 'G16');
       this.updateProjectiles(dt);
       this.updateShards(dt);
       this.updateExpMotes(dt);
@@ -739,6 +761,8 @@ export default class BattleScene extends Phaser.Scene {
       elapsedMs: this.engine.now,
       chapter: this.chapter,
       stage: this.stage,
+      // 顶栏常驻计数：人物被动 / 罗盘增益各拿到了几种（重复拿到只算一种，次数在暂停菜单里）
+      passives: this.passiveCounts,
     });
     // 画框跟着同一颗心脏：暂停与顿帧时 dt 传 0，碎屑与脉动一起定格
     this.frame?.update({
@@ -750,8 +774,43 @@ export default class BattleScene extends Phaser.Scene {
 
   updatePlayer(dt) {
     const { dx, dy } = this.readMoveAxis();
-    const factor = this.engine.now < this.playerSlowUntil ? 0.75 : 1;
-    this.player.update(dt * factor * (this.player.speedMult ?? 1), dx, dy, this.worldBounds, this.engine.now);
+    const now = this.engine.now;
+    const blocked = this.player.moveBlocked(now);
+    const factor = (now < this.playerSlowUntil ? 0.75 : 1) * this.player.speedFactorAt(now);
+    this.player.update(dt * factor * (this.player.speedMult ?? 1),
+      blocked ? 0 : dx, blocked ? 0 : dy, this.worldBounds, now);
+  }
+
+  // 敌人招式命中后的玩家硬控：查表 → 应用 → 飘字。返回控制名（没有配置时 null）。
+  applyEnemyControl(enemy, path, now) {
+    if (!this.player?.alive) return null;
+    const defId = enemy?.defId ?? enemy?.def?.id ?? null;
+    const cfg = controlFor(defId, path)
+      ?? (path === 'contact' ? DEFAULT_CONTACT_CONTROL : null)
+      ?? (path === 'shot' ? DEFAULT_SHOT_CONTROL : null);
+    if (!cfg) return null;
+    return this.applyPlayerControl(cfg, enemy?.x ?? this.player.x, enemy?.y ?? this.player.y, now);
+  }
+
+  applyPlayerControl(cfg, sx, sy, now) {
+    const p = this.player;
+    const def = CONTROL_DEFS[cfg.kind];
+    if (cfg.kind === 'knock') {
+      const dx = p.x - sx;
+      const dy = p.y - sy;
+      const len = Math.hypot(dx, dy) || 1;
+      const force = cfg.force ?? 40;
+      const b = this.worldBounds;
+      p.x = Math.min(Math.max(p.x + (dx / len) * force, b.left + p.radius), b.right - p.radius);
+      p.y = Math.min(Math.max(p.y + (dy / len) * force, b.top + p.radius), b.bottom - p.radius);
+      p.applyControl('stun', cfg.ms ?? 200, now);
+      this.effects?.impact?.(p.x, p.y, def?.color ?? C.bone, true);
+    } else {
+      p.applyControl(cfg.kind, cfg.ms ?? 400, now);
+      if (cfg.kind === 'slow') p.slowFactor = cfg.factor ?? 0.6;
+    }
+    if (def) this.effects?.labelPopup?.(p.x, p.y - 24, def.name, def.color, 12);
+    return def?.name ?? null;
   }
 
   updateStartSample(dt) {
@@ -839,6 +898,8 @@ export default class BattleScene extends Phaser.Scene {
     if (this.chapter === 3 && def?.id === 'oath_bishop') {
       fireGuide(this, this.run, 'G10', { highlight: '敌人' });
     }
+    // 新手引导 G13：第一次刷出带变体的敌人（迅捷/重甲/精英），讲清边色与重甲盾
+    if (variant) fireGuide(this, this.run, 'G13', { highlight: '敌人' });
     const lv = levelStats(this.run.progression.level);
     const enemy = new Enemy(
       this,
@@ -882,18 +943,22 @@ export default class BattleScene extends Phaser.Scene {
       if (this.player.alive) {
         const d = Math.hypot(e.x - this.player.x, e.y - this.player.y);
         if (d < e.radius + this.player.radius) {
-          const hit = this.player.takeDamage(e.damage, this.engine.now);
-          if (hit) {
-            this.effects.hurt();
-            this.effects.impact(e.x, e.y, C.blood, true);
-            this.cameras.main.shake(90, 0.004);
+          // 接触不再是「撞一下自毁」：改击退 + 接触冷却，怪留下来反复施压。
+          if (this.engine.now >= (e.contactCdUntil ?? 0)) {
+            e.contactCdUntil = this.engine.now + 600;
+            const hit = this.player.takeDamage(e.damage, this.engine.now);
+            if (hit) {
+              this.effects.hurt();
+              this.effects.impact(e.x, e.y, C.blood, true);
+              shakeCamera(this, 'hurt', 90, 0.004);
+            }
+            if (this.player.alive) this.applyEnemyControl?.(e, 'contact', this.engine.now);
+            if (!e.isBoss && d > 0.001) {
+              // 撞完把怪顶开一点，避免整只怪陷在玩家身体里
+              e.x += ((e.x - this.player.x) / d) * 18;
+              e.y += ((e.y - this.player.y) / d) * 18;
+            }
           }
-          if (e.isBoss) continue; // Boss 接触不会像杂兵一样自行碎掉。
-          // 碰到玩家就碎掉，避免贴脸反复扣血
-          this.effects.burst(e.x, e.y, C.bone, 7);
-          e.alive = false;
-          e.destroy();
-          this.enemies.splice(i, 1);
         }
       }
     }
@@ -986,6 +1051,44 @@ export default class BattleScene extends Phaser.Scene {
       return { x: v.x, y: v.y, w: v.width, h: v.height };
     }
     return { x: this.player.x - 240, y: this.player.y - 135, w: 480, h: 270 };
+  }
+
+  // Boss 战取景：每帧按 Boss 头顶需要多少抬头量，再夹在玩家安全线以内。
+  // 不这么做的话，跟随偏移会把玩家顶到画面下沿外（见 ui/boss-framing.js 的注释）。
+  updateBossCamera() {
+    const cam = this.cameras?.main;
+    const base = followBaseY();
+    const view = this.viewRect();
+    const boss = this.boss && this.boss.alive ? this.boss : null;
+    let offset = base;
+    if (boss) {
+      const displayH = boss.sprite?.displayHeight ?? 0;
+      const bossTop = boss.y + 21 - displayH;   // BOSS_FEET = 21
+      offset = bossFrameOffset({
+        viewH: view.h,
+        deadzoneH: DEFAULT_DEADZONE_H,
+        baseOffset: base,
+        playerY: this.player.y,
+        bossTop,
+        hudBottom: 40,
+      }).offset;
+    }
+    this.followOffsetY = offset;
+    // 只在真的变了才写相机，避免每帧触发 Phaser 内部的脏标记
+    if (this.appliedFollowOffset !== offset) {
+      this.appliedFollowOffset = offset;
+      cam?.setFollowOffset?.(0, offset);
+    }
+    // 兜底：偏移/死区再怎么算，玩家掉出画面就立刻把镜头拉回来
+    if (!playerVisible(this.player, view, 6)) {
+      this.playerOffViewMs = (this.playerOffViewMs ?? 0) + 16;
+      if (this.playerOffViewMs > 120) {
+        this.playerOffViewMs = 0;
+        cam?.centerOn?.(this.player.x, this.player.y - offset);
+      }
+    } else {
+      this.playerOffViewMs = 0;
+    }
   }
 
   combatState() {
@@ -1094,7 +1197,6 @@ export default class BattleScene extends Phaser.Scene {
     const y = Number.isFinite(enemy.y) ? enemy.y : this.player.y;
     this.effects.shieldBreak(x, y);
     sfx.shieldBreak();
-    this.cameras.main.shake(120, 0.002);
   }
 
   // 精英践踏：圈内玩家受击（带无敌帧，不会连续吃满）
@@ -1105,8 +1207,9 @@ export default class BattleScene extends Phaser.Scene {
       if (this.player.takeDamage(stomp.damage ?? 8, this.engine.now)) {
         this.effects.hurt();
         this.effects.impact(this.player.x, this.player.y, C.blood, true);
-        this.cameras.main.shake(120, 0.005);
+        shakeCamera(this, 'hurt', 120, 0.005);
         sfx.hurt();
+        if (this.player.alive) this.applyEnemyControl?.(enemy, 'stomp', this.engine.now);
       }
     }
     this.effects.impact(stomp.x, stomp.y, C.stone, true);
@@ -1174,7 +1277,7 @@ export default class BattleScene extends Phaser.Scene {
     if (!shouldPunch(defId, this.engine.now, this.lastPunchAt)) return;
     const spec = punchFor(defId);
     this.lastPunchAt = this.engine.now;
-    this.cameras.main.shake(spec.ms, spec.amp);
+    // 普通法术只给顿帧，不震屏（震屏留给 Boss 事件与演出级落点）
     if (spec.stopMs > 0) this.hitstopLeft = Math.max(this.hitstopLeft, spec.stopMs);
   }
 
@@ -1186,7 +1289,7 @@ export default class BattleScene extends Phaser.Scene {
     this.effects.vignette(defId === 'meteor_judgment' ? 1 : 0.8, 520);
     if (defId === 'meteor_judgment') this.cameras.main.flash(80, 255, 246, 224);
     this.lastPunchAt = this.engine.now;
-    this.cameras.main.shake(spec.ms, spec.amp);
+    shakeCamera(this, 'strike', spec.ms, spec.amp);
     if (spec.stopMs > 0) this.hitstopLeft = Math.max(this.hitstopLeft, spec.stopMs);
   }
 
@@ -1632,7 +1735,7 @@ export default class BattleScene extends Phaser.Scene {
       this.boss.y = this.introFromY;
     }
     sfx.bossRoar();
-    this.cameras.main.shake(mini ? 150 : 320, 0.005);
+    shakeCamera(this, 'major', mini ? 150 : 320, 0.005);
     this.effects.text(240, 92, (def ? def.name + ' · ' + def.title : '未知的威胁'), 12, HEX.brassLight, true);
     this.effects.text(240, 112, mini ? '小 Boss 拦路' : '大 Boss 降临', 9, HEX.blood, true);
     this.effects.text(240, 128, mini ? '它挡住了去路' : '它的眼神锁定了你', 8, HEX.mute, true);
@@ -1650,11 +1753,16 @@ export default class BattleScene extends Phaser.Scene {
     this.input.keyboard.resetKeys();
     // 新手引导 G02：第一次升级三选一（弹窗本身即讲解场景）
     fireGuide(this, this.run, 'G02');
-    const pool = [...CARD_POOL];
+    // 升级三选一也走按幕解锁：前两幕不会刷出陨星裁决/地裂之颚这类演出级法术。
+    const pool = cardsForAct(CARD_POOL, this.chapter);
     const picks = [];
     // 进化优先：盘面/手牌里已有、还没升级的法术，有 45% 概率占一个候选位。
     const evoPick = this.rollEvolutionPick();
-    if (evoPick) picks.push(evoPick);
+    if (evoPick) {
+      picks.push(evoPick);
+      // 新手引导 G15：第一次见到进化牌时讲清「不占格、整条强化、连携相邻」。
+      fireGuide(this, this.run, 'G15', { highlight: 'hand' });
+    }
     while (picks.length < 3 && pool.length) {
       const base = pool.splice(Math.floor(this.combatRng.next() * pool.length), 1)[0];
       picks.push(base.kind === 'sigil' ? { kind: 'sigil', defId: base.defId, variant: rollVariant(this.combatRng, base.defId) } : base);
@@ -1758,6 +1866,10 @@ export default class BattleScene extends Phaser.Scene {
     this.chests.push({ x, y, g: null, opened: false });
   }
 
+  // 局内被动清单的合并逻辑在 ui/passive-summary.js 的 appendPassive 纯函数里：
+  // 同来源同 id 只留一行，stacks 记「这局拿到几次」（暂停菜单显示成 Lv），
+  // level 记局外残响等级（抽到时只增不减），desc 留着给以后的详情页用。
+
   updateChests(dt) {
     for (let i = this.chests.length - 1; i >= 0; i--) {
       const chest = this.chests[i];
@@ -1792,6 +1904,8 @@ export default class BattleScene extends Phaser.Scene {
             speedMult: this.player.speedMult, pickupBonus: this.player.pickupBonus,
             iframesBonus: this.player.iframesBonus, shieldCap: this.player.shieldCap,
           };
+          appendPassive(this.run.passiveLog, 'chest', buff, level, desc);
+          this.passiveCounts = countPassives(this.run.passiveLog);
           this.effects.text(this.player.x, this.player.y - 14, '宝箱 · ' + buff.name + metaPassiveLabel(level) + '：' + desc, HEX.brassLight, true);
         }
         sfx.pick();
@@ -1957,9 +2071,7 @@ export default class BattleScene extends Phaser.Scene {
       this.player.hp = Math.min(this.player.maxHp, this.player.hp + 1);
       this.effects.text(this.player.x, this.player.y - 16, '连斩回复 +1', HEX.teal);
     }
-    if (this.killStreak === 20 || this.killStreak === 40 || this.killStreak === 60) {
-      this.cameras.main.shake(70, 0.0025);
-    }
+    // 连斩 20/40/60 只走文字与音效，不再震屏
   }
 
   updateShards(dt) {
@@ -2064,7 +2176,8 @@ export default class BattleScene extends Phaser.Scene {
       this.boss.x = this.player.x;
       // 新 Boss 立绘 72/104px：下限按实际显示高度算，保证整只 Boss 落在 HUD 下方。
       const bossMinY = 42 + (this.boss.sprite?.displayHeight ?? 0) - 21 + 4;
-      this.boss.y = Math.max(bossMinY, this.player.y - 110);
+      // 92 而不是 110：大立绘 104px 时，110 的间距会把 Boss 头顶顶到 HUD 里
+      this.boss.y = Math.max(bossMinY, this.player.y - 92);
       this.enemies.push(this.boss);
     }
     this.encounterPanel.show(this.run.encounters.active);
@@ -2136,6 +2249,8 @@ export default class BattleScene extends Phaser.Scene {
       this.engine.comboWindowMul = this.run.compassBuffs.comboWindowMul;
       if (this.engine.combos) this.engine.combos.windowMul = this.engine.comboWindowMul;
       rebuildDerived(this.grid, ACTS[this.chapter - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
+      appendPassive(this.run.passiveLog, 'compass', buff, level, desc);
+      this.passiveCounts = countPassives(this.run.passiveLog);
       this.effects.text(240, 96, '罗盘增益 · ' + buff.name + metaPassiveLabel(level) + '：' + desc, HEX.teal, true);
     }
     this.cameras.main.flash(140, 255, 246, 224);
@@ -2161,10 +2276,15 @@ export default class BattleScene extends Phaser.Scene {
 
   resumeFollow(offsetY = 0) {
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
-    this.cameras.main.setDeadzone(60, 40);
-    // 先回到本局基准取景；Boss 战再临时上抬，避免 72/104px 立绘顶出 HUD。
+    this.cameras.main.setDeadzone(60, DEFAULT_DEADZONE_H);
+    // 基准取景 + Boss 战临时上抬，但整体夹在「玩家安全线」以内：
+    // 横屏 50 + 80 = 130 的旧值会把玩家推到 270 高视口的 y≈265，肉眼已经掉出画面。
     const base = followBaseY();
-    this.cameras.main.setFollowOffset(0, base + offsetY);
+    const view = this.viewRect();
+    const total = clampFollowOffset(base + offsetY, view.h, DEFAULT_DEADZONE_H);
+    this.followOffsetY = total;
+    this.appliedFollowOffset = total;
+    this.cameras.main.setFollowOffset(0, total);
   }
 
   startBossClearTransition() {
@@ -2180,7 +2300,7 @@ export default class BattleScene extends Phaser.Scene {
     this.releaseProjectiles();
     // 通幕瞬间的余韵：白闪 + 杖尖余波，再交给过场接住
     this.cameras.main.flash(160, 255, 246, 224);
-    this.cameras.main.shake(120, 0.003);
+    shakeCamera(this, 'major', 120, 0.003);
     this.effects.burst(this.player.x, this.player.y, C.arcaneLight, 24);
     this.effects.text(240, 115, '契约解除 · Boss 已击败', HEX.arcaneLight, true);
   }
@@ -2212,6 +2332,8 @@ export default class BattleScene extends Phaser.Scene {
         this.effects?.hurt?.();
         this.effects?.impact?.(hit.x, hit.y, C.blood, true);
         sfx.hurt();
+        // 弹幕不带来源 defId，用全场统一的轻迟滞；精英的专属配置见 ENEMY_CONTROL.shot
+        this.applyPlayerControl?.(DEFAULT_SHOT_CONTROL, hit.x, hit.y, this.engine?.now ?? 0);
       }
     }
     const g = this.hostileG;
@@ -2326,7 +2448,6 @@ export default class BattleScene extends Phaser.Scene {
     const damage = Number.isFinite(det.damage) && det.damage > 0 ? det.damage : 8;
     this.effects?.burst?.(x, y, C.blood, 14);
     this.effects?.impact?.(x, y, C.blood, true);
-    this.cameras?.main?.shake?.(120, 0.004);
     if (this.player?.alive && typeof this.player.takeDamage === 'function') {
       const dist = Math.hypot(this.player.x - x, this.player.y - y);
       if (dist <= radius + (this.player.radius ?? 0)) {
@@ -2407,7 +2528,6 @@ export default class BattleScene extends Phaser.Scene {
     const arc = Number.isFinite(melee.arc) && melee.arc > 0 ? melee.arc : Math.PI / 2;
     this.effects?.slash?.(x, y, angle, range, arc, enemy?.def?.color ?? C.blood);
     sfx.meleeSwing();
-    this.cameras?.main?.shake?.(70, 0.0022);
     if (!meleeHits(melee, this.player)) return false;
     if (typeof this.player.takeDamage !== 'function') return false;
     const damage = Number.isFinite(melee.damage) ? melee.damage : (enemy?.damage ?? 8);
@@ -2416,7 +2536,8 @@ export default class BattleScene extends Phaser.Scene {
       this.effects?.hurt?.();
       this.effects?.impact?.(this.player.x, this.player.y, C.blood, true);
       sfx.hurt();
-      this.cameras?.main?.shake?.(120, 0.004);
+      shakeCamera(this, 'hurt', 120, 0.004);
+      this.applyEnemyControl?.(enemy, 'melee', this.engine?.now ?? 0);
     }
     return !!dealt;
   }
@@ -2439,7 +2560,7 @@ export default class BattleScene extends Phaser.Scene {
     this.hint.setVisible(false);
     this.player.draw(this.engine.now); // 让玩家绘制成倒地状态
     this.effects.deathBurst(this.player.x, this.player.y);
-    this.cameras.main.shake(240, 0.006);
+    shakeCamera(this, 'major', 240, 0.006);
     const summary = this.buildSummary();
     this.time.delayedCall(1000, () => {
       // 死亡：先演魂火熄灭，再揭开结算页；合计约 2.1 秒，仍可按键跳过

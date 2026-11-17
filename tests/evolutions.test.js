@@ -123,13 +123,13 @@ describe('进化结算', () => {
     expect(e.hp).toBeCloseTo(92, 6);
   });
 
-  it('堡垒：护盾 14 → 24，上限 40 → 56', () => {
+  it('堡垒：护盾 7 → 17，上限 24 → 40', () => {
     const g = grid16();
     place(g, 5, 'holy_ward', 'bastion');
     const st = state();
-    st.player.shield = 40;
+    st.player.shield = 34;
     fire(g, 5, 'holy_ward', { enemies: [], st });
-    expect(st.player.shield).toBe(56);
+    expect(st.player.shield).toBe(40);
   });
 
   it('报应：对带护甲目标额外 40% 伤害', () => {

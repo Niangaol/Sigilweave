@@ -153,11 +153,11 @@ describe('三职业本命被动', () => {
     expect(run.compassBuffs.comboWindowMul).toBeCloseTo(1.25, 10);
   });
 
-  it('壁垒：护盾上限 50、无敌 +0.15s、开局 10 点盾', () => {
+  it('壁垒：护盾上限 34、无敌 +0.15s、开局 6 点盾', () => {
     const run = createRun('kit', 'ward');
-    expect(run.characterStats.shieldCap).toBeCloseTo(50, 10);
+    expect(run.characterStats.shieldCap).toBeCloseTo(34, 10);
     expect(run.characterStats.iframesBonus).toBeCloseTo(0.15, 10);
-    expect(run.characterStats.shield).toBe(10);
+    expect(run.characterStats.shield).toBe(6);
     expect(run.compassBuffs.damageMul).toBe(1);
   });
 

@@ -16,7 +16,7 @@ function baseKitStats() {
     speed: PLAYER.speed,
     pickupRadius: 38,
     iframeBonus: 0,
-    shieldCap: 40,
+    shieldCap: 24,
     damageMul: 1,
     intervalMul: 1,
     cooldownMul: 1,
@@ -70,8 +70,8 @@ export const STARTING_KITS = Object.freeze([
     tagline: '圣光壁垒护身，寒霜飞弹反打',
     // 本命被动：庇护印记（护盾上限 +10）+ 坚韧余辉（无敌 +0.15s）。
     affinity: Object.freeze(['aegis', 'tough']),
-    // 壁垒开局直接带 10 点盾，让「护盾上限」在第一条命就看得见。
-    startShield: 10,
+    // 壁垒开局直接带 6 点盾，让「护盾上限」在第一条命就看得见。
+    startShield: 6,
     slots: Object.freeze({
       4: sigil('holy_ward'),
       5: sigil('frost_arrow'),

@@ -175,11 +175,11 @@ describe('其余新法术的数值落地', () => {
     expect(inner.maxHp - inner.hp).toBeCloseTo(26 * 0.6, 5);
     expect(outer.maxHp - outer.hp).toBeCloseTo(26, 5);
   });
-  it('圣环给盾但不超过 60 上限', () => {
+  it('圣环给盾但不超过 36 上限', () => {
     const g = full();
     const st = state();
     for (let i = 0; i < 5; i++) trigger(g, 5, 'aegis_ring', st, []);
-    expect(st.player.shield).toBe(60);
+    expect(st.player.shield).toBe(36);
   });
   it('噬魂箭命中后回血，且不超过上限', () => {
     const g = full();

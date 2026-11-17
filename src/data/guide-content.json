@@ -4,7 +4,7 @@
     "skill": "sigilweave-newbie-guide",
     "version": "0.3.0",
     "status": "已接入游戏源码（2026-11-17），答题反应+问题难度递进；待领导验收；可用 ?guide=0 关闭",
-    "coverage": "第一幕 G00-G04；第二幕 G05-G08；第三幕 G09-G11；第四幕及以后 G12；答题反应 QUIZ_FIRST_CORRECT/QUIZ_WRONG（整局各一次）",
+    "coverage": "第一幕 G00-G04；第二幕 G05-G08 + 机制提示 G13（敌人变体）/G14（敌人还手）/G16（护盾）；第三幕 G09-G11；第四幕及以后 G12；进化与连携 G15；答题反应 QUIZ_FIRST_CORRECT/QUIZ_WRONG（整局各一次）",
     "artStyle": "西幻像素风：480x270 逻辑画布、硬边色块、Palette.js 色板、无渐变无模糊；见 references/visual-style.md",
     "sourceCommit": "0a48bab",
     "pet": {
@@ -24,7 +24,8 @@
       "lines": [
         "喵～主人！我是墨宝，被这座法阵吵醒的小灵猫。",
         "这一局宝陪你走，别怕哦！",
-        "先挑一套初始法术——疾风、烈焰还是壁垒？选完我们就进墓园啦～"
+        "先挑一套初始法术——疾风、烈焰还是壁垒？选完我们就进墓园啦～",
+        "三套差别不小：疾风跑得快、触发快；烈焰伤害高、连击长；壁垒护盾上限高、无敌久。开局那两条本命被动也各不一样哦。"
       ],
       "highlight": null,
       "advance": { "type": "tap" },
@@ -312,6 +313,57 @@
       "lines": [
         "嗷……没关系主人，再接再厉哦～",
         "线索就藏在刚才的对白和石碑里，宝陪你再看一遍，下次一定能行！"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G13",
+      "trigger": { "scene": "BattleScene", "act": ">=2", "event": "variantFirstSeen", "oncePerRun": true, "optional": true },
+      "pet": { "emotion": "serious", "action": "耳朵竖起，盯着屏幕边缘" },
+      "lines": [
+        "小心，这只怪不一样！",
+        "镶红边的是迅捷——跑得比同族快一截；嵌铁灰的是重甲，身上裹着一层相当于满血 60% 的盾，先破盾才打得到本体，破盾那一刻它会晕半秒。",
+        "镀金边的是精英：血更厚、会主动出招，先拉开距离再打它！"
+      ],
+      "highlight": "敌人",
+      "advance": { "type": "tap" },
+      "voiceCue": "growl"
+    },
+    {
+      "id": "G14",
+      "trigger": { "scene": "BattleScene", "act": ">=2", "event": "enemyWindup", "oncePerRun": true, "optional": true },
+      "pet": { "emotion": "nervous", "action": "缩成一团，尾巴挡在面前" },
+      "lines": [
+        "它们开始还手啦！",
+        "地上亮起红色扇形或圆圈，就是它要出手的前摇——趁现在挪开，别站在预兆里。",
+        "有的原地放弹幕、有的召唤小怪和炮台；看到它突然停住不动，就是准备打你了。"
+      ],
+      "highlight": "敌人",
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G15",
+      "trigger": { "scene": "BattleScene", "act": ">=2", "event": "evolutionOffered", "oncePerRun": true, "optional": true },
+      "pet": { "emotion": "excited", "action": "站起来拍爪" },
+      "lines": [
+        "看这张——进化牌！",
+        "它不占新格子，是把盘面上同名的法术整个换掉一个强化形态。",
+        "两张法术相邻还会结『连携』，右侧会亮出加成；先想好这局走哪条进化路线再点哦～"
+      ],
+      "highlight": "hand",
+      "advance": { "type": "tap" },
+      "voiceCue": "chime"
+    },
+    {
+      "id": "G16",
+      "trigger": { "scene": "BattleScene", "act": ">=1", "event": "shieldGained", "oncePerRun": true, "optional": true },
+      "pet": { "emotion": "curious", "action": "歪头看血条" },
+      "lines": [
+        "血条旁边那截蓝的是护盾，它先替你吃伤害，盾破了才掉血。",
+        "护盾有上限、攒到顶就停，所以别把它当第二条命——该躲还是要躲。"
       ],
       "highlight": null,
       "advance": { "type": "tap" },

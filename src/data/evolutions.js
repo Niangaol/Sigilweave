@@ -15,7 +15,7 @@ export const EVOLUTIONS = Object.freeze({
     { id: 'wildfire', name: '野火', desc: '冷却 -30%，伤害 -10%', mods: { cdMul: 0.7, damageMul: 0.9 } },
   ],
   holy_ward: [
-    { id: 'bastion', name: '堡垒', desc: '护盾 14 → 24，上限 40 → 56', mods: { shield: 10, shieldCap: 16 } },
+    { id: 'bastion', name: '堡垒', desc: '护盾 7 → 17，上限 24 → 40', mods: { shield: 10, shieldCap: 16 } },
     { id: 'radiance', name: '圣辉', desc: '范围 +20，伤害 +50%', mods: { radius: 20, damageMul: 1.5 } },
   ],
   mana_siphon: [
@@ -59,7 +59,7 @@ export const EVOLUTIONS = Object.freeze({
     { id: 'soul_pierce', name: '噬魂贯穿', desc: '伤害 +35%', mods: { damageMul: 1.35 } },
   ],
   aegis_ring: [
-    { id: 'aegis_eternal', name: '永恒圣环', desc: '护盾 20 → 30，上限 60 → 80', mods: { shield: 10, shieldCap: 20 } },
+    { id: 'aegis_eternal', name: '永恒圣环', desc: '护盾 10 → 20，上限 36 → 56', mods: { shield: 10, shieldCap: 20 } },
     { id: 'aegis_bolt', name: '圣环冲击', desc: '伤害 +60%', mods: { damageMul: 1.6 } },
   ],
   meteor_judgment: [
@@ -84,7 +84,7 @@ export const EVOLUTIONS = Object.freeze({
     { id: 'null_field', name: '零域', desc: '命中冻结 0.8 秒', mods: { freezeMs: 800 } },
   ],
   sanctum: [
-    { id: 'sanctuary', name: '圣所', desc: '护盾上限 +20', mods: { shieldCap: 20, shield: 8 } },
+    { id: 'sanctuary', name: '圣所', desc: '护盾 12 → 20，上限 44 → 64', mods: { shieldCap: 20, shield: 8 } },
     { id: 'chapel', name: '礼拜堂', desc: '范围 +25', mods: { radius: 25 } },
   ],
   bramble_maul: [

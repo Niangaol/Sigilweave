@@ -8,12 +8,12 @@ export const ENEMY_VARIANTS = {
     tint: null, parts: [], shieldHpMul: 0,
   },
   heavy: {
-    id: 'heavy', name: '重甲', prefix: '重甲', hpMul: 1.60, speedMul: 0.82, damageMul: 1.10,
+    id: 'heavy', name: '重甲', prefix: '重甲', hpMul: 1.90, speedMul: 0.82, damageMul: 1.30,
     scale: 1.10, radiusMul: 1.06, shardsAdd: 3, cost: 2, minChapter: 2,
     tint: null, parts: ['pauldron', 'shield'], shieldHpMul: 0.60,
   },
   elite: {
-    id: 'elite', name: '精英', prefix: '精英', hpMul: 2.20, speedMul: 0.95, damageMul: 1.35,
+    id: 'elite', name: '精英', prefix: '精英', hpMul: 2.60, speedMul: 0.95, damageMul: 1.60,
     scale: 1.30, radiusMul: 1.18, shardsAdd: 3, cost: 2, minChapter: 2,
     tint: null, parts: ['crown'], shieldHpMul: 0, elite: true,
   },

@@ -1,6 +1,7 @@
 // 敌人实体：移动与开火全部交给纯逻辑 src/logic/enemy-ai.js。
 // 本文件只负责场景接线：身体用素材（骨架/腐尸为 12 帧精灵表，其余为单帧图），
 // 预警线、血条、精英描边走 Graphics 覆盖层。素材缺失时整体降级为程序化像素绘制。
+import { fireGuide } from '../logic/guide.js';
 import { C, pxRect, pxRing, pxDiamond, pxPoly } from '../ui/Palette.js';
 import { createBrain, stepBrain } from '../logic/enemy-ai.js';
 import { variantPartKeys, placeVariantPart } from '../ui/variant-parts.js';
@@ -267,7 +268,11 @@ export default class Enemy {
     this.windup = result.windup === true;
     // 抬手起手音：只在「暗 → 亮」的那一帧放一次（45ms 全局节流兜住多只同时抬手）。
     // 近战有自己的挥砍音（onEnemyMelee），这里只给远程施法，避免两种前摇撞音。
-    if (this.windup && !wasWindup && !this.meleePreview()) sfx.enemyCast();
+    if (this.windup && !wasWindup && !this.meleePreview()) {
+      sfx.enemyCast();
+      // 新手引导 G14：第一次看到甲方向你起手（预警圈/扇形）时说明前摇。
+      if (this.scene?.run) fireGuide(this.scene, this.scene.run, 'G14', { highlight: '敌人' });
+    }
     this.charging = result.charging === true;
     // 格挡（书页魔像等）：架起时按 55% 减伤结算，由 effects.applyDamage 读 armor。
     // 减伤值优先取该行为 tune 的 guardArmor（BULWARK_RULE=0.55），缺失时回退 0.55。
