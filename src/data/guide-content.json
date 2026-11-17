@@ -1,0 +1,344 @@
+{
+  "meta": {
+    "game": "共振法阵 Sigilweave",
+    "skill": "sigilweave-newbie-guide",
+    "version": "0.3.0",
+    "status": "已接入游戏源码（2026-11-17），答题反应+问题难度递进；待领导验收；可用 ?guide=0 关闭",
+    "coverage": "第一幕 G00-G04；第二幕 G05-G08；第三幕 G09-G11；第四幕及以后 G12；答题反应 QUIZ_FIRST_CORRECT/QUIZ_WRONG（整局各一次）",
+    "artStyle": "西幻像素风：480x270 逻辑画布、硬边色块、Palette.js 色板、无渐变无模糊；见 references/visual-style.md",
+    "sourceCommit": "0a48bab",
+    "pet": {
+      "name": "墨宝",
+      "title": "符火灵猫",
+      "portrait": "assets/灵宠-墨宝-像素.png",
+      "portraitRender": { "width": 64, "height": 68, "imageRendering": "pixelated", "sourceSize": "32x34" },
+      "addressPlayer": ["刻阵者", "主人"],
+      "selfReference": "宝"
+    }
+  },
+  "guides": [
+    {
+      "id": "G00",
+      "trigger": { "scene": "LoadoutScene", "event": "sceneEnter", "oncePerRun": true },
+      "pet": { "emotion": "excited", "action": "从屏幕下角探出头，尾巴轻摆" },
+      "lines": [
+        "喵～主人！我是墨宝，被这座法阵吵醒的小灵猫。",
+        "这一局宝陪你走，别怕哦！",
+        "先挑一套初始法术——疾风、烈焰还是壁垒？选完我们就进墓园啦～"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G01",
+      "trigger": { "scene": "BattleScene", "act": 1, "event": "sceneEnter", "oncePerRun": true },
+      "pet": { "emotion": "excited", "action": "耳朵一抖，爪子指向右下角" },
+      "lines": [
+        "主人！第一幕来啦～",
+        "用 WASD 或方向键走位，怪潮从四周压过来哦！",
+        "右下角 4×4 是罗盘，代表你周围的方位。",
+        "金线叫脉流，跳到哪格，那格的符印就自动出手——你只管躲！",
+        "踩亮就打啦；格子还在冷却会被吞跳，记住哦～",
+        "怪掉了碎晶和经验，走过去捡；升级能三选一拿新卡！",
+        "按住空格能暂停观察法阵，看不清就按一下～",
+        "通幕不用清图也不用等时间——升到 5 级，把大 Boss 解决掉就行！"
+      ],
+      "highlight": "compass",
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G02",
+      "trigger": { "scene": "BattleScene", "event": "levelUpChoice", "oncePerRun": true },
+      "pet": { "emotion": "happy", "action": "符印亮了一下" },
+      "lines": [
+        "叮！升级啦～",
+        "三张牌选一张进手牌就好，它不会自己上阵哦。",
+        "点一张，或者按 1 / 2 / 3！"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "chime"
+    },
+    {
+      "id": "G03",
+      "trigger": { "scene": "BattleScene", "event": "nearEventPoint", "distancePx": 130, "oncePerRun": true },
+      "pet": { "emotion": "curious", "action": "鼻子一动" },
+      "lines": [
+        "前面有发光的地方！走过去会触发问答～",
+        "线索藏在刚才的对白和碑文里。",
+        "答对能直接消灭 Boss，答错才要打架哦！"
+      ],
+      "highlight": "eventPoint",
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G04",
+      "trigger": { "scene": "BattleScene", "act": 1, "event": "levelReached", "level": 5, "oncePerRun": true },
+      "pet": { "emotion": "tense", "action": "额间符印急促闪烁、尾巴炸毛" },
+      "lines": [
+        "刻阵者，岭上那位觉醒了……",
+        "先读它的话，答案就在里面。",
+        "宝不剧透，但你一定找得到！"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "rumble"
+    },
+    {
+      "id": "G05",
+      "trigger": { "scene": "IntermissionScene", "event": "sceneEnter", "oncePerRun": true },
+      "pet": { "emotion": "happy", "action": "原地转了一圈" },
+      "lines": [
+        "第一幕清干净啦！",
+        "下面进入幕间构筑——宝带你把法阵重新排一遍～"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G06",
+      "trigger": { "scene": "IntermissionScene", "act": 2, "event": "afterPaint", "oncePerRun": true, "priority": "highest" },
+      "pet": { "emotion": "serious", "action": "端坐，尾巴一圈圈绕住爪子" },
+      "steps": [
+        {
+          "key": "G06-1",
+          "emotion": "curious",
+          "highlight": "header",
+          "lines": [
+            "这是幕间构筑台哦～现在准备第 2 幕，法阵已经解封 12 格啦。",
+            "右边的碎片是你的钱，买铭文要用哦！"
+          ]
+        },
+        {
+          "key": "G06-2",
+          "emotion": "happy",
+          "highlight": "reward",
+          "lines": [
+            "最上面三张是三选一奖励，点『领取』拿进手牌。",
+            "卡下面那行小字是效果，先看清再选～三轮领完才能出发哦！"
+          ]
+        },
+        {
+          "key": "G06-3",
+          "emotion": "serious",
+          "highlight": "steps",
+          "lines": [
+            "跟着这条走：1 选牌 → 2 放位 → 3 绑定/收回。",
+            "宝在旁边给你打灯，一步一步来～"
+          ]
+        },
+        {
+          "key": "G06-4",
+          "emotion": "serious",
+          "highlight": "grid",
+          "lines": [
+            "左边 4×4 就是法阵盘，一共 16 个符位。",
+            "写『封印』的还没解封，写『空符位·从手牌放入』的能装卡。",
+            "像『烈焰喷涌 5号 铭0 出4』——就是 5 号装了烈焰喷涌，铭文 0 个、出口 4 个方向～"
+          ]
+        },
+        {
+          "key": "G06-5",
+          "emotion": "neutral",
+          "highlight": "stats",
+          "lines": [
+            "这行看输出 / 辅助 / 空位有几个；右上角是上一幕的触发和击杀。",
+            "下面看选中格的间隔和冷却，还有它装了什么铭文、开了哪些出口。"
+          ]
+        },
+        {
+          "key": "G06-6",
+          "emotion": "serious",
+          "highlight": "grid",
+          "lines": [
+            "符印负责打伤害，辅助负责改法阵怎么跑。",
+            "一个主槽只能放其中一种，二者互斥哦～"
+          ]
+        },
+        {
+          "key": "G06-7",
+          "emotion": "curious",
+          "highlight": "oaths",
+          "lines": [
+            "三个誓约：孤星、守夜、殉道，全局只能立一个。",
+            "想换就再点一次取消，别贪心啦～"
+          ]
+        },
+        {
+          "key": "G06-8",
+          "emotion": "happy",
+          "highlight": "hand",
+          "lines": [
+            "右边是手牌：点一张，再点左边的空符位就能装上。",
+            "放辅助的话，还要再点一个相邻的输出符印绑定目标哦～"
+          ]
+        },
+        {
+          "key": "G06-9",
+          "emotion": "serious",
+          "highlight": "exitEdit",
+          "lines": [
+            "点『出口编辑』能开关这格的上下左右出脉方向。",
+            "至少要留一个出口，或者先装断流铭文，不然脉流出不去啦！"
+          ]
+        },
+        {
+          "key": "G06-10",
+          "emotion": "serious",
+          "highlight": "runes",
+          "lines": [
+            "四种铭文各 8 碎片：熔炉加伤、中继不出手但加速、断流保留出口、静默压邻格冷却。",
+            "每格两个铭文槽，拆了返还 6 折——也就是 4 碎片哦～"
+          ]
+        },
+        {
+          "key": "G06-11",
+          "emotion": "serious",
+          "highlight": "depart",
+          "lines": [
+            "最后宝再念一遍出发门槛：三轮奖励领完、至少两张非中继输出、校验没报错。",
+            "都弄好就点『确认构筑 · 出发』，我们进第二幕！"
+          ]
+        }
+      ],
+      "advance": { "type": "tapPerStep" },
+      "voiceCue": "chime"
+    },
+    {
+      "id": "G07",
+      "trigger": { "scene": "BattleScene", "act": 2, "event": "sceneEnter", "oncePerRun": true },
+      "pet": { "emotion": "excited", "action": "伸懒腰" },
+      "lines": [
+        "第二幕到啦！法阵扩到 12 格、脉流变成 3 条，投射间隔 1.2 秒。",
+        "怪更密，还有精英『缝合尸魁』——它慢吞吞的，但踩到会挨揍！",
+        "升到 10 级，女爵就会现身。通幕还是老规矩：解决大 Boss 就行！",
+        "宝陪你，冲鸭～"
+      ],
+      "highlight": "compass",
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G08",
+      "trigger": { "scene": "BattleScene", "act": 2, "event": "levelReached", "level": 10, "oncePerRun": true },
+      "pet": { "emotion": "tense", "action": "符印急促闪烁、耳朵贴平" },
+      "lines": [
+        "刻阵者，女爵的契约挂在铜钟里……",
+        "仔细听她说了什么，答案藏在那儿。",
+        "宝在这儿等你，加油！"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "rumble"
+    },
+    {
+      "id": "G09",
+      "trigger": { "scene": "BattleScene", "act": 3, "event": "sceneEnterAfterCutscene", "oncePerRun": true },
+      "pet": { "emotion": "excited", "action": "踩着星屑蹦出来，尾巴翘得老高" },
+      "lines": [
+        "刻阵者，第三幕·星陨王庭到啦～",
+        "这一次法阵 16 格全开！投射缩到 1 秒，脉流还是 3 条哦。",
+        "多了新怪：会瞬移放三连弹的『咒誓主教』，还有幽誓女妖、虚空符灵和黄铜守誓者～",
+        "别硬拼——主教瞬移后会停半秒才开火，趁那会儿横着躲开！",
+        "这一场通关能拿到『星陨』符印，半径 70 的范围伤害，记得装上哦～",
+        "升到 15 级，无昼织王就会现身。通幕还是老规矩：解决大 Boss 就行！"
+      ],
+      "highlight": "compass",
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G10",
+      "trigger": { "scene": "BattleScene", "act": 3, "event": "eliteFirstSeen", "enemy": "oath_bishop", "oncePerRun": true, "optional": true },
+      "pet": { "emotion": "tense", "action": "耳朵贴平，爪子指向远处" },
+      "lines": [
+        "看！那只瞬移的咒誓主教——",
+        "它总保持距离，隔几秒就闪到你侧边，停半秒后连发三颗弹。",
+        "看到它停下来，就赶紧横着挪开哦！别站在原地挨打～"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G11",
+      "trigger": { "scene": "BattleScene", "act": 3, "event": "levelReached", "level": 15, "oncePerRun": true },
+      "pet": { "emotion": "tense", "action": "额间符印急促闪烁、尾巴炸毛" },
+      "lines": [
+        "刻阵者，织王在星图上留下了真名……",
+        "终止誓词要填哪个名字？线索就在星图和它对白里。",
+        "宝不剧透，你一定找得到！"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "rumble"
+    },
+    {
+      "id": "G12",
+      "trigger": { "scene": "BattleScene", "act": ">=4", "event": "sceneEnter", "oncePerAct": true },
+      "pet": { "emotion": "serious", "action": "端坐" },
+      "linesByAct": {
+        "4": ["四幕还是十六格，书库的问答比刀更利——读仔细点！"],
+        "5": ["五幕开场，密度再升，熔火和铁屑一起砸下来，小心！"]
+      },
+      "linesByStage": {
+        "5": ["四幕后半段，四条脉流，每一格都要称量价值～"],
+        "7": ["最后一幕了，刻阵者。这一局所有选择都在这里结算——宝陪你到底！"]
+      },
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "QUIZ_FIRST_CORRECT",
+      "trigger": { "scene": "BattleScene", "event": "encounterResult", "oncePerRun": true, "result": "correct" },
+      "pet": { "emotion": "excited", "action": "尾巴翘起来，眼睛亮晶晶" },
+      "lines": [
+        "太棒啦主人！一眼就看穿啦～",
+        "宝就知道你行！这题对你来说是小菜一碟喵～"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "QUIZ_WRONG",
+      "trigger": { "scene": "BattleScene", "event": "encounterResult", "oncePerRun": true, "result": "wrong" },
+      "pet": { "emotion": "curious", "action": "耷拉下耳朵，又努力抬起头" },
+      "lines": [
+        "嗷……没关系主人，再接再厉哦～",
+        "线索就藏在刚才的对白和石碑里，宝陪你再看一遍，下次一定能行！"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    }
+  ],
+  "stuckHints": [
+    { "when": "bossQuizWrong", "lines": ["别急，回头看看刚才的对白和碑文，线索就在里面哦～"] },
+    { "when": "departBlocked", "lines": ["宝帮你数数：三轮领完了吗？非中继输出够两张吗？"] },
+    { "when": "auxNoTarget", "lines": ["这只辅助还没绑目标呢——点它，再点一个相邻的输出符印～"] },
+    { "when": "insufficientShards", "lines": ["碎片不够啦～先去打怪捡碎晶，回来再买哦！"] },
+    { "when": "act3BossQuizWrong", "lines": ["织王的真名藏在星图里——回头读读星图线索和它对白哦～"] },
+    { "when": "act3VoidBarrage", "lines": ["无昼织王放『裂空七线』啦！预警那半秒赶紧横向躲开～"] }
+  ],
+  "highlights": {
+    "compass": "右下角法阵罗盘",
+    "grid": "4×4 法阵盘",
+    "reward": "顶部三选一奖励区",
+    "hand": "右侧手牌区",
+    "runes": "铭文按钮与铭文槽",
+    "oaths": "誓约按钮区",
+    "depart": "确认构筑 · 出发按钮",
+    "touchControls": "走位控制区",
+    "eventPoint": "发光事件点",
+    "header": "幕间构筑标题栏",
+    "steps": "三步引导条",
+    "stats": "输出/辅助/空位统计行",
+    "exitEdit": "出口编辑按钮"
+  }
+}

@@ -104,6 +104,7 @@ export function createRun(seed = 'sigil', kitId = 'bolt') {
   for (const [cellId, slot] of Object.entries(kit.slots)) {
     draft.slots[cellId] = { ...slot };
   }
+
   const stats = applyAffinity(kit);
   // 职业数据全部落在 run 上：战斗场景只 Read，宝箱/罗盘抽到本命被动时读 affinity 加权。
   const characterStats = {
@@ -131,6 +132,7 @@ export function createRun(seed = 'sigil', kitId = 'bolt') {
     compassBuffs,
     // 法术进化：{ defId: evoId }，局内持久；放置新卡时按这张表补 slot.evo。
     evolutions: {},
+    guideSeen: {},
   };
 }
 

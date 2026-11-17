@@ -10,7 +10,7 @@ import { ACTS, WORLD_SIZES, ORTHO_DIRS } from '../logic/constants.js';
 import { applyDraft, snapshotBuild, draftFromGrid, validateDraft, AUX_TARGETED, missingAuxTargets, explainBuildErrors, auxTargetCandidates } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, resolveSigilTrigger, resolveComboBonus, resolveDeathBursts, castTimeOf } from '../logic/effects.js';
 import { createRun, recordAct } from '../logic/run.js';
-import { createProgression, grantExp, levelStats, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuffWeighted } from '../logic/progression.js';
+import { createProgression, grantExp, levelStats, shouldTriggerMajorBoss, MAJOR_BOSS_LEVEL, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuffWeighted } from '../logic/progression.js';
 import { getEventPoints } from '../data/map-events.js';
 import { getEncounterById } from '../data/encounters.js';
 import { Rng } from '../logic/rng.js';
@@ -55,6 +55,7 @@ import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
 import { STAGE_CARDS } from '../data/cinematics.js';
+import { fireGuide, hideGuide } from '../logic/guide.js';
 
 // 画框工厂：竖屏不创建（480×760 的画布上 8px 框会卡在地图区中间）
 export function createBattleFrame(scene, { seed, stage }) {
@@ -365,6 +366,16 @@ export default class BattleScene extends Phaser.Scene {
     // 暴露给验收脚本：只读查看引擎状态
     this.bootCount = (this.bootCount ?? 0) + 1;
     window.__SIGILWEAVE_BATTLE__ = this;
+
+    // 新手引导 · 各幕开场：第一幕 G01 / 第二幕 G07 / 第三幕 G09 / 幕四起 G12。
+    // 由过场进入时延后到过场揭幕后（journey≈5.84s、act 标题卡≈3s），避免压在过场上。
+    const stageGuideId = this.stage === 1 ? 'G01' : this.stage === 2 ? 'G07' : this.stage === 3 ? 'G09' : 'G12';
+    const guideDelay = this.__cine ? (this.stage === 3 ? 6100 : 3300) : 500;
+    this.time.delayedCall(guideDelay, () => {
+      if (this.scene.isActive() && !this.transitionLeft) {
+        fireGuide(this, this.run, stageGuideId, { act: this.chapter, stage: this.stage });
+      }
+    });
   }
 
   mountUiLayer() {
@@ -817,12 +828,17 @@ export default class BattleScene extends Phaser.Scene {
       minDist: 275, maxDist: 380, minGap: 30,
       nearDist: 250, farDist: 430,
     });
+
     // 按幕权重抽敌人类型，再按幕权重叠一层变体；天生精英（def.elite）不再叠变体。
     // RNG 顺序固定：类型 roll → 变体 roll，同一 seed 的刷怪序列可复现。
     const base = pickEnemyType(this.chapter, this.combatRng.next());
     const variant = base.elite ? null : pickEnemyVariant(this.chapter, base, this.combatRng.next());
     const def = composeEnemyDef(base, variant);
     // 属性 = 难度基准 × 等级成长 × 敌种/变体倍率
+    // 新手引导 G10：第三幕首次刷出精英「咒誓主教」时给一条战斗内短提示
+    if (this.chapter === 3 && def?.id === 'oath_bishop') {
+      fireGuide(this, this.run, 'G10', { highlight: '敌人' });
+    }
     const lv = levelStats(this.run.progression.level);
     const enemy = new Enemy(
       this,
@@ -1632,6 +1648,8 @@ export default class BattleScene extends Phaser.Scene {
     if (!this.pendingPicks) return;
     this.phase = 'levelup'; this.paused = true; this.engine.paused = true;
     this.input.keyboard.resetKeys();
+    // 新手引导 G02：第一次升级三选一（弹窗本身即讲解场景）
+    fireGuide(this, this.run, 'G02');
     const pool = [...CARD_POOL];
     const picks = [];
     // 进化优先：盘面/手牌里已有、还没升级的法术，有 45% 概率占一个候选位。
@@ -1980,6 +1998,14 @@ export default class BattleScene extends Phaser.Scene {
 
   // 进度事件：地图事件点走近触发 + 大Boss等级触发（取代旧的纯计时遭遇）
   checkProgressEvents() {
+    // 新手引导：大 Boss 前置提示（各幕 G04/G08/G11）——等级逼近门槛时先给一句，不剧透答案
+    const bossLv = MAJOR_BOSS_LEVEL[this.stage];
+    const guideId = this.stage === 1 ? 'G04' : this.stage === 2 ? 'G08' : this.stage === 3 ? 'G11' : null;
+    if (guideId && !this.run.majorBossStages[this.stage]
+      && this.run.progression.level >= bossLv - 1
+      && this.phase === 'play' && !this.paused) {
+      fireGuide(this, this.run, guideId, { act: this.chapter, stage: this.stage });
+    }
     // 1) 大Boss：等级达标（时间保底经验推着等级走，磨蹭也会触发）
     if (!this.bossStarted && !this.run.majorBossStages[this.stage] && shouldTriggerMajorBoss(this.stage, this.run.progression.level)) {
       const def = getEncounterForStage(this.stage, 'boss');
@@ -2011,6 +2037,10 @@ export default class BattleScene extends Phaser.Scene {
         else pxRect(g, point.x - 1, point.y - 7, 2, 4, C.teal, 1);
       }
       const near = d < 130;
+      if (near && !point.label) {
+        // 新手引导 G03：首次靠近发光事件点（此时游戏原生提示标签也刚出现）
+        fireGuide(this, this.run, 'G03', { highlight: 'eventPoint' });
+      }
       if (near && !point.label) point.label = addText(this, point.x, point.y - 24, point.name + '（' + point.hint + '）', 7, point.type === 'npc' ? HEX.teal : HEX.blood, { wordWrap: { width: 160 } }).setOrigin(0.5, 1).setDepth(300);
       if (!near && point.label) { point.label.destroy(); point.label = null; }
     }
@@ -2066,6 +2096,12 @@ export default class BattleScene extends Phaser.Scene {
     const response = finishEncounter(this.run.encounters);
     if (!response.ok) return;
     this.encounterPanel.hide(); this.input.keyboard.resetKeys();
+
+    // 新手引导 · 答题反应在面板隐藏后才弹出，避免气泡与「继续前进」按钮的点击命中冲突。
+    // QUIZ_FIRST_CORRECT / QUIZ_WRONG 均由 fireGuide 的 run.guideSeen 去重，整局各只出现一次。
+    const correct = response.result.correct === true;
+    fireGuide(this, this.run, correct ? 'QUIZ_FIRST_CORRECT' : 'QUIZ_WRONG', { act: this.chapter, stage: this.stage });
+
     // 标记事件点完成（小Boss门/NPC点），罗盘小地图不再显示
     const finishedId = response.result.encounterId;
     for (const point of this.eventPoints) if (point.id === finishedId) point.done = true;
@@ -2480,6 +2516,7 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   onShutdown() {
+    hideGuide(this);
     this.game.events.off(Phaser.Core.Events.BLUR, this.handleBlur);
     this.game.events.off(Phaser.Core.Events.FOCUS, this.handleFocus);
     this.input.keyboard.off('keydown-ESC', this.onEsc);
