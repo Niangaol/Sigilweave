@@ -3,6 +3,10 @@
 import { resolveTarget, visibleFilter } from './sector.js';
 import { ORTHO_DIRS } from './constants.js';
 import { neighborsOf } from './grid.js';
+import { reactionAt, resonanceMultiplier } from './resonance.js';
+import { UNDEAD_OR_CORRUPT } from '../data/factions.js';
+import { evoModsOf, evolutionOf } from '../data/evolutions.js';
+import { groupLinkage, linkageReady, markLinkage } from './linkage.js';
 
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS } from '../data/cards.js';
 export { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS };
@@ -84,13 +88,34 @@ export function damageMultiplier(grid, cellId, state) {
     const p = state && state.player;
     if (p && p.hp / p.maxHp < 0.4) mul *= 1.3;
   }
+  // 同派系正交相邻共鸣：每邻 +10%，封顶 +30%。
+  mul *= resonanceMultiplier(grid, cellId);
+  // 进化路线的伤害倍率（slot.evo）
+  const slot = grid.cells[cellId]?.slot;
+  if (slot?.kind === 'sigil') mul *= evolutionOf(slot.defId, slot.evo)?.mods?.damageMul ?? 1;
   return mul;
 }
 
-export function applyDamage(enemy, amount) {
+export function applyDamage(enemy, amount, now) {
   if (!enemy?.alive || !Number.isFinite(enemy.hp) || !Number.isFinite(amount) || amount < 0) return 0;
+  // 融化易伤：结算带当前时刻时，2 秒窗口内的目标多受 15%。不传 now 的旧调用完全走原路径。
+  const vuln = Number.isFinite(now) && now < (enemy.vulnUntil ?? 0) ? (enemy.vulnFactor ?? 1) : 1;
+  // 一次性护盾：固定顺序「盾 → 甲 → 血」。
+  // 盾先吃掉最多 amount 点伤害；缺省/非有限/≤0 的 shield 直接跳过，完全走原护甲路径。
+  let remaining = amount * vuln;
+  let blocked = 0;
+  const shield = Number.isFinite(enemy.shield) ? Math.max(0, enemy.shield) : 0;
+  if (shield > 0) {
+    blocked = Math.min(shield, remaining);
+    enemy.shield = shield - blocked;
+    remaining -= blocked;
+    // 只置标记：破盾眩晕/碎片/回调统一由 Enemy.update 消费，本层不做表现。
+    if (enemy.shield <= 0) enemy.shieldBrokenPending = true;
+  }
+  // 表现层只读字段：这一下被盾吸收的伤害（不参与结算）。
+  enemy.lastBlocked = blocked;
   const armor = Number.isFinite(enemy.armor) ? Math.max(0, Math.min(1, enemy.armor)) : 0;
-  const real = Math.min(Math.max(0, enemy.hp), amount * (1 - armor));
+  const real = Math.min(Math.max(0, enemy.hp), remaining * (1 - armor));
   enemy.hp = Math.max(0, enemy.hp - real);
   // 表现层只读字段：这一下实际扣了多少血，供受击动画飘伤害数字（不参与任何结算）。
   enemy.lastHitAmount = real;
@@ -98,10 +123,16 @@ export function applyDamage(enemy, amount) {
   return real;
 }
 
+// 前摇时长：数据层唯一口径。0 表示瞬发；BattleScene 用 queueOrCommit 决定排队还是立刻结算。
+export function castTimeOf(defId) {
+  const ms = SIGIL_DEFS[defId]?.castMs;
+  return Number.isFinite(ms) && ms > 0 ? ms : 0;
+}
+
 // 结算一次符印触发，返回命中数与总伤害，供统计与表现使用。
 // 返回结构在原有 hits/damage/aim/empty/targets 之上追加献祭结算标记：
 // sacrificeSpent 为本次扣除的护盾（8 或 0），sacrificeApplied 表示本次伤害是否翻倍。
-export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPoint, view }) {
+function resolveSigilTriggerCore({ grid, cellId, defId, state, enemies, aimPoint, view }) {
   const def = Object.hasOwn(SIGIL_DEFS, defId) ? SIGIL_DEFS[defId] : null;
   const cell = grid.cells[cellId];
   if (!def || !cell || cell.mutedOutput) {
@@ -110,6 +141,7 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
 
   const player = state.player;
   const hitBonus = hitBonusOf(state);
+  const evo = evoModsOf(cell.slot);
   // 屏幕可见性：所有命中候选都必须真的在镜头里（弹丸落点、扇形、扩散、贯穿、连锁、反弹）。
   // 这样即使弹丸飞行途中怪走出屏幕，也不会在屏外结算伤害。
   const screenView = view ?? state?.view;
@@ -133,41 +165,47 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
     const hitList = t.target ? [t.target] : [];
     const sac = spendSacrifice(grid, cellId, state, hitList);
     if (t.target) {
-      total += applyDamage(t.target, base * sac.mult);
+      total += applyDamage(t.target, base * sac.mult, state.now);
       targets.push(t.target);
-      if (def.slow) {
-        t.target.slowUntil = state.now + def.slowMs;
-        t.target.slowFactor = 1 - def.slow;
+      const slow = evo?.slow ?? def.slow;
+      if (slow) {
+        t.target.slowUntil = state.now + (evo?.slowMs ?? def.slowMs);
+        t.target.slowFactor = 1 - slow;
       }
-      if (def.armorBonus && t.target.armor > 0) {
-        total += applyDamage(t.target, base * def.armorBonus * sac.mult);
+      const armorBonus = evo?.armorBonus ?? def.armorBonus;
+      if (armorBonus && t.target.armor > 0) {
+        total += applyDamage(t.target, base * armorBonus * sac.mult, state.now);
       }
+      total += applyEvoStatus(t.target, evo, base, state.now);
     }
-    if (def.heal) state.player.hp = Math.min(state.player.maxHp, state.player.hp + def.heal);
+    const heal = (def.heal ?? 0) + (evo?.heal ?? 0);
+    if (heal) state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
     return { hits: targets.length, damage: total, aim: t.aim, empty: t.empty, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
   }
 
   if (def.kind === "fan3") {
     const t = selectTarget();
     // 扇形三连的扩散半径：基础 50px + 罗盘命中加成
-    const fanRadius = 50 + hitBonus;
+    const fanRadius = 50 + (evo?.fanRadius ?? 0) + hitBonus;
     const pool = enemies.filter((e) => e.alive && visible(e) && dist2(e, t.aim) <= fanRadius * fanRadius).sort((a, b) => dist2(a, t.aim) - dist2(b, t.aim) || a.id - b.id).slice(0, 3);
     const sac = spendSacrifice(grid, cellId, state, pool);
     for (const e of pool) {
-      total += applyDamage(e, base * sac.mult);
+      total += applyDamage(e, base * sac.mult, state.now);
       targets.push(e);
       // 扇形类也可以带减速（余烬扇），与单体分支保持同一套减速语义
-      if (def.slow) {
-        e.slowUntil = state.now + def.slowMs;
-        e.slowFactor = 1 - def.slow;
+      const slow = evo?.slow ?? def.slow;
+      if (slow) {
+        e.slowUntil = state.now + (evo?.slowMs ?? def.slowMs);
+        e.slowFactor = 1 - slow;
       }
+      total += applyEvoStatus(e, evo, base, state.now);
     }
     return { hits: targets.length, damage: total, aim: t.aim, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
   }
 
   if (def.kind === "ward") {
     // 护盾类范围同样吃到命中范围加成；护盾上限优先读人物宝箱写回的 player.shieldCap
-    const wardRadius = radiusWithBonus(def.radius, hitBonus);
+    const wardRadius = radiusWithBonus((def.radius ?? 0) + (evo?.radius ?? 0), hitBonus);
     const r2 = wardRadius * wardRadius;
     const hitList = enemies.filter((e) => e.alive && visible(e) && dist2(e, player) <= r2);
     // 献祭按触发瞬间的护盾判定，先扣费再结算本格护盾与伤害。
@@ -177,10 +215,11 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
     const currentShield = Number.isFinite(state.player.shield) && state.player.shield > 0
       ? state.player.shield
       : 0;
-    state.player.shield = Math.min(cap, currentShield + def.shield);
+    state.player.shield = Math.min(cap + (evo?.shieldCap ?? 0), currentShield + (def.shield ?? 0) + (evo?.shield ?? 0));
     for (const e of hitList) {
-      total += applyDamage(e, base * sac.mult);
+      total += applyDamage(e, base * sac.mult, state.now);
       targets.push(e);
+      total += applyEvoStatus(e, evo, base, state.now);
     }
     return { hits: targets.length, damage: total, aim: { x: player.x, y: player.y }, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
   }
@@ -190,8 +229,10 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
     const t = selectTarget();
     const jumpR = Number.isFinite(def.jumpRadius) ? Math.max(0, def.jumpRadius) : 88;
     const jumpR2 = jumpR * jumpR;
-    const maxHits = 1 + (Number.isFinite(def.jumps) ? Math.max(0, Math.floor(def.jumps)) : 2);
-    const decay = Number.isFinite(def.decay) ? Math.max(0, def.decay) : 0.7;
+    const jumps = (Number.isFinite(def.jumps) ? Math.max(0, Math.floor(def.jumps)) : 2) + (evo?.jumps ?? 0);
+    const maxHits = 1 + jumps;
+    const decay = Number.isFinite(evo?.decay) ? Math.max(0, evo.decay)
+      : (Number.isFinite(def.decay) ? Math.max(0, def.decay) : 0.7);
     const chain = [];
     const used = new Set();
     let cur = t.target;
@@ -210,8 +251,9 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
     }
     const sac = spendSacrifice(grid, cellId, state, chain);
     chain.forEach((e, i) => {
-      total += applyDamage(e, base * sac.mult * Math.pow(decay, i));
+      total += applyDamage(e, base * sac.mult * Math.pow(decay, i), state.now);
       targets.push(e);
+      total += applyEvoStatus(e, evo, base, state.now);
     });
     return { hits: targets.length, damage: total, aim: t.aim, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
   }
@@ -224,8 +266,8 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len;
     const uy = dy / len;
-    const reach = Number.isFinite(def.length) ? Math.max(0, def.length) : 420;
-    const halfW = (Number.isFinite(def.width) ? Math.max(0, def.width) : 28) / 2 + hitBonus / 2;
+    const reach = (Number.isFinite(def.length) ? Math.max(0, def.length) : 420) + (evo?.length ?? 0);
+    const halfW = ((Number.isFinite(def.width) ? Math.max(0, def.width) : 28) + (evo?.width ?? 0)) / 2 + hitBonus / 2;
     const hitList = enemies.filter((e) => {
       if (!e.alive || !visible(e)) return false;
       const px = e.x - player.x;
@@ -236,8 +278,14 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
     }).sort((a, b) => dist2(a, player) - dist2(b, player) || a.id - b.id);
     const sac = spendSacrifice(grid, cellId, state, hitList);
     for (const e of hitList) {
-      total += applyDamage(e, base * sac.mult);
+      total += applyDamage(e, base * sac.mult, state.now);
       targets.push(e);
+      const slow = evo?.slow ?? def.slow;
+      if (slow) {
+        e.slowUntil = state.now + (evo?.slowMs ?? def.slowMs);
+        e.slowFactor = 1 - slow;
+      }
+      total += applyEvoStatus(e, evo, base, state.now);
     }
     return { hits: targets.length, damage: total, aim: t.aim, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
   }
@@ -254,27 +302,54 @@ export function resolveSigilTrigger({ grid, cellId, defId, state, enemies, aimPo
     }
     const sac = spendSacrifice(grid, cellId, state, hitList);
     for (const e of hitList) {
-      total += applyDamage(e, base * sac.mult);
+      total += applyDamage(e, base * sac.mult, state.now);
       targets.push(e);
+      total += applyEvoStatus(e, evo, base, state.now);
     }
     const aim = own.target ? { x: own.target.x, y: own.target.y } : own.aim;
     return { hits: targets.length, damage: total, aim, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
   }
 
+  // nova：以玩家为圆心的环形爆发，不吃落点（霜华新星）。
+  if (def.kind === "nova") {
+    const novaRadius = radiusWithBonus((def.radius ?? 0) + (evo?.radius ?? 0), hitBonus);
+    const novaR2 = novaRadius * novaRadius;
+    const hitList = enemies.filter((e) => e.alive && visible(e) && dist2(e, player) <= novaR2);
+    const sac = spendSacrifice(grid, cellId, state, hitList);
+    for (const e of hitList) {
+      total += applyDamage(e, base * sac.mult, state.now);
+      targets.push(e);
+      const slow = evo?.slow ?? def.slow;
+      if (slow) {
+        e.slowUntil = state.now + (evo?.slowMs ?? def.slowMs);
+        e.slowFactor = 1 - slow;
+      }
+      const freeze = evo?.freezeMs ?? def.freezeMs;
+      if (freeze) e.frozenUntil = Math.max(e.frozenUntil ?? 0, state.now + freeze);
+      total += applyEvoStatus(e, evo, base, state.now);
+    }
+    return { hits: targets.length, damage: total, aim: { x: player.x, y: player.y }, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
+  }
+
   // area：以区域目标点为中心的范围伤害；星陨按目标到落点的距离分内圈/外圈。
   const t = selectTarget();
   // 范围半径：基础 def.radius + 罗盘命中加成
-  const areaRadius = radiusWithBonus(def.radius, hitBonus);
+  const areaRadius = radiusWithBonus((def.radius ?? 0) + (evo?.radius ?? 0), hitBonus);
   const r2 = areaRadius * areaRadius;
   const inner = innerRingOf(def, defId);
+  if (inner && Number.isFinite(evo?.innerMul)) inner.mul = evo.innerMul;
   const innerR2 = inner ? inner.radius * inner.radius : -1;
   const hitList = enemies.filter((e) => e.alive && visible(e) && dist2(e, t.aim) <= r2);
   const sac = spendSacrifice(grid, cellId, state, hitList);
   for (const e of hitList) {
     const factor = inner && dist2(e, t.aim) <= innerR2 ? inner.mul : 1;
-    total += applyDamage(e, base * sac.mult * factor);
+    total += applyDamage(e, base * sac.mult * factor, state.now);
     targets.push(e);
-    if (def.rootMs) e.rootUntil = state.now + def.rootMs;
+    const rootMs = evo?.rootMs ?? def.rootMs;
+    if (rootMs) e.rootUntil = state.now + rootMs;
+    const freeze = evo?.freezeMs ?? def.freezeMs;
+    if (freeze) e.frozenUntil = Math.max(e.frozenUntil ?? 0, state.now + freeze);
+    total += applyEvoStatus(e, evo, base, state.now);
   }
   return { hits: targets.length, damage: total, aim: t.aim, empty: targets.length === 0, targets, sacrificeSpent: sac.spent, sacrificeApplied: sac.applied };
 }
@@ -344,12 +419,112 @@ export function resolveDeathBursts({
   return { hits, killed, positions };
 }
 
+// 一次触发的完整结算：先走原核心，再按派系组合补一层反应。
+// 反应结果只追加到返回值的 reaction 字段，不改变 hits/targets 的原有语义。
+export function resolveSigilTrigger(input) {
+  return applyFactionReaction(input, resolveSigilTriggerCore(input));
+}
+
+const REACTION_COOLDOWN_MS = 2000;
+
+function applyFactionReaction({ grid, cellId, defId, state, enemies }, result) {
+  if (!result || result.empty || !Array.isArray(result.targets) || result.targets.length === 0) return result;
+  const reaction = reactionAt(grid, cellId);
+  if (!reaction) return result;
+  const cell = grid.cells[cellId];
+  const now = Number.isFinite(state?.now) ? state.now : 0;
+  // 同一格 2 秒内只反应一次：脉流跳格很频繁，不冷却会每跳刷一次。
+  if (Number.isFinite(cell.reactionUntil) && now < cell.reactionUntil) return result;
+  cell.reactionUntil = now + REACTION_COOLDOWN_MS;
+
+  const mul = damageMultiplier(grid, cellId, state) * (state?.buffMul ?? 1);
+  const base = (SIGIL_DEFS[defId]?.damage ?? 0) * mul;
+  const extra = [];
+  let healed = 0;
+
+  if (reaction.id === 'melt') {
+    for (const e of result.targets) {
+      e.vulnUntil = Math.max(e.vulnUntil ?? 0, now + reaction.vulnMs);
+      e.vulnFactor = reaction.vulnFactor;
+    }
+  } else if (reaction.id === 'conduct') {
+    for (const e of result.targets) e.frozenUntil = Math.max(e.frozenUntil ?? 0, now + reaction.freezeMs);
+    // 补一跳：本批目标之外、离玩家最近的敌人
+    const used = new Set(result.targets.map(e => e.id));
+    let best = null;
+    let bestD = Infinity;
+    for (const e of enemies ?? []) {
+      if (!e?.alive || used.has(e.id)) continue;
+      const dx = e.x - (state?.player?.x ?? 0);
+      const dy = e.y - (state?.player?.y ?? 0);
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    if (best) {
+      result.damage = (result.damage ?? 0) + applyDamage(best, base * reaction.chainFactor, now);
+      extra.push(best);
+    }
+  } else if (reaction.id === 'scorch') {
+    const perTick = base * reaction.extraFactor / reaction.ticks;
+    for (const e of result.targets) {
+      for (let i = 0; i < reaction.ticks; i++) result.damage = (result.damage ?? 0) + applyDamage(e, perTick, now);
+    }
+  } else if (reaction.id === 'purify') {
+    for (const e of result.targets) {
+      if (!UNDEAD_OR_CORRUPT.includes(e.defId)) continue;
+      result.damage = (result.damage ?? 0) + applyDamage(e, base * (reaction.undeadFactor - 1), now);
+    }
+    const player = state?.player;
+    if (player && Number.isFinite(player.hp) && Number.isFinite(player.maxHp)) {
+      const before = player.hp;
+      player.hp = Math.min(player.maxHp, player.hp + reaction.heal);
+      healed = player.hp - before;
+    }
+  }
+
+  result.reaction = { id: reaction.id, name: reaction.name, extraTargets: extra, healed };
+  return result;
+}
+
+// 进化附加状态：冻结/易伤/灼烧在命中后统一挂一次，避免每个分支各写一遍。
+// 返回追加的灼烧伤害，调用方累加进 total。
+function applyEvoStatus(target, evo, base, now) {
+  if (!evo || !target) return 0;
+  if (evo.freezeMs) target.frozenUntil = Math.max(target.frozenUntil ?? 0, now + evo.freezeMs);
+  if (evo.vulnMs) {
+    target.vulnUntil = Math.max(target.vulnUntil ?? 0, now + evo.vulnMs);
+    target.vulnFactor = evo.vulnFactor ?? 1.15;
+  }
+  return evo.burnFactor ? applyDamage(target, base * evo.burnFactor, now) : 0;
+}
+
 // 联组成立时的追加结算：对组内各格追加一次按比例的伤害
 export function resolveComboBonus({ grid, order, bonus, state, enemies, defId }) {
   let total = 0;
   let hits = 0;
   const targets = [];
   if (!Number.isFinite(bonus) || bonus < 0) return { hits, damage: total, targets };
+  // 专属连携：组内出现配对的两种法术时，两格各追加一笔「连携伤害」（同对 1.5 秒冷却）。
+  const pairInfo = groupLinkage(grid, order);
+  const linkage = pairInfo && linkageReady(state, pairInfo.pair.a, pairInfo.pair.b)
+    ? { id: pairInfo.pair.id, name: pairInfo.pair.name, damage: 0, targets: [] }
+    : null;
+  if (linkage) {
+    for (const cellId of [pairInfo.aCell, pairInfo.bCell]) {
+      const cell = grid.cells[cellId];
+      const def = SIGIL_DEFS[cell?.slot?.defId];
+      if (!def) continue;
+      const t = resolveTarget(cellId, state.player, enemies, { view: state?.view });
+      if (t.target) {
+        const dmg = applyDamage(t.target, def.damage * damageMultiplier(grid, cellId, state) * pairInfo.pair.bonus, state.now);
+        total += dmg;
+        linkage.damage += dmg;
+        linkage.targets.push(t.target);
+      }
+    }
+    markLinkage(state, pairInfo.pair.a, pairInfo.pair.b);
+  }
+
   const rewarded = defId === 'line3' ? order.slice(-1) : order;
   for (const cellId of rewarded) {
     const cell = grid.cells[cellId];
@@ -359,10 +534,10 @@ export function resolveComboBonus({ grid, order, bonus, state, enemies, defId })
     const mul = damageMultiplier(grid, cellId, state);
     const t = resolveTarget(cellId, state.player, enemies, { view: state?.view });
     if (t.target) {
-      total += applyDamage(t.target, def.damage * mul * bonus);
+      total += applyDamage(t.target, def.damage * mul * bonus, state.now);
       hits++;
       targets.push(t.target);
     }
   }
-  return { hits, damage: total, targets };
+  return { hits, damage: total, targets, linkage };
 }

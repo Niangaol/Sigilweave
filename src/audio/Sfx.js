@@ -5,6 +5,18 @@ let failed = false;
 let enabled = true;
 let lastKillAt = 0;
 let lastExpAt = 0;
+let lastShieldHitAt = 0;
+
+// 敌方攻击表现音（抬手 / 挥砍 / 召唤）的节流表：各有独立计时，互不抢占窗口。
+// 统一节流：同一类音效 45ms 内只响一次，同帧多只怪一起出手时不会叠成噪音墙。
+// 时间源缺失（无 performance）时退回 Date.now，绝不抛错。
+const lastAt = { enemyCast: 0, meleeSwing: 0, summon: 0 };
+function allow(name, gapMs = 45) {
+  const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  if (now - (lastAt[name] ?? 0) < gapMs) return false;
+  lastAt[name] = now;
+  return true;
+}
 
 function ensure() {
   if (failed) return null;
@@ -71,7 +83,36 @@ export const sfx = {
     lastExpAt = now;
     tone({ freq: 980, dur: 0.035, type: 'sine', gain: 0.008, to: 1320 });
   },
+  // 打在护盾上：160Hz、30ms 的短促金属闷响，gain 压到 0.014（≤0.02）不抢命中反馈；
+  // 45ms 节流，同一帧多段伤害一起撞盾时只响一下。
+  shieldHit: () => {
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if (now - lastShieldHitAt < 45) return;
+    lastShieldHitAt = now;
+    tone({ freq: 160, dur: 0.03, type: 'square', gain: 0.014 });
+  },
+  // 破盾：一声碎裂 + 一声更低的落地余音，两声下坠合起来 ≤180ms，gain ≤0.03。
+  shieldBreak: () => {
+    tone({ freq: 420, dur: 0.09, type: 'triangle', gain: 0.024, to: 180 });
+    setTimeout(() => tone({ freq: 170, dur: 0.09, type: 'square', gain: 0.018, to: 70 }), 55);
+  },
   quiz: () => tone({ freq: 460, dur: 0.16, type: 'triangle', gain: 0.018 }),
+  // 敌方抬手（施法/张弓）：180Hz 低音短促，gain 0.012 不抢玩家技能音；45ms 节流。
+  enemyCast: () => {
+    if (!allow('enemyCast')) return;
+    tone({ freq: 180, dur: 0.09, type: 'square', gain: 0.012, to: 96 });
+  },
+  // 近战挥砍：高频噪声感的短扫，从 520Hz 扫到 150Hz，挥空也响（表现先于结算）。
+  meleeSwing: () => {
+    if (!allow('meleeSwing')) return;
+    tone({ freq: 520, dur: 0.07, type: 'sawtooth', gain: 0.012, to: 150 });
+  },
+  // 召唤物落地：两段上行（340 → 510Hz），合计 ≤120ms，读作「有东西被摆上场」。
+  summon: () => {
+    if (!allow('summon')) return;
+    tone({ freq: 340, dur: 0.06, type: 'triangle', gain: 0.012 });
+    setTimeout(() => tone({ freq: 510, dur: 0.06, type: 'triangle', gain: 0.01 }), 60);
+  },
   correct: () => { tone({ freq: 620, dur: 0.1, gain: 0.018 }); setTimeout(() => tone({ freq: 930, dur: 0.16, gain: 0.016 }), 80); },
   wrong: () => tone({ freq: 220, dur: 0.2, type: 'sawtooth', gain: 0.016, to: 120 }),
   bossDown: () => { tone({ freq: 320, dur: 0.12, type: 'triangle', gain: 0.02 }); setTimeout(() => tone({ freq: 180, dur: 0.3, type: 'sine', gain: 0.02, to: 80 }), 90); },

@@ -3,10 +3,13 @@ import Phaser from 'phaser';
 import { C, HEX, addText, pxRect, pxFrame, pxDiamond, applyPixelZoom } from '../ui/Palette.js';
 import { STARTING_KITS, createRun } from '../logic/run.js';
 import { SIGIL_DEFS } from '../logic/effects.js';
+import { CHARACTER_BUFFS, COMPASS_BUFFS } from '../logic/progression.js';
 import { sectorLabel } from '../data/roster.js';
 import { playCutscene } from '../ui/transition.js';
 
 const CARD = Object.freeze({ left: 12, gap: 12, width: 144, top: 48, height: 164 });
+// 本命被动 id → 中文名，卡面直接读现有被动定义，避免两处文案各写一套。
+const BUFF_NAMES = new Map([...CHARACTER_BUFFS, ...COMPASS_BUFFS].map((buff) => [buff.id, buff.name]));
 const ACCENT = Object.freeze({ bolt: C.brassLight, flame: C.arcane, ward: C.parchment });
 
 export default class LoadoutScene extends Phaser.Scene {
@@ -136,9 +139,12 @@ export default class LoadoutScene extends Phaser.Scene {
     this.text(x + w / 2, y + 5, kit.name, 14, selected ? HEX.arcaneLight : HEX.parchment, { letterSpacing: 4 })
       .setOrigin(0.5, 0);
 
-    // 一句话风格
-    this.text(x + w / 2, y + 25, kit.tagline, 7, selected ? HEX.parchment : HEX.mute, {
+    // 一句话风格 + 职业定位
+    this.text(x + w / 2, y + 24, kit.tagline, 7, selected ? HEX.parchment : HEX.mute, {
       wordWrap: { width: w - 20 }, align: 'center', lineSpacing: 2,
+    }).setOrigin(0.5, 0);
+    this.text(x + w / 2, y + 37, kit.role, 7, selected ? HEX.brassLight : HEX.mute, {
+      wordWrap: { width: w - 16 }, align: 'center',
     }).setOrigin(0.5, 0);
     pxRect(g, x + 12, y + 50, w - 24, 1, C.brassDark, 0.8);
 
@@ -153,10 +159,11 @@ export default class LoadoutScene extends Phaser.Scene {
       row++;
     }
 
-    // 底部状态条：选中卡高亮并给出出战提示
+    // 底部状态条：常驻显示本命被动，选中态靠边框/顶条/名字变色区分
+    const affinity = (kit.affinity ?? []).map((id) => BUFF_NAMES.get(id) ?? id).join(' · ');
     pxRect(g, x + 3, y + h - 18, w - 6, 15, selected ? C.nightSoft : C.ink, selected ? 0.95 : 0.8);
-    this.text(x + w / 2, y + h - 15, selected ? '已选 · 按 Enter 出战' : '点击卡片或按 ' + (index + 1) + ' 选择',
-      7, selected ? HEX.arcaneLight : HEX.mute).setOrigin(0.5, 0);
+    this.text(x + w / 2, y + h - 15, '本命 ' + affinity, 7,
+      selected ? HEX.arcaneLight : HEX.mute, { wordWrap: { width: w - 10 }, align: 'center' }).setOrigin(0.5, 0);
 
     const zone = this.add.zone(x, y, w, h).setOrigin(0).setInteractive({ useHandCursor: true });
     zone.on('pointerdown', () => this.select(index));

@@ -26,8 +26,9 @@ vi.mock('../src/ui/transition.js', () => ({
   playCutscene: (scene, options) => { transition.calls.push({ key: scene.scene?.key, ...options }); return true; },
 }));
 
+const sfxLog = vi.hoisted(() => []);
 vi.mock('../src/audio/Sfx.js', () => ({
-  sfx: new Proxy({}, { get: () => () => {} }),
+  sfx: new Proxy({}, { get: (_t, prop) => (...args) => { sfxLog.push([String(prop), ...args]); } }),
   toggleSound: () => {},
 }));
 
@@ -37,11 +38,13 @@ import { createGrid, rebuildDerived } from '../src/logic/grid.js';
 import { SigilEngine } from '../src/logic/engine.js';
 import { ACTS, WORLD_SIZES } from '../src/logic/constants.js';
 import { chapterOf, firstStageOf, minorBossIdsOfStage, nextStage } from '../src/logic/acts.js';
-import { MAJOR_BOSS_LEVEL } from '../src/logic/progression.js';
+import { MAJOR_BOSS_LEVEL, levelStats } from '../src/logic/progression.js';
 import { getEventPoints } from '../src/data/map-events.js';
 import { getEncounterForStage, getMinibossEncounters } from '../src/data/encounters.js';
 import { STAGE_CARDS } from '../src/data/cinematics.js';
 import { stageSpellCard } from '../src/scenes/battle-pure.js';
+import { enemySpawnLoad } from '../src/logic/spawn.js';
+import { pickEnemyType } from '../src/data/roster.js';
 
 const noop = () => {};
 const chain = (extra = {}) => new Proxy({ ...extra }, {
@@ -174,7 +177,7 @@ function makeScene(stage = 1, opts = {}) {
   scene.engine.now = opts.now ?? 120000;
   // 被测方法彼此调用（finishStage → swapStage / buildSummary），把原型方法绑到替身上，
   // 只顶掉渲染与实体重活，流程逻辑全部走真实实现。
-  for (const name of ['finishStage', 'swapStage', 'startBossClearTransition', 'defeatBoss', 'buildSummary', 'checkProgressEvents', 'update']) {
+  for (const name of ['finishStage', 'swapStage', 'startBossClearTransition', 'defeatBoss', 'buildSummary', 'checkProgressEvents', 'update', 'updateSummons']) {
     scene[name] = BattleScene.prototype[name].bind(scene);
   }
   return scene;
@@ -186,7 +189,7 @@ const advance = (scene, ms) => { for (let t = 0; t < ms; t += 50) call(scene, 'u
 const cutscenes = () => transition.calls;
 const lastCutscene = () => transition.calls.at(-1);
 
-beforeEach(() => { transition.calls.length = 0; transition.disabled = false; });
+beforeEach(() => { transition.calls.length = 0; transition.disabled = false; sfxLog.length = 0; });
 
 describe('幕内换场（场 4 → 5、场 6 → 7）', () => {
   it.each([[4, 5], [6, 7]])('场 %i 大 Boss 解决后原地换到 %i，不打开幕间工作台', (from, to) => {
@@ -349,7 +352,9 @@ describe('通幕（场 1/2/3/5）', () => {
     const scene = makeScene(6);
     call(scene, 'defeatBoss', 'quiz', 'boss-6', 'major');
     expect(scene.run.bossResolutions[6]).toMatchObject({ stage: 6, bossId: 'boss-6', tier: 'major', reward: 12 });
-    expect(scene.run.hand['sigil:' + stageSpellCard(6)]).toBe(1);
+    // 变体在发牌时摇定：固定法术进手牌时键形如 sigil:starfall#base。
+    const spell = stageSpellCard(6);
+    expect(Object.entries(scene.run.hand).some(([k, v]) => k.startsWith('sigil:' + spell + '#') && v === 1)).toBe(true);
     expect(scene.shardCount).toBe(12);
     call(scene, 'defeatBoss', 'combat', 'boss-6', 'major');
     expect(scene.shardCount).toBe(12);
@@ -518,5 +523,306 @@ describe('事件点触发与遭遇接线', () => {
     scene.beginEncounter = def => picked.push(def.id);
     call(scene, 'checkProgressEvents');
     expect(picked).toEqual([]);
+  });
+});
+
+// ---------- 变体刷怪接入（spec §4） ----------
+// 这一组只驱动刷怪/破盾/护盾受击的表现接线；实体内部与 AI 由各自测试覆盖。
+function spawnGraphics() {
+  const target = {};
+  const proxy = new Proxy(target, {
+    get: (t, prop) => (prop in t ? t[prop] : (..._args) => proxy),
+  });
+  target.clear = () => proxy;
+  return proxy;
+}
+
+function spawnScene(stage = 3) {
+  const scene = makeScene(stage);
+  scene.enemies = [];
+  scene.enemySeq = 0;
+  // Enemy 构造需要 graphics；纹理/动画缺失时实体自动走程序化回退
+  scene.add = { graphics: () => spawnGraphics() };
+  // 场景替身只绑「被测方法直接调用、且真实实现会互相调用」的那几个原型方法
+  scene.spawnEnemy = BattleScene.prototype.spawnEnemy.bind(scene);
+  scene.bumpKillStreak = BattleScene.prototype.bumpKillStreak.bind(scene);
+  return scene;
+}
+
+describe('变体刷怪接入（enemySpawnLoad / spawnEnemy / 槽位预算）', () => {
+  it('enemySpawnLoad：普通 1、天生精英 2、重甲变体 2，跳过死亡项，空数组 0', () => {
+    expect(enemySpawnLoad()).toBe(0);
+    expect(enemySpawnLoad([])).toBe(0);
+    expect(enemySpawnLoad([
+      { def: { id: 'skeleton' } },                                   // 普通 = 1
+      { def: { id: 'knight', elite: true } },                        // 天生精英 = 2
+      { def: { id: 'bat', variant: { id: 'heavy', cost: 2 } } },     // 重甲变体 = 2
+      { def: { id: 'bat', variant: { id: 'swift', cost: 1 } } },     // 疾行 = 1
+      { def: { id: 'corpse' }, alive: false },                       // 死亡项跳过
+      null,                                                          // 空条目跳过
+      undefined,
+    ])).toBe(1 + 2 + 2 + 1);
+    // alive === undefined 视为存活（回收中的敌人靠 alive=false 排除）
+    expect(enemySpawnLoad([{ alive: true }, { alive: false }])).toBe(1);
+  });
+
+  it('spawnEnemy 合成 def：id 仍是基础 id、baseId 相同、variant 结构就位并返回该敌人', () => {
+    const scene = spawnScene(3);
+    const rolls = [0.5, 0.9]; // 第一抽定类型，第二抽命中第 3 幕的重甲
+    scene.combatRng = { next: () => rolls.shift() };
+    const dif = { hp: 10, speed: 30, damage: 8, maxAlive: 10 };
+    const enemy = call(scene, 'spawnEnemy', dif, { x: 100, y: 120 });
+    expect(scene.enemies).toHaveLength(1);
+    expect(scene.enemies[0]).toBe(enemy);
+    expect(enemy.def.id).toBe(pickEnemyType(3, 0.5).id);
+    expect(enemy.def.baseId).toBe(enemy.def.id);
+    expect(enemy.def.variant).toMatchObject({ id: 'heavy', cost: 2 });
+    expect(enemy.variantId).toBe('heavy');
+    // 属性公式仍按合成后的乘率算（难度基准 × 等级成长 × 变体乘率）
+    const lv = levelStats(scene.run.progression.level);
+    expect(enemy.maxHp).toBe(Math.max(1, Math.round(dif.hp * (enemy.def.hpMul ?? 1) * lv.hpMul)));
+    expect(enemy.speed).toBeCloseTo(30 * (enemy.def.speedMul ?? 1) * lv.speedMul, 6);
+    expect(enemy.x).toBe(100);
+    // y 会被出生帧的 AI 朝向快照轻微修正，只断言仍是有限坐标
+    expect(Number.isFinite(enemy.y)).toBe(true);
+  });
+
+  it('combatRng 固定 0.5：spawnEnemy 不抛错，命中 normal 时 variant 为 null 且 id 不变', () => {
+    const scene = spawnScene(1);
+    scene.combatRng = { next: () => 0.5 };
+    const dif = { hp: 10, speed: 30, damage: 8, maxAlive: 10 };
+    expect(() => call(scene, 'spawnEnemy', dif, { x: 120, y: 140 })).not.toThrow();
+    const def = scene.enemies[0].def;
+    expect(def.id).toBe(pickEnemyType(1, 0.5).id);
+    expect(def.baseId).toBe(def.id);
+    expect(def.variant).toBeNull();
+  });
+
+  it('spawnWave 按槽位预算：maxAlive=1 且 count=2 时最多只落 1 只', () => {
+    const scene = spawnScene(1);
+    scene.combatRng = { next: () => 0.5 };
+    call(scene, 'spawnWave', { hp: 10, speed: 30, damage: 8, maxAlive: 1, wave: 2 }, 2);
+    expect(scene.enemies).toHaveLength(1);
+  });
+
+  it('已超预算时仍落 1 只兜底（不会整波空转），但不会继续灌', () => {
+    const scene = spawnScene(3);
+    // 预置一只 cost=2 的重甲怪：load = 2 > maxAlive = 1
+    scene.enemies = [{ x: 40, y: 40, alive: true, def: { variant: { id: 'heavy', cost: 2 } } }];
+    scene.combatRng = { next: () => 0.5 };
+    call(scene, 'spawnWave', { hp: 10, speed: 30, damage: 8, maxAlive: 1, wave: 2 }, 2);
+    expect(scene.enemies).toHaveLength(2); // 原有 1 + 兜底 1
+  });
+});
+
+describe('破盾与护盾受击表现', () => {
+  it('onEnemyShieldBreak：播碎片爆散 + 破盾音 + ≤2px/120ms 轻震屏', () => {
+    const scene = makeScene(3);
+    const shieldBreak = vi.fn();
+    scene.effects.shieldBreak = shieldBreak;
+    scene.cameras.main.calls.length = 0;
+    expect(() => call(scene, 'onEnemyShieldBreak', { x: 100, y: 120 })).not.toThrow();
+    expect(shieldBreak).toHaveBeenCalledWith(100, 120);
+    expect(sfxLog.some(c => c[0] === 'shieldBreak')).toBe(true);
+    const shake = scene.cameras.main.calls.find(c => c[0] === 'shake');
+    expect(shake).toEqual(['shake', 120, 0.002]);
+  });
+
+  it('onEnemyHit：盾吸收时补青钢火花与金属音，低细节档不早退；无盾不补播', () => {
+    const scene = makeScene(1);
+    const hitSpark = vi.fn();
+    const damageNumber = vi.fn();
+    Object.assign(scene.effects, { hitSpark, impact: vi.fn(), damageNumber });
+    const enemy = {
+      x: 90, y: 80, radius: 6, maxHp: 10, viewExtent: null, hitPower: 0.6,
+      lastBlocked: 4, lastHitAmount: 0, hitReact: vi.fn(),
+    };
+    call(scene, 'onEnemyHit', enemy, { x: 60, y: 80 }, 0, { color: 0xffffff }, false);
+    expect(enemy.hitReact).toHaveBeenCalledTimes(1);
+    expect(hitSpark).toHaveBeenCalledTimes(1);
+    expect(hitSpark.mock.calls[0].slice(0, 5)).toEqual([90, 80, expect.any(Number), expect.any(Number), 0x5ed0c8]);
+    expect(damageNumber).not.toHaveBeenCalled(); // 全吸收：不出现「0 伤害」飘字
+    expect(sfxLog.filter(c => c[0] === 'shieldHit')).toHaveLength(1);
+
+    // 没有吸收的普通受击（低细节档）不补盾反馈
+    const plain = { ...enemy, lastBlocked: 0, hitReact: vi.fn() };
+    call(scene, 'onEnemyHit', plain, { x: 60, y: 80 }, 0, { color: 0xffffff }, false);
+    expect(hitSpark).toHaveBeenCalledTimes(1);
+    expect(sfxLog.filter(c => c[0] === 'shieldHit')).toHaveLength(1);
+  });
+
+  it('击杀掉落：掉率门槛不变，drop = 基础 + variant.shardsAdd；精英 4 颗起', () => {
+    const scene = spawnScene(3);
+    const shards = [];
+    scene.spawnShard = (x, y) => shards.push([x, y]);
+    scene.spawnExpMote = noop;
+    scene.spawnChest = noop;
+    Object.assign(scene.effects, { deathScatter: vi.fn() });
+    // 0.3 同时过「宝箱 0.008」与「碎片 0.45」两道门槛
+    scene.combatRng = { next: () => 0.3 };
+    const kill = (def) => {
+      shards.length = 0;
+      call(scene, 'onEnemyKilled', {
+        x: 10, y: 20, alive: true, rewarded: false, destroy: noop,
+        def: { id: 'skeleton', color: 0xffffff, ...def },
+      });
+      return shards.length;
+    };
+    expect(kill({})).toBe(1);
+    expect(kill({ variant: { id: 'heavy', shardsAdd: 2 } })).toBe(3);
+    expect(kill({ elite: true, variant: { id: 'elite', shardsAdd: 3 } })).toBe(7);
+  });
+});
+
+// ---------- 敌方召唤物 / 近战结算（T3 接线）----------
+// 这一组用「裸上下文 + 原型方法」驱动，只给场景逻辑真正读到的字段，
+// 验证上下限、毁灭清扫、近战结算与符文引爆，不启动 Phaser。
+function makeCombatCtx(overrides = {}) {
+  const effects = {
+    slashes: [], pulses: [], hurts: 0, bursts: 0, scatters: 0, impacts: 0,
+    slash(...args) { this.slashes.push(args); },
+    summonPulse(...args) { this.pulses.push(args); },
+    hurt() { this.hurts++; },
+    burst() { this.bursts++; },
+    deathScatter() { this.scatters++; },
+    impact() { this.impacts++; },
+  };
+  const ctx = {
+    player: {
+      x: 100, y: 100, radius: 5, alive: true, hp: 100, invulnUntil: 0, hits: [],
+      takeDamage(amount, now) {
+        if (!this.alive || now < this.invulnUntil) return false;
+        this.invulnUntil = now + 1400;
+        this.hp -= amount;
+        this.hits.push({ amount, now });
+        return true;
+      },
+    },
+    enemies: [],
+    summons: [],
+    summonsSeq: -1,
+    hostileShots: [],
+    hostileG: makeGraphics(),
+    summonG: makeGraphics(),
+    engine: { now: 5000 },
+    effects,
+    phase: 'play',
+    bossDefeated: false,
+    cameras: { main: { shake: noop } },
+    world: { w: 800, h: 600 },
+    ...overrides,
+  };
+  for (const name of ['addEnemySummon', 'updateSummons', 'sweepSummons', 'onSummonDestroyed', 'detonateRune', 'drawSummons', 'addHostileShot', 'onEnemyMelee']) {
+    ctx[name] = BattleScene.prototype[name].bind(ctx);
+  }
+  return ctx;
+}
+
+describe('敌方召唤物与近战接入', () => {
+  it('addEnemySummon 规范化默认值、负数 id、炮台伤害 ×0.6、同 owner 只 1 个', () => {
+    const ctx = makeCombatCtx();
+    const turret = ctx.addEnemySummon({ id: 7, damage: 10 }, { kind: 'turret', x: 200, y: 200 });
+    expect(turret).toBeTruthy();
+    expect(turret.id).toBe(-1);
+    expect(turret.kind).toBe('turret');
+    expect(turret.owner).toBe(7);
+    expect(turret.hp).toBe(12);
+    expect(turret.lifeMs).toBe(5000);
+    expect(turret.damage).toBe(6);                       // 召唤者 10 × 0.6
+    expect(turret.def).toMatchObject({ id: 'summon_turret' });
+    expect(ctx.summons).toHaveLength(1);
+    expect(ctx.effects.pulses).toHaveLength(1);
+    expect(sfxLog.some((c) => c[0] === 'summon')).toBe(true);
+
+    // 同一个 owner 再来一个：被拒，且不产生任何表现
+    expect(ctx.addEnemySummon({ id: 7, damage: 10 }, { kind: 'rune', x: 300, y: 300 })).toBeNull();
+    expect(ctx.summons).toHaveLength(1);
+    expect(ctx.effects.pulses).toHaveLength(1);
+
+    // 换 owner 才放行；符文默认 8HP / 半径 44 / 引信 1200
+    const rune = ctx.addEnemySummon({ id: 8, damage: 10 }, { kind: 'rune', x: 300, y: 300 });
+    expect(rune.id).toBe(-2);
+    expect(rune.hp).toBe(8);
+    expect(rune.radius).toBe(44);
+    expect(rune.lifeMs).toBe(1200);
+    expect(rune.def).toMatchObject({ id: 'summon_rune' });
+  });
+
+  it('跨列表上限：炮台 12 / 符文 8 / 全场 20，满了直接拒绝且不出表现', () => {
+    const ctx = makeCombatCtx();
+    for (let i = 0; i < 12; i++) {
+      expect(ctx.addEnemySummon({ id: 100 + i, damage: 1 }, { kind: 'turret', x: 10, y: 10 })).toBeTruthy();
+    }
+    expect(ctx.addEnemySummon({ id: 999, damage: 1 }, { kind: 'turret', x: 10, y: 10 })).toBeNull();
+    for (let i = 0; i < 8; i++) {
+      expect(ctx.addEnemySummon({ id: 200 + i, damage: 1 }, { kind: 'rune', x: 10, y: 10 })).toBeTruthy();
+    }
+    expect(ctx.summons).toHaveLength(20);
+    expect(ctx.effects.pulses).toHaveLength(20);
+    expect(ctx.addEnemySummon({ id: 500, damage: 1 }, { kind: 'rune', x: 10, y: 10 })).toBeNull();
+    expect(ctx.summons).toHaveLength(20);
+    expect(ctx.effects.pulses).toHaveLength(20);
+  });
+
+  it('sweepSummons：死亡召唤物爆散移除，不给经验/碎片/尸爆种子', () => {
+    const ctx = makeCombatCtx();
+    const turret = ctx.addEnemySummon({ id: 1, damage: 1 }, { kind: 'turret', x: 50, y: 50 });
+    const rune = ctx.addEnemySummon({ id: 2, damage: 1 }, { kind: 'rune', x: 60, y: 60 });
+    turret.hp = 0;
+    turret.alive = false;
+    expect(ctx.sweepSummons()).toBe(1);
+    expect(ctx.summons).toEqual([rune]);
+    expect(ctx.effects.scatters).toBe(1);
+    expect(ctx.effects.bursts).toBe(1);
+    expect(sfxLog.some((c) => c[0] === 'dissipate')).toBe(true);
+    // 没有走任何击杀结算入口（奖励入口都挂 enemies 上，召唤物只是被移除）
+    expect(ctx.enemies).toHaveLength(0);
+  });
+
+  it('onEnemyMelee：命中才 takeDamage，挥空与无敌帧都只出表现', () => {
+    const ctx = makeCombatCtx();
+    const enemy = { id: 3, damage: 7, def: { color: 0xff0000 } };
+    const melee = { x: 100, y: 100, angle: 0, arc: Math.PI, range: 30, damage: 7 };
+    expect(ctx.onEnemyMelee(enemy, melee)).toBe(true);
+    expect(ctx.player.hits).toEqual([{ amount: 7, now: 5000 }]);
+    expect(ctx.effects.slashes).toHaveLength(1);
+    expect(sfxLog.some((c) => c[0] === 'meleeSwing')).toBe(true);
+    expect(sfxLog.some((c) => c[0] === 'hurt')).toBe(true);
+
+    // 无敌帧内：不扣血，但仍然出挥砍表现
+    expect(ctx.onEnemyMelee(enemy, melee)).toBe(false);
+    expect(ctx.player.hits).toHaveLength(1);
+    expect(ctx.effects.slashes).toHaveLength(2);
+
+    // 背向空挥（抬手点在玩家左侧、朝左扫）：同样只出表现
+    ctx.player.invulnUntil = 0;
+    expect(ctx.onEnemyMelee(enemy, { x: 90, y: 100, angle: Math.PI, arc: Math.PI / 4, range: 30, damage: 7 })).toBe(false);
+    expect(ctx.player.hits).toHaveLength(1);
+    expect(ctx.effects.slashes).toHaveLength(3);
+  });
+
+  it('updateSummons：炮台弹并入 hostileShots，符文引爆伤玩家 + 6 发环弹', () => {
+    const ctx = makeCombatCtx();
+    ctx.addEnemySummon({ id: 1, damage: 10 }, { kind: 'turret', x: 300, y: 300 });
+    ctx.addEnemySummon({ id: 2, damage: 8 }, { kind: 'rune', x: 100, y: 100 }); // 玩家脚下
+    ctx.updateSummons(1000);   // 符文还剩 200ms，炮台首轮 1200ms 未到
+    expect(ctx.hostileShots).toHaveLength(0);
+    ctx.engine.now = 6000;
+    ctx.updateSummons(200);    // 引信归零 → 爆炸 + 环形弹；炮台累计 1200ms → 发 1 发
+    expect(ctx.player.hits.map((h) => h.amount)).toContain(8);
+    expect(ctx.effects.bursts).toBeGreaterThan(0);
+    const bolts = ctx.hostileShots.filter((s) => s.kind === 'bolt');
+    expect(bolts.length).toBeGreaterThanOrEqual(7);       // 6 发环弹 + 炮台 1 发
+    expect(ctx.summons.map((s) => s.kind)).toEqual(['turret']);
+  });
+
+  it('combatTargets 是敌人 + 召唤物，只用于法术选敌', () => {
+    const ctx = makeCombatCtx();
+    ctx.enemies = [{ id: 1 }, { id: 2 }];
+    ctx.summons = [{ id: -1 }, { id: -2 }];
+    const targets = BattleScene.prototype.combatTargets.call(ctx);
+    expect(targets).toHaveLength(4);
+    expect(targets.slice(0, 2)).toEqual(ctx.enemies);
+    expect(targets.slice(2)).toEqual(ctx.summons);
   });
 });

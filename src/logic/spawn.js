@@ -74,6 +74,20 @@ export function pickWavePoints({
   return points;
 }
 
+// ---------- 槽位预算：变体占 1~2 槽 ----------
+// 同屏上限按「槽位」而不是「只数」计：持盾/精英变体 cost=2、天生精英 2，
+// 否则一屏 60 只持盾会让压力翻倍，密度曲线失真。
+// 死怪 / 空条目 / 非对象条目不计入（回收中的敌人不再占预算）。
+// 纯函数：零 Phaser、零随机、不改入参；契约见 spec §4。
+export function enemySpawnLoad(list) {
+  let n = 0;
+  for (const e of list ?? []) {
+    if (!e || e.alive === false) continue;
+    n += e.def?.variant?.cost ?? (e.def?.elite ? 2 : 1);
+  }
+  return n;
+}
+
 // 轻量分离：把互相挤在一起的杂兵各推开一半，避免长期叠成一坨。
 // - 不动 Boss（Boss 有自己的站位逻辑）
 // - 玩家身边即将接触的一对不推开（接触碎灭由战斗层处理，推开会让人打不到）

@@ -1,8 +1,10 @@
 // 敌人实体：移动与开火全部交给纯逻辑 src/logic/enemy-ai.js。
 // 本文件只负责场景接线：身体用素材（骨架/腐尸为 12 帧精灵表，其余为单帧图），
 // 预警线、血条、精英描边走 Graphics 覆盖层。素材缺失时整体降级为程序化像素绘制。
-import { C, pxRect, pxLine, pxRing, pxDiamond } from '../ui/Palette.js';
+import { C, pxRect, pxRing, pxDiamond, pxPoly } from '../ui/Palette.js';
 import { createBrain, stepBrain } from '../logic/enemy-ai.js';
+import { variantPartKeys, placeVariantPart } from '../ui/variant-parts.js';
+import { sfx } from '../audio/Sfx.js';
 
 // 与 BattleScene 的可活动区域一致。环绕/冲锋会被约束在场地内；
 // 直线推进的骷髅/腐尸允许冲出边界，由战斗层沿用现有的退场判定清退。
@@ -93,7 +95,26 @@ export default class Enemy {
     this.hpChip = this.hp;
     this.hpSeen = this.hp;
     this.hitChipAt = -9999;
-    this.baseScale = 1;
+    // 变体（spec §6）：tint / 体型缩放 / 一次性护盾 / 配件。def.variant 缺省时全部走旧路径。
+    const variant = this.def.variant ?? null;
+    const style = ENEMY_STYLE[this.defId];
+    this.variantId = variant?.id ?? null;
+    this.baseScale = (style?.scale ?? 1) * (variant?.scale ?? 1);
+    // 变体 tint 优先于该型固有 tint；两者都没有时保持素材原色（受击闪白后也恢复到这里）
+    this.tintColor = variant?.tint ?? style?.tint ?? null;
+    this.shieldMax = Math.max(0, Math.round(this.hp * (variant?.shieldHpMul ?? 0)));
+    this.shield = this.shieldMax;
+    // 一次性护盾与格挡：shield 由 applyDamage 扣，破盾只置 pending，眩晕在 update 里消费
+    this.guard = false;
+    this.armor = 0;
+    this.lastBlocked = 0;
+    this.stunUntil = -1;
+    this.shieldBrokenPending = false;
+    this.shieldFlashAt = -9999;
+    this.partKind = null;
+    this.part = null;
+    this.parts = [];
+    this.partHidden = false;
     this.viewExtent = null;
     this.phase = (this.id * 53) % 97;
     this.walkPhase = 0;
@@ -110,10 +131,8 @@ export default class Enemy {
       ? scene.add.sprite(Math.round(this.x), Math.round(this.y) + (ENEMY_FEET[this.defId] ?? 7), texKey).setOrigin(0.5, 1)
       : null;
     if (this.sprite) {
-      const style = ENEMY_STYLE[this.defId];
-      this.baseScale = style?.scale ?? 1;
       this.sprite.setScale(this.baseScale);
-      if (style?.tint) this.sprite.setTint(style.tint);
+      if (this.tintColor != null) this.sprite.setTint(this.tintColor);
       this.sprite.setDepth(Math.floor(this.y));
       const prefix = ENEMY_ANIM[this.defId];
       if (prefix && scene.anims?.exists(prefix + '-idle')) this.sprite.play(prefix + '-idle');
@@ -121,9 +140,24 @@ export default class Enemy {
     // 屏幕内判定用的视觉外框：精灵脚在逻辑点附近、身体向上长，
     // 用逻辑半径会漏掉「脚刚出屏、大半个身子还在屏里」的怪。
     this.viewExtent = this.computeViewExtent();
+    // 变体配件：纹理已就位（BootScene 生成或美术 PNG）才创建，缺失时保持空数组自动降级。
+    // 重甲同时挂肩甲 + 盾（variant.parts 两个 key），精英挂王冠。
+    if (typeof scene.textures?.exists === 'function' && typeof scene.add?.image === 'function') {
+      for (const key of variantPartKeys(variant)) {
+        if (!scene.textures.exists(key)) continue;
+        const sprite = scene.add.image(Math.round(this.x), Math.round(this.y), key)
+          .setOrigin(0.5, 0.5)
+          .setDepth(Math.floor(this.y) + 0.2);
+        this.parts.push({ sprite, kind: key.slice(4) });
+      }
+      this.part = this.parts[0]?.sprite ?? null;
+      this.partKind = this.parts[0]?.kind ?? null;
+    }
     this.brain = createBrain(this.defId, {
       now: scene.engine?.now ?? 0,
       seed: this.defId + ':' + this.id,
+      // 召唤事件用 owner 标记施法者：传敌人 id，场景据此做「同一 owner 同时 1 个」去重
+      id: this.id,
     });
     // 出生瞬间锁定目标点：dt=0 只初始化朝向与目标快照，不产生位移
     this.applyResult(stepBrain(this.brain, {
@@ -151,15 +185,26 @@ export default class Enemy {
 
   update(dtMs, now) {
     if (!this.alive) return;
-    const factor = this.speedFactor(now);
-    const result = stepBrain(this.brain, {
-      dtMs,
-      now,
-      self: this.selfState(factor),
-      player: this.playerState(),
-      opts: { BATTLE: this.bounds, damage: this.baseDamage },
-    });
-    this.applyResult(result, dtMs);
+    // 破盾必须先于 AI 消费：同一帧内的眩晕立即生效，不再推进本体动作
+    this.consumeShieldBreak(now);
+    if (Number.isFinite(now) && now < this.stunUntil) {
+      // 眩晕 400ms：位置冻结（不跑 stepBrain）、打断蓄力/冲锋/格挡，接触伤害回到基础值
+      this.windup = false;
+      this.charging = false;
+      this.guard = false;
+      this.armor = 0;
+      this.damage = this.baseDamage;
+    } else {
+      const factor = this.speedFactor(now);
+      const result = stepBrain(this.brain, {
+        dtMs,
+        now,
+        self: this.selfState(factor),
+        player: this.playerState(),
+        opts: { BATTLE: this.bounds, damage: this.baseDamage },
+      });
+      this.applyResult(result, dtMs);
+    }
     // 血条延迟条：任何来源的掉血都先留一条白条，220ms 后再快速追平真实血量。
     // 用 hpSeen 观察 hp 变化，法术/尸爆/献祭走 applyDamage 也能自动触发，不依赖 takeDamage。
     if (this.hp < this.hpSeen) {
@@ -177,6 +222,20 @@ export default class Enemy {
     // 大地图世界边界由 enemy-ai 的 bounds 约束；离玩家过远的回收在战斗层处理
   }
 
+  // 消费 applyDamage 置的破盾标记：只处理一次（标记立即清空），
+  // 眩晕 400ms + 隐藏配件 + 通知战斗层放碎片/音效/震动。
+  consumeShieldBreak(now) {
+    if (!this.shieldBrokenPending) return false;
+    this.shieldBrokenPending = false;
+    this.shield = 0;
+    this.shieldFlashAt = Number.isFinite(now) ? now : 0;
+    this.stunUntil = this.shieldFlashAt + 400;
+    this.partHidden = true;
+    for (const entry of this.parts) entry.sprite?.setVisible(false);
+    if (typeof this.scene?.onEnemyShieldBreak === 'function') this.scene.onEnemyShieldBreak(this);
+    return true;
+  }
+
   selfState(factor = 1) {
     return { x: this.x, y: this.y, speed: this.speed * factor, radius: this.radius };
   }
@@ -190,6 +249,8 @@ export default class Enemy {
   speedFactor(now) {
     let factor = now < (this.slowUntil ?? 0) ? (this.slowFactor ?? 1) : 1;
     if (now < (this.rootUntil ?? 0)) factor = 0;
+    // 导电反应的冻结：完全停步，视觉上叠加冰蓝色调（见 draw）
+    if (now < (this.frozenUntil ?? 0)) factor = 0;
     const player = this.scene.player;
     const slowed = this.scene.grid?.cells?.some?.(c => c.unlocked && c.slot?.defId === 'slow_field');
     if (player && slowed && Math.hypot(this.x - player.x, this.y - player.y) <= 90) {
@@ -202,8 +263,19 @@ export default class Enemy {
     if (!result || typeof result !== 'object') return;
     if (Number.isFinite(result.x)) this.x = result.x;
     if (Number.isFinite(result.y)) this.y = result.y;
+    const wasWindup = this.windup === true;
     this.windup = result.windup === true;
+    // 抬手起手音：只在「暗 → 亮」的那一帧放一次（45ms 全局节流兜住多只同时抬手）。
+    // 近战有自己的挥砍音（onEnemyMelee），这里只给远程施法，避免两种前摇撞音。
+    if (this.windup && !wasWindup && !this.meleePreview()) sfx.enemyCast();
     this.charging = result.charging === true;
+    // 格挡（书页魔像等）：架起时按 55% 减伤结算，由 effects.applyDamage 读 armor。
+    // 减伤值优先取该行为 tune 的 guardArmor（BULWARK_RULE=0.55），缺失时回退 0.55。
+    this.guard = result.guard === true;
+    const guardArmor = this.brain?.tune?.guardArmor;
+    this.armor = this.guard
+      ? Math.max(0, Math.min(1, Number.isFinite(guardArmor) ? guardArmor : 0.55))
+      : 0;
     this.damage = this.charging ? Math.round(this.baseDamage * CHARGE_DAMAGE_MUL) : this.baseDamage;
     // 敌方弹丸转发；addHostileShot 不存在时静默跳过（纯逻辑可单独测试）
     if (Array.isArray(result.shots) && result.shots.length && typeof this.scene.addHostileShot === 'function') {
@@ -212,6 +284,15 @@ export default class Enemy {
     // 精英践踏事件转发（缝合尸魁）：由战斗层判定玩家是否在圈内
     if (result.stomp && typeof this.scene.onEnemyStomp === 'function') {
       this.scene.onEnemyStomp(this, result.stomp);
+    }
+    // 近战出手：由战斗层用 hostile.meleeHits 判定玩家（挥空也出表现）。
+    // 方法不存在时静默跳过，保持纯逻辑可测。
+    if (result.melee && typeof this.scene.onEnemyMelee === 'function') {
+      this.scene.onEnemyMelee(this, result.melee);
+    }
+    // 召唤事件：由战斗层做全场上限/同 owner 去重/规范化后再入列。
+    if (result.summon && typeof this.scene.addEnemySummon === 'function') {
+      this.scene.addEnemySummon(this, result.summon);
     }
     if (Number.isFinite(dtMs) && dtMs > 0) this.walkPhase += dtMs;
   }
@@ -284,7 +365,9 @@ export default class Enemy {
     } else {
       this.drawProcedural(rx, ry, off.flash);
     }
-    this.drawOverlay(x, y);
+    this.drawOverlay(x, y, now);
+    // 配件（盾/肩甲/王冠）逐帧跟随本体：位置、缩放、朝向、层级都在这里刷新
+    placeVariantPart(this);
     this.prevX = this.x;
   }
 
@@ -309,10 +392,18 @@ export default class Enemy {
       s.setTint(0xff9d93);
     } else if (age >= 0 && age < 170) {
       s.setTint(0xd98a84);
+    } else if ((this.frozenUntil ?? 0) > (this.scene?.engine?.now ?? 0)) {
+      // 冻结优先于抬手：冰蓝是状态，抬起的手不该盖掉它
+      s.setTint(0x9fd8ff);
+    } else if (this.windup) {
+      // 抬手：身体亮色按 90ms 节拍闪动（tint 只改表现，不动逻辑坐标/碰撞）。
+      // 远程抬手只闪身体、不画任何指向线；近战的地面扇形由 drawCastPose 补。
+      const t = Number.isFinite(now) ? now : (this.scene?.engine?.now ?? 0);
+      s.setTint(Math.floor(t / 90) % 2 === 0 ? 0xffe6c0 : 0xffc98a);
     } else {
-      s.clearTint();
-      const style = ENEMY_STYLE[this.defId];
-      if (style?.tint) s.setTint(style.tint);
+      // 受击状态色恢复到「变体 tint 优先、否则该型固有 tint」，都没配就清掉
+      if (this.tintColor != null) s.setTint(this.tintColor);
+      else s.clearTint();
     }
     const prefix = ENEMY_ANIM[this.defId];
     if (!this.alive || !prefix || !this.scene.anims?.exists(prefix + '-idle')) return;
@@ -324,44 +415,96 @@ export default class Enemy {
     if (this.scene.anims.exists(key) && (s.anims.currentAnim?.key !== key || !s.anims.isPlaying)) s.play(key, true);
   }
 
-  // 预警线 / 血条 / 精英描边：覆盖层，压在精灵上一层。
+  // 预警线 / 血条 / 精英描边 / 盾条 / 眩晕：覆盖层，压在精灵上一层。
   // 素材路径按精灵实际外框定位，避免大体积精灵把标记画进身体里。
-  drawOverlay(x, y) {
+  drawOverlay(x, y, now = Infinity) {
     const g = this.g;
     g.clear();
-    this.drawTelegraph(g, x, y);
+    this.drawCastPose(g, x, y, now);
+    const m = this.overlayMetrics(x, y);
     if (this.sprite) {
-      const s = this.sprite;
-      const hw = Math.round((s.displayWidth ?? 2 * this.radius) / 2) + 2;
-      const top = Math.round(y + (ENEMY_FEET[this.defId] ?? 7) - (s.displayHeight ?? 2 * this.radius));
       if (this.def?.elite) {
-        pxRect(g, x - hw, top, hw * 2, 1, C.brass, 0.9);
-        pxRect(g, x - hw, y + this.radius + 1, hw * 2, 1, C.brass, 0.9);
-        pxRect(g, x - hw, top, 1, y + this.radius + 2 - top, C.brass, 0.9);
-        pxRect(g, x + hw - 1, top, 1, y + this.radius + 2 - top, C.brass, 0.9);
-        pxRect(g, x - 8, top - 6, 16, 2, C.void, 0.8);
-        pxRect(g, x - 8, top - 6, Math.max(1, Math.round(16 * this.hp / this.maxHp)), 2, C.brassLight, 1);
+        pxRect(g, x - m.hw, m.top, m.hw * 2, 1, C.brass, 0.9);
+        pxRect(g, x - m.hw, y + this.radius + 1, m.hw * 2, 1, C.brass, 0.9);
+        pxRect(g, x - m.hw, m.top, 1, y + this.radius + 2 - m.top, C.brass, 0.9);
+        pxRect(g, x + m.hw - 1, m.top, 1, y + this.radius + 2 - m.top, C.brass, 0.9);
+        pxRect(g, x - 8, m.top - 6, 16, 2, C.void, 0.8);
+        pxRect(g, x - 8, m.top - 6, Math.max(1, Math.round(16 * this.hp / this.maxHp)), 2, C.brassLight, 1);
       }
       if (this.hp < this.maxHp) {
         const ratio = Math.max(0, Math.min(1, this.hp / this.maxHp));
         // 延迟白条：先留在受伤前的位置，220ms 后再缩回真实血量
         const chip = Math.max(ratio, Math.min(1, this.hpChip / this.maxHp));
-        const barY = top - 4;
-        pxRect(g, x - 6, barY, 13, 2, C.void, 0.8);
-        if (chip > ratio) pxRect(g, x - 5, barY + 1, Math.max(1, Math.round(11 * chip)), 1, C.brassLight, 0.95);
-        pxRect(g, x - 5, barY + 1, Math.max(1, Math.round(11 * ratio)), 1, C.blood, 1);
+        pxRect(g, x - 6, m.barY, 13, 2, C.void, 0.8);
+        if (chip > ratio) pxRect(g, x - 5, m.barY + 1, Math.max(1, Math.round(11 * chip)), 1, C.brassLight, 0.95);
+        pxRect(g, x - 5, m.barY + 1, Math.max(1, Math.round(11 * ratio)), 1, C.blood, 1);
       }
-      return;
+    } else {
+      this.drawHealth(g, x, y);
+      if (this.def?.elite) {
+        pxRect(g, x - this.radius - 2, y - this.radius - 2, this.radius * 2 + 4, 1, C.brass, 0.9);
+        pxRect(g, x - this.radius - 2, y + this.radius + 1, this.radius * 2 + 4, 1, C.brass, 0.9);
+        pxRect(g, x - this.radius - 2, y - this.radius - 2, 1, this.radius * 2 + 4, C.brass, 0.9);
+        pxRect(g, x + this.radius + 1, y - this.radius - 2, 1, this.radius * 2 + 4, C.brass, 0.9);
+        pxRect(g, x - 8, y - this.radius - 8, 16, 2, C.void, 0.8);
+        pxRect(g, x - 8, y - this.radius - 8, Math.max(1, Math.round(16 * this.hp / this.maxHp)), 2, C.brassLight, 1);
+      }
     }
-    this.drawHealth(g, x, y);
-    if (this.def?.elite) {
-      pxRect(g, x - this.radius - 2, y - this.radius - 2, this.radius * 2 + 4, 1, C.brass, 0.9);
-      pxRect(g, x - this.radius - 2, y + this.radius + 1, this.radius * 2 + 4, 1, C.brass, 0.9);
-      pxRect(g, x - this.radius - 2, y - this.radius - 2, 1, this.radius * 2 + 4, C.brass, 0.9);
-      pxRect(g, x + this.radius + 1, y - this.radius - 2, 1, this.radius * 2 + 4, C.brass, 0.9);
-      pxRect(g, x - 8, y - this.radius - 8, 16, 2, C.void, 0.8);
-      pxRect(g, x - 8, y - this.radius - 8, Math.max(1, Math.round(16 * this.hp / this.maxHp)), 2, C.brassLight, 1);
+    this.drawShieldBar(g, x, m.barY);
+    this.drawStun(g, x, m.top, now);
+    this.drawShieldFlash(g, x, m, now);
+  }
+
+  // 覆盖层定位基准：素材路径吃精灵实际外框，程序化路径退回逻辑半径。
+  // barY 与血条同基线，盾条画在它上方 3px。
+  overlayMetrics(x, y) {
+    if (this.sprite) {
+      const s = this.sprite;
+      const hw = Math.round((s.displayWidth ?? 2 * this.radius) / 2) + 2;
+      const h = Number.isFinite(s.displayHeight) && s.displayHeight > 0 ? s.displayHeight : 2 * this.radius;
+      const top = Math.round(y + (ENEMY_FEET[this.defId] ?? 7) - h);
+      return { hw, top, barY: top - 4, width: hw * 2, height: Math.max(1, Math.round(h)) };
     }
+    const hw = this.radius + 2;
+    return {
+      hw,
+      top: y - this.radius - 10,
+      barY: y - this.radius - 15,
+      width: hw * 2,
+      height: this.radius * 2 + 10,
+    };
+  }
+
+  // 一次性护盾条：血条上方 3px 的 11×1 青钢条，长度按剩余盾值比例。
+  drawShieldBar(g, x, barY) {
+    if (!(this.shield > 0)) return;
+    const max = this.shieldMax > 0 ? this.shieldMax : 1;
+    const ratio = Math.max(0, Math.min(1, this.shield / max));
+    pxRect(g, x - 6, barY - 3, 13, 1, C.void, 0.7);
+    pxRect(g, x - 5, barY - 3, Math.max(1, Math.round(11 * ratio)), 1, C.teal, 1);
+  }
+
+  // 破盾眩晕：头顶 3 个菱形按固定相位绕头转（只用 now 推导，不用随机数）。
+  drawStun(g, x, top, now) {
+    if (!(Number.isFinite(now) && now < this.stunUntil)) return;
+    const t = now - (this.stunUntil - 400);
+    for (let i = 0; i < 3; i++) {
+      const a = (t / 260) * Math.PI * 2 + (i * Math.PI * 2) / 3;
+      const px = Math.round(x + Math.cos(a) * 5);
+      const py = Math.round(top - 4 + Math.sin(a) * 2);
+      pxDiamond(g, px, py, 2, C.outline, 1, true);
+      pxDiamond(g, px, py, 1, C.bone, 1, true);
+    }
+  }
+
+  // 破盾白闪：160ms 内给整个身体压一层白，与特效层的碎片同时出现。
+  drawShieldFlash(g, x, m, now) {
+    const age = now - this.shieldFlashAt;
+    if (!(age >= 0 && age < 160)) return;
+    const flash = 1 - age / 160;
+    const w = Math.max(1, Math.round(m.width));
+    const h = Math.max(1, Math.round(m.height));
+    pxRect(g, x - Math.round(w / 2), m.top, w, h, C.white, 0.7 * flash);
   }
 
   // ---------- 程序化回退（素材缺失时，行为与旧版一致） ----------
@@ -371,7 +514,7 @@ export default class Enemy {
     const step = Math.floor((this.walkPhase + this.phase * 10) / 160) % 2;
     const bob = step;
     const color = this.def?.color ?? C.bone;
-    this.drawTelegraph(g, x, y);
+    // 抬手姿态统一在 drawOverlay 里画（draw() 每次都会调用它），此处不重复画
     switch (this.defId) {
       case 'bat': this.drawBat(g, x, y, color, flash); break;
       case 'corpse': this.drawCorpse(g, x, y, bob, color, flash); break;
@@ -390,20 +533,86 @@ export default class Enemy {
     }
   }
 
-  // 预警：血线指向锁定的目标点，目标点画蹄形环，敌人头顶亮菱形
-  drawTelegraph(g, x, y) {
+  // 抬手姿态（替代旧的瞄准线预告）：身体亮色闪 + 头顶小菱形；
+  // 近战前摇额外在地面画扇形提示（仅近战，不是瞄准线/落点环）。
+  // 远程抬手不画任何指向线——方向在发射瞬间才算，玩家靠「抬手」读威胁。
+  drawCastPose(g, x, y, now = 0) {
     if (!this.windup) return;
-    const aim = this.brain?.aim;
-    if (!aim || !Number.isFinite(aim.x) || !Number.isFinite(aim.y)) return;
-    // 画风同步：瞄准线改暗描边底 + blood 主线（双线硬边，替代旧单线柔光）
-    pxLine(g, x, y - 1, aim.x, aim.y - 1, C.outline, 0.85);
-    pxLine(g, x, y - 2, aim.x, aim.y - 2, C.blood, 1);
-    // 落点：双环硬边（外暗描边 / 内 blood）
-    pxRing(g, aim.x, aim.y, 10, C.outline, 0.95, 1);
-    pxRing(g, aim.x, aim.y, 9, C.blood, 0.9, 1);
-    // 头顶警示菱形：暗菱形打底 + 红核（纯填充，不依赖 stroke API，测试假场景同样可跑）
-    pxDiamond(g, x, y - this.radius - 11, 3, C.outline, 1, true);
-    pxDiamond(g, x, y - this.radius - 10, 1, C.blood, 0.95, true);
+    const t = Number.isFinite(now) ? now : 0;
+    const blink = Math.floor(t / 90) % 2 === 0;
+    // 头顶小菱形：暗描边打底 + arcane 核，亮拍再点白芯（纯填充，不依赖 stroke API）
+    const dy = y - this.radius - 11;
+    pxDiamond(g, x, dy, 3, C.outline, 1, true);
+    pxDiamond(g, x, dy, 2, C.arcane, blink ? 1 : 0.55, true);
+    if (blink) pxDiamond(g, x, dy, 1, C.white, 0.95, true);
+    // 抬手弧光：只取肩线以上一段「括号」形，不再围成整只怪的方框（那会像 UI 选中框）。
+    // 素材/程序化两条路径共用；顶边 + 两侧短竖边，亮度随闪拍呼吸。
+    const m = this.overlayMetrics(x, y);
+    const hw = Math.max(2, Math.round(m.width / 2));
+    const top = Math.round(m.top) + 2;
+    const bodyH = Math.max(4, y + this.radius - top);
+    const tick = Math.max(3, Math.min(9, Math.round(bodyH * 0.32)));
+    const col = blink ? C.arcaneLight : C.arcane;
+    const alpha = blink ? 0.55 : 0.3;
+    pxRect(g, x - hw, top, 2, tick, col, alpha);
+    pxRect(g, x + hw - 2, top, 2, tick, col, alpha);
+    pxRect(g, x - hw, top, hw * 2, 1, col, alpha);
+    // 近战前摇：地面扇形。角度/张角/距离由 AI 在 windup 期间给出（见 meleePreview）。
+    const preview = this.meleePreview();
+    if (preview) this.drawMeleeFan(g, x, y, preview, blink);
+  }
+
+  // windup 期间从 brain 读取近战预告：优先 meleePreview / melee，其次 tune 里的近战参数
+  // （若 T2 只把参数放进 tune，就用「当前朝玩家」补角度）。缺失时返回 null，不画扇形。
+  meleePreview() {
+    const brain = this.brain;
+    const p = brain?.meleePreview ?? brain?.melee;
+    if (p
+      && Number.isFinite(p.angle) && Number.isFinite(p.range) && Number.isFinite(p.arc)
+      && p.range > 0 && p.arc > 0) {
+      return { angle: p.angle, range: p.range, arc: p.arc };
+    }
+    const tune = brain?.tune;
+    if (brain?.attackKind === 'melee' && tune && Number.isFinite(tune.meleeRange) && Number.isFinite(tune.meleeArc)) {
+      const target = this.playerState();
+      const angle = Math.atan2(target.y - this.y, target.x - this.x);
+      return { angle, range: tune.meleeRange, arc: tune.meleeArc };
+    }
+    return null;
+  }
+
+  // 地面扇形提示：几条虚线辐条 + 弧边，低透明度硬边点阵；只标「哪里会被扫到」，
+  // 不指向任何锁定点（区别于旧版瞄准红线 + 落点双环）。
+  drawMeleeFan(g, x, y, melee, blink) {
+    const range = Math.max(6, Math.min(140, melee.range));
+    const arc = Math.max(0.2, Math.min(Math.PI * 2, melee.arc));
+    const color = blink ? C.blood : C.bloodDark;
+    const alpha = blink ? 0.75 : 0.5;
+    // 扇面淡填充：让「哪里会被扫到」一眼可读，又不会盖住地面纹理
+    const wedge = [{ x, y }];
+    const fillEdge = 10;
+    for (let i = 0; i <= fillEdge; i++) {
+      const a = melee.angle - arc / 2 + (arc * i) / fillEdge;
+      wedge.push({ x: x + Math.cos(a) * range, y: y + Math.sin(a) * range });
+    }
+    pxPoly(g, wedge, C.blood, blink ? 0.18 : 0.11, true);
+    const spokes = 4;
+    // 辐条：每 5px 一个点、隔点跳过 → 虚线感，单只怪 ≤20 次绘制
+    for (let i = 0; i <= spokes; i++) {
+      const a = melee.angle - arc / 2 + (arc * i) / spokes;
+      const cos = Math.cos(a);
+      const sin = Math.sin(a);
+      for (let d = 5, n = 0; d <= range; d += 5, n++) {
+        if (n % 2) continue;
+        pxRect(g, Math.round(x + cos * d), Math.round(y + sin * d), 1, 1, color, alpha);
+      }
+    }
+    // 弧边：扇形外沿 2px 点，亮拍用骨白提亮，给出「张角到哪里」
+    const edge = 10;
+    for (let i = 0; i <= edge; i++) {
+      const a = melee.angle - arc / 2 + (arc * i) / edge;
+      pxRect(g, Math.round(x + Math.cos(a) * range), Math.round(y + Math.sin(a) * range), 2, 1, blink ? C.parchment : color, alpha);
+    }
   }
 
   drawSkeleton(g, x, y, bob, color, flash) {
@@ -602,6 +811,9 @@ export default class Enemy {
 
 
   destroy() {
+    for (const entry of this.parts) entry.sprite?.destroy();
+    this.parts.length = 0;
+    this.part = null;
     this.sprite?.destroy();
     this.g.destroy();
   }

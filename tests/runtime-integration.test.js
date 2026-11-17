@@ -86,7 +86,8 @@ describe('结算数值与命中边界', () => {
    const g = full(); for (const id of [0, 1, 2]) g.cells[id].slot = { kind: 'sigil', defId: 'arcane_bolt' };
    const enemies = [enemy(1, -100, -100), enemy(2, -30, -100), enemy(3, 30, -100)];
    resolveComboBonus({ grid: g, order: [0, 1, 2], defId: 'line3', bonus: 0.4, state: state(), enemies, half: 120 });
-   expect(enemies.map(e => e.hp)).toEqual([100, 100, 95.2]);
+   // 三格同派系相邻：末格吃到 +10% 共鸣，5.28 = 12 × 0.4 × 1.1
+   expect(enemies.map(e => e.hp)).toEqual([100, 100, 94.72]);
  });
 });
 

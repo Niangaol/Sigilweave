@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  createBrain, stepBrain, DEFAULT_BATTLE,
+  createBrain, stepBrain, DEFAULT_BATTLE, AI_PROFILE,
   BAT_RULE, CULTIST_RULE, KNIGHT_RULE, STITCH_RULE, OATH_RULE,
-  VOLLEY_RULE, PHASE_RULE,
+  VOLLEY_RULE, PHASE_RULE, LUNGE_RULE, SLAM_RULE, JUDGE_RULE, ECLIPSE_RULE,
+  MELEE_RULES, RANGED_RULES,
 } from '../src/logic/enemy-ai.js';
 import { ENEMY_TYPES, ACT_ENEMY_WEIGHTS, pickEnemyType } from '../src/data/roster.js';
 import Enemy from '../src/entities/Enemy.js';
@@ -39,6 +40,75 @@ function simulate(brain, start, player = PLAYER, dtMs = 100, steps = 1, opts = O
 }
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+// 逐帧推进并记录 (坐标 / 位移 / 模式 / 旗标 / 弹丸)。onFrame 可让玩家动起来（mirror 用）。
+function runFrames(defId, options = {}) {
+  const {
+    seed = 7,
+    start = { x: 240, y: 200, speed: 30, radius: 8 },
+    player = PLAYER,
+    dtMs = 10,
+    steps = 200,
+    opts = OPTS,
+    onFrame = null,
+    brainId,
+  } = options;
+  const brain = createBrain(defId, { now: 0, seed });
+  if (brainId !== undefined) brain.id = brainId;
+  let self = { ...start };
+  const frames = [];
+  for (let i = 0; i < steps; i++) {
+    const p = typeof onFrame === 'function' ? onFrame(i, self) : player;
+    const r = stepBrain(brain, { dtMs, now: (i + 1) * dtMs, self: { ...self }, player: p, opts });
+    frames.push({
+      t: (i + 1) * dtMs,
+      x: r.x,
+      y: r.y,
+      d: Math.hypot(r.x - self.x, r.y - self.y),
+      mode: brain.mode,
+      dir: brain.dir ? { ...brain.dir } : null,
+      shots: r.shots,
+      stomp: r.stomp,
+      charging: r.charging,
+      windup: r.windup,
+      guard: r.guard,
+      melee: r.melee,
+      summon: r.summon,
+      meleeIn: brain.meleeIn,
+      melees: brain.melees,
+      preview: brain.meleePreview ? { ...brain.meleePreview } : null,
+    });
+    self = { ...self, x: r.x, y: r.y };
+  }
+  return { brain, frames, end: self };
+}
+
+// 把连续同模式的帧压成块（{ mode, len, start }），len 是帧数。
+function blocksOf(frames) {
+  const blocks = [];
+  for (const f of frames) {
+    if (blocks.length && blocks.at(-1).mode === f.mode) blocks.at(-1).len += 1;
+    else blocks.push({ mode: f.mode, len: 1, start: f.t });
+  }
+  return blocks;
+}
+
+// 只保留「上一帧同模式」的稳定帧：模式切换的那一帧仍带着上一段位移
+function steady(frames) {
+  return frames.filter((f, i) => i > 0 && frames[i - 1].mode === f.mode);
+}
+
+const median = (values) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+};
+
+// 新行为（14 个）与本轮契约一一对应
+const NEW_BEHAVIOR_DEFS = [
+  'corpse', 'clockwork_doll', 'page_golem', 'slag_beast', 'shackle_guard',
+  'rune_spider', 'wraith', 'ink_wisp', 'verdict_wraith', 'ember_imp',
+  'dawn_shade', 'stone_gargoyle', 'brass_warden', 'stardust_knight',
+];
 
 // 美术升级包新增行为：至少保证 6.4 秒连续推进不产生 NaN/越界，并让两个远程新怪真的打出弹。
 describe('新怪行为冒烟', () => {
@@ -149,15 +219,18 @@ describe('确定性：同 seed 同轨迹', () => {
     }
   });
 
-  it.each(ALL_DEFS)('%s 的返回结构固定为 { x, y, shots, stomp, charging, windup }', (defId) => {
+  it.each(ALL_DEFS)('%s 的返回结构固定为 { x, y, shots, stomp, charging, windup, guard, melee, summon }', (defId) => {
     const r = stepBrain(createBrain(defId, { seed: 1 }), {
       dtMs: 16, self: { x: 200, y: 200, speed: 30, radius: 6 }, player: PLAYER, opts: OPTS,
     });
-    expect(Object.keys(r).sort()).toEqual(['charging', 'shots', 'stomp', 'windup', 'x', 'y']);
+    expect(Object.keys(r).sort()).toEqual(['charging', 'guard', 'melee', 'shots', 'stomp', 'summon', 'windup', 'x', 'y']);
     expect(r.stomp).toBeNull();
+    expect(r.melee).toBeNull();
+    expect(r.summon).toBeNull();
     expect(Array.isArray(r.shots)).toBe(true);
     expect(typeof r.charging).toBe('boolean');
     expect(typeof r.windup).toBe('boolean');
+    expect(typeof r.guard).toBe('boolean');
     expect(Number.isFinite(r.x)).toBe(true);
     expect(Number.isFinite(r.y)).toBe(true);
   });
@@ -193,20 +266,71 @@ describe('噬魂蝠：正弦摆动但净前进', () => {
   });
 });
 
-describe('腐尸：慢而厚', () => {
-  it('相同基准速度下位移约为骷髅的 55%', () => {
-    const player = { x: 240, y: 100 };
-    const base = 40;
-    const skeleton = stepBrain(createBrain('skeleton', { seed: 1 }), {
-      dtMs: 1000, self: { x: 240, y: 200, speed: base * ENEMY_TYPES.skeleton.speedMul, radius: 6 }, player, opts: OPTS,
+describe('腐尸：慢而厚的 lurch 节拍', () => {
+  // 3s 平均位移：自身速度 × 3s 的 0.45~0.6 倍（保留「慢而厚」，但不再是匀速直线）
+  const averageSpeedRatio = (steps, seed = 'avg') => {
+    const speed = 20;
+    const player = { x: 240, y: 170 };
+    const { frames } = runFrames('corpse', {
+      seed, start: { x: 240, y: 200, speed, radius: 8 }, player, steps, dtMs: 10,
     });
-    const corpse = stepBrain(createBrain('corpse', { seed: 1 }), {
-      dtMs: 1000, self: { x: 240, y: 200, speed: base * ENEMY_TYPES.corpse.speedMul, radius: 8 }, player, opts: OPTS,
+    const path = frames.reduce((sum, f) => sum + f.d, 0);
+    return path / (speed * (steps * 10 / 1000));
+  };
+
+  it('3s 平均位移约为自身速度的 0.45~0.6 倍', () => {
+    const ratio = averageSpeedRatio(300);
+    expect(ratio).toBeGreaterThanOrEqual(0.45);
+    expect(ratio).toBeLessThanOrEqual(0.6);
+    // 慢而厚：明显低于匀速直线
+    expect(ratio).toBeLessThan(0.9);
+  });
+
+  it('长跑（10 个完整节拍）平均位移仍落在 0.45~0.6 倍', () => {
+    // 玩家缓慢后退拉怪（5px/s）：腐尸被迫反复「踱步→停顿→扑咬→收势」，不会骑在玩家身上
+    const speed = 20;
+    let player = { x: 240, y: 170 };
+    const { frames } = runFrames('corpse', {
+      seed: 'long', start: { x: 240, y: 200, speed, radius: 8 },
+      steps: 2350,                                            // 2350ms = walk520+hold260+windup450+lunge320+recover800
+      onFrame: () => (player = { x: player.x, y: player.y - 5 * 0.01 }),
     });
-    const skeletonMove = 200 - skeleton.y;
-    const corpseMove = 200 - corpse.y;
-    expect(corpseMove).toBeCloseTo(skeletonMove * 0.55, 6);
-    expect(corpseMove).toBeLessThan(skeletonMove * 0.6);
+    const ratio = frames.reduce((sum, f) => sum + f.d, 0) / (speed * 23.5);
+    expect(ratio).toBeGreaterThanOrEqual(0.45);
+    expect(ratio).toBeLessThanOrEqual(0.6);
+  });
+
+  it('节拍：踱步 520 → 停顿 260 → 预警 450（冻结）→ 扑咬 320（1.5 倍速）→ 收势 800', () => {
+    const tune = AI_PROFILE.corpse.tune;
+    expect(tune.walkMs).toBe(520);
+    expect(tune.holdMs).toBe(260);
+    expect(tune.windupMs).toBe(450);
+    expect(tune.lungeMs).toBe(320);
+    expect(tune.lungeMul).toBe(1.5);
+    expect(tune.recoverMs).toBe(800);
+    expect(tune.triggerDist).toBe(40);
+
+    const { frames } = runFrames('corpse', {
+      seed: 1, start: { x: 240, y: 200, speed: 20, radius: 8 }, player: { x: 240, y: 170 }, steps: 320,
+    });
+    const blocks = blocksOf(frames);
+    expect(blocks.slice(0, 5).map(b => b.mode)).toEqual(['walk', 'hold', 'windup', 'charge', 'recover']);
+
+    // 各段时长（±1 帧，10ms）：切换帧算在下一段
+    const want = [tune.walkMs, tune.holdMs, tune.windupMs, tune.lungeMs, tune.recoverMs];
+    blocks.slice(0, 5).forEach((b, i) => {
+      expect(Math.abs(b.len * 10 - want[i])).toBeLessThanOrEqual(20);
+    });
+
+    // 预警期间冻结；扑咬是步行 1.5 倍速
+    const windupFrames = frames.filter(f => f.mode === 'windup');
+    expect(windupFrames.every(f => f.d === 0 && f.windup === true)).toBe(true);
+    const walkD = median(frames.filter(f => f.mode === 'walk').map(f => f.d));
+    const lungeD = median(frames.filter(f => f.mode === 'charge').map(f => f.d));
+    expect(walkD).toBeCloseTo(20 * 0.01, 6);
+    expect(lungeD / walkD).toBeCloseTo(tune.lungeMul, 6);
+    // 预警锁定快照：扑咬方向朝预警开始时的玩家位置
+    expect(frames.find(f => f.mode === 'charge').charging).toBe(true);
   });
 
   it('血量倍率 2.2、接触伤害高于骷髅', () => {
@@ -214,30 +338,19 @@ describe('腐尸：慢而厚', () => {
     expect(ENEMY_TYPES.corpse.hpMul).toBeCloseTo(2.2, 6);
     expect(ENEMY_TYPES.corpse.damage).toBeGreaterThan(ENEMY_TYPES.skeleton.damage);
   });
-
-  it('和骷髅一样出生首帧锁方向、之后直线推进', () => {
-    const brain = createBrain('corpse', { seed: 9 });
-    const player = { x: 300, y: 60 };
-    const start = { x: 120, y: 220, speed: 22, radius: 8 };
-    const { pos } = simulate(brain, start, player, 100, 5);
-    // 玩家中途跑开也不改道：方向仍指向出生时的位置
-    const expected = Math.atan2(60 - 220, 300 - 120);
-    const actual = Math.atan2(pos.y - start.y, pos.x - start.x);
-    expect(actual).toBeCloseTo(expected, 6);
-    expect(distance(pos, start)).toBeCloseTo(22 * 0.5, 6);
-  });
 });
 
-describe('邪教徒：停稳预警后发射慢弹', () => {
-  it('每 2.2s 一次 700ms 预警；预警期间位置冻结，预警结束才发射并锁定快照', () => {
+describe('邪教徒：抬手结束才用 leadAim 现算方向', () => {
+  it('每 2.2s 一次 600ms 抬手；抬手不动，结束那一帧朝玩家新位置打 3 发扇形慢弹', () => {
     const brain = createBrain('cultist', { seed: 'cultist' });
-    const oldAim = { x: 240, y: 80 };
-    const newPlayer = { x: 240, y: 240 };
+    const startPlayer = { x: 240, y: 80 };
+    const movedPlayer = { x: 240, y: 240 };
     let self = { x: 240, y: 150, speed: 40, radius: 6 };  // 与玩家距离正好 70
-    let player = oldAim;
+    let player = startPlayer;
     const frames = [];
     for (let i = 1; i <= 30; i++) {
-      if (i === 24) player = newPlayer;                   // 预警中玩家跑开，弹道不应跟随
+      // 抬手进行中（t=2500）玩家绕到敌人另一侧：不再锁抬手开始时的快照
+      if (i === 25) player = movedPlayer;
       const r = stepBrain(brain, {
         dtMs: 100, now: i * 100,
         self: { x: self.x, y: self.y, speed: self.speed, radius: self.radius },
@@ -247,27 +360,41 @@ describe('邪教徒：停稳预警后发射慢弹', () => {
       self = { ...self, x: r.x, y: r.y };
     }
 
+    const rule = RANGED_RULES.cultist;
     const windupFrames = frames.filter(f => f.windup);
-    expect(windupFrames.length).toBe(7);                  // 700ms
+    expect(windupFrames).toHaveLength(rule.windupMs / 100);       // 600ms
+    expect(windupFrames[0].t).toBe(CULTIST_RULE.attackMs);        // 2200
     const frozen = windupFrames.map(f => `${f.x.toFixed(6)},${f.y.toFixed(6)}`);
-    expect(new Set(frozen).size).toBe(1);                 // 预警期间完全不动
+    expect(new Set(frozen).size).toBe(1);                         // 抬手期间完全不动
 
     const shotFrames = frames.filter(f => f.shots.length > 0);
     expect(shotFrames).toHaveLength(1);
-    expect(shotFrames[0].t).toBe(CULTIST_RULE.attackMs + CULTIST_RULE.windupMs); // 2900
+    expect(shotFrames[0].t).toBe(CULTIST_RULE.attackMs + rule.windupMs); // 2800
     expect(shotFrames[0].windup).toBe(false);
+    expect(shotFrames[0].shots).toHaveLength(rule.count);         // 3 发
 
-    const shot = shotFrames[0].shots[0];
-    expect(shot).toMatchObject({ damage: 8, lifeMs: CULTIST_RULE.shotLifeMs });
-    const shotSpeed = Math.hypot(shot.vx, shot.vy);
-    expect(shotSpeed).toBeCloseTo(CULTIST_RULE.shotSpeed, 5);
-    expect(shotSpeed).toBeLessThan(96);                    // 慢于玩家，能躲
+    const shots = shotFrames[0].shots;
+    for (const shot of shots) {
+      expect(shot).toMatchObject({ kind: 'bolt', damage: OPTS.damage, radius: 3, lifeMs: rule.lifeMs });
+      expect(Math.hypot(shot.vx, shot.vy)).toBeCloseTo(rule.speed, 5);
+      expect(rule.speed).toBeLessThan(96);                        // 慢于玩家，能躲
+    }
 
+    // 中轴朝「发射那一帧」的玩家位置，而不是抬手开始时的旧位置
     const launch = windupFrames[0];
-    const angleToOldAim = Math.atan2(oldAim.y - launch.y, oldAim.x - launch.x);
-    const angleToNewPlayer = Math.atan2(newPlayer.y - launch.y, newPlayer.x - launch.x);
-    expect(Math.atan2(shot.vy, shot.vx)).toBeCloseTo(angleToOldAim, 5);
-    expect(Math.abs(Math.atan2(shot.vy, shot.vx) - angleToNewPlayer)).toBeGreaterThan(0.2);
+    const mid = shots[1];
+    const angleToNew = Math.atan2(movedPlayer.y - launch.y, movedPlayer.x - launch.x);
+    const angleToOld = Math.atan2(startPlayer.y - launch.y, startPlayer.x - launch.x);
+    expect(Math.atan2(mid.vy, mid.vx)).toBeCloseTo(angleToNew, 4);
+    expect(Math.abs(Math.atan2(mid.vy, mid.vx) - angleToOld)).toBeGreaterThan(1);
+
+    // 扇形总张角 0.32rad：中间发居中，两侧各 ±0.16
+    const angles = shots.map(s => Math.atan2(s.vy, s.vx));
+    expect(angles[1]).toBeCloseTo(angleToNew, 4);
+    expect(Math.abs(angles[2] - angles[0])).toBeCloseTo(rule.spread, 5);
+
+    // 不再写 brain.aim 快照用于瞄准
+    expect(brain.aim).toBeNull();
   });
 
   it('玩家贴脸时后退，不硬贴', () => {
@@ -461,7 +588,7 @@ describe('缝合尸魁：贴身践踏事件', () => {
 describe('咒誓主教：侧翼瞬移与三连弹', () => {
   const BISHOP_OPTS = { BATTLE: DEFAULT_BATTLE, damage: 10 };
 
-  it('4.2s 瞬移到玩家侧翼约 110px，停顿 0.5s 后按 0.15s 间隔三连弹', () => {
+  it('4.2s 瞬移到玩家侧翼约 110px，抬手 550ms 后按 0.15s 间隔三连弹', () => {
     const brain = createBrain('oath_bishop', { seed: 'bishop' });
     const player = { x: 240, y: 240 };
     let self = { x: 240, y: 150, speed: 40, radius: 12 };
@@ -481,30 +608,39 @@ describe('咒誓主教：侧翼瞬移与三连弹', () => {
       self = { x: r.x, y: r.y };
     }
 
+    const rule = RANGED_RULES.oath_bishop;
     const blink = frames.find(item => item.jump > 50);
     expect(blink.t).toBe(OATH_RULE.blinkMs);                          // 4200ms
     expect(Math.hypot(blink.x - player.x, blink.y - player.y)).toBeCloseTo(OATH_RULE.holdDist, 6);
     expect(brain.blinks).toBe(1);
 
+    // 瞬移那一帧就进入抬手，抬手持续 550ms（11 帧 × 50ms），期间站定
     const windupFrames = frames.filter(item => item.t >= blink.t && item.windup);
-    expect(windupFrames.map(item => item.t)).toEqual([4200, 4250, 4300, 4350, 4400, 4450, 4500, 4550, 4600, 4650]);
+    expect(windupFrames.map(item => item.t)).toEqual([
+      4200, 4250, 4300, 4350, 4400, 4450, 4500, 4550, 4600, 4650, 4700,
+    ]);
+    expect(windupFrames.length * 50).toBe(rule.windupMs);             // 550
 
     const shotFrames = frames.filter(item => item.shot);
-    expect(shotFrames.map(item => item.t)).toEqual([4700, 4850, 5000]);
+    expect(shotFrames.map(item => item.t)).toEqual([4750, 4900, 5050]);
     for (let i = 1; i < shotFrames.length; i++) {
-      expect(shotFrames[i].t - shotFrames[i - 1].t).toBe(OATH_RULE.burstGapMs);
+      expect(shotFrames[i].t - shotFrames[i - 1].t).toBe(rule.gapMs); // 150
     }
     expect(shotFrames.every(item => item.shot.damage === BISHOP_OPTS.damage)).toBe(true);
-    expect(shotFrames.every(item => item.shot.lifeMs === OATH_RULE.shotLifeMs)).toBe(true);
-    expect(Math.hypot(shotFrames[0].shot.vx, shotFrames[0].shot.vy)).toBeCloseTo(OATH_RULE.shotSpeed, 5);
+    expect(shotFrames.every(item => item.shot.kind === 'bolt')).toBe(true);
+    expect(shotFrames.every(item => item.shot.lifeMs === rule.lifeMs)).toBe(true);
+    expect(Math.hypot(shotFrames[0].shot.vx, shotFrames[0].shot.vy)).toBeCloseTo(rule.speed, 5);
 
-    // 第一发朝瞬移后站定的位置指向玩家
+    // 每发都朝发射帧的玩家位置（玩家不动时即瞬移点的朝向）
     const aimAngle = Math.atan2(player.y - blink.y, player.x - blink.x);
     expect(Math.atan2(shotFrames[0].shot.vy, shotFrames[0].shot.vx)).toBeCloseTo(aimAngle, 5);
 
-    // 停顿与三连弹期间完全站定
-    const stopped = frames.filter(item => item.t >= blink.t && item.t <= 5000);
+    // 抬手与三连弹期间完全站定
+    const stopped = frames.filter(item => item.t >= blink.t && item.t <= 5050);
     expect(stopped.every(item => item.x === blink.x && item.y === blink.y)).toBe(true);
+
+    // 远程抬手不写 aim 快照
+    expect(brain.aim).toBeNull();
   });
 
   it('瞬移左右由 seed 确定性决定：同 seed 同轨迹（含瞬移点）', () => {
@@ -622,13 +758,13 @@ describe('Enemy 实体接线', () => {
     };
   }
 
-  it('邪教徒的弹丸由 Enemy 转发给 scene.addHostileShot', () => {
+  it('邪教徒的 3 发扇形弹由 Enemy 逐发转发给 scene.addHostileShot', () => {
     const scene = fakeScene({ x: 240, y: 80 });
     const enemy = new Enemy(scene, ENEMY_TYPES.cultist, 240, 150, { x: 240, y: 80 }, 20, 40, 8, 1);
     for (let i = 0; i < 29; i++) enemy.update(100, (i + 1) * 100);
-    expect(scene.hostile).toHaveLength(1);
-    expect(scene.hostile[0].damage).toBe(8);
-    expect(scene.hostile[0].lifeMs).toBeGreaterThan(0);
+    expect(scene.hostile).toHaveLength(RANGED_RULES.cultist.count);
+    expect(scene.hostile.every(shot => shot.damage === 8)).toBe(true);
+    expect(scene.hostile.every(shot => shot.lifeMs > 0)).toBe(true);
   });
 
   it('咒誓主教的瞬移三连弹经 Enemy 转发给 scene.addHostileShot', () => {
@@ -662,6 +798,706 @@ describe('Enemy 实体接线', () => {
   });
 });
 
+// ---------- 2026-11 AI 差异化：14 个新行为的逐条节拍 ----------
+describe('新行为逐条节拍', () => {
+  const nearFrame = (actual, expected) => expect(Math.abs(actual - expected)).toBeLessThanOrEqual(20);
+
+  it('腐尸 lurch：玩家不在 40px 内时只踱步/停顿，不预警也不扑咬', () => {
+    const { frames } = runFrames('corpse', {
+      start: { x: 240, y: 200, speed: 20, radius: 8 }, player: { x: 240, y: 100 }, steps: 300,
+    });
+    expect(frames.some(f => f.mode === 'charge')).toBe(false);
+    expect(frames.some(f => f.windup)).toBe(false);
+    const modes = new Set(frames.map(f => f.mode));
+    expect(modes.has('walk')).toBe(true);
+    expect(modes.has('hold')).toBe(true);
+  });
+
+  it('齿轮傀儡 spring：700ms 走位 → 420ms 预警 → 600ms 1.9 倍速弹射，charging 恒为 false', () => {
+    const tune = AI_PROFILE.clockwork_doll.tune;
+    const { frames } = runFrames('clockwork_doll', {
+      start: { x: 240, y: 200, speed: 30, radius: 8 }, player: { x: 240, y: 60 }, steps: 300,
+    });
+    const blocks = blocksOf(frames);
+    expect(blocks.slice(0, 4).map(b => b.mode)).toEqual(['walk', 'windup', 'dash', 'recover']);
+    nearFrame(blocks[1].len * 10, tune.windupMs);
+    nearFrame(blocks[2].len * 10, tune.dashMs);
+    nearFrame(blocks[3].len * 10, tune.recoverMs);
+    expect(frames[0].t).toBe(10);
+    expect(blocks[1].start).toBe(tune.walkMs);
+    // 弹射不吃 ×2.5 接触伤害：charging 全程 false
+    expect(frames.every(f => f.charging === false)).toBe(true);
+    const walkD = median(frames.filter(f => f.mode === 'walk').map(f => f.d));
+    const dashD = median(frames.filter(f => f.mode === 'dash').map(f => f.d));
+    expect(dashD / walkD).toBeCloseTo(tune.dashMul, 6);
+    // 预警与收势站定（跳过切换帧）
+    expect(steady(frames).filter(f => f.mode === 'recover').every(f => f.d === 0)).toBe(true);
+  });
+
+  it('纸页傀儡 bulwark：每 3s 举盾 900ms，guard=true 且移速 ×0.4', () => {
+    const tune = AI_PROFILE.page_golem.tune;
+    const { frames } = runFrames('page_golem', {
+      start: { x: 240, y: 200, speed: 30, radius: 10 }, player: { x: 240, y: 100 }, steps: 400,
+    });
+    const guardFrames = frames.filter(f => f.guard);
+    expect(guardFrames.length).toBeGreaterThanOrEqual(88);
+    expect(guardFrames.length).toBeLessThanOrEqual(92);
+    expect(guardFrames[0].t).toBe(tune.guardEveryMs);         // 3000
+    expect(guardFrames.every(f => f.windup === false)).toBe(true);
+    const approachD = 30 * tune.approachMul * 0.01;
+    const guardD = approachD * tune.guardSlowMul;             // 0.4 倍
+    expect(median(frames.filter(f => !f.guard).map(f => f.d))).toBeCloseTo(approachD, 6);
+    expect(median(guardFrames.slice(1).map(f => f.d))).toBeCloseTo(guardD, 6);
+    expect(guardD / approachD).toBeCloseTo(0.4, 6);
+  });
+
+  it('炉渣兽 eruption：3.8s 到点 + 0.7s 预警后砸出 40px 圈，伤害 ×1.6', () => {
+    const tune = AI_PROFILE.slag_beast.tune;
+    // 玩家保持在近战半径（34px）之外：这里只验证 eruption 自身的节拍，近战另测
+    const { frames } = runFrames('slag_beast', {
+      start: { x: 240, y: 200, speed: 20, radius: 12 }, player: { x: 240, y: 80 }, steps: 600,
+    });
+    const stomps = frames.filter(f => f.stomp);
+    expect(stomps).toHaveLength(1);                            // 6s 内只有一次（间隔 3.8s）
+    expect(stomps[0].t).toBe(tune.intervalMs + tune.windupMs); // 4500
+    expect(stomps[0].stomp.radius).toBe(40);
+    expect(stomps[0].stomp.damage).toBe(Math.round(OPTS.damage * 1.6)); // 13
+    // 预警段 700ms 站定（进入预警的那一帧仍带一次 approach，之后冻结）
+    const windups = frames.filter(f => f.windup);
+    nearFrame(windups.length * 10, tune.windupMs);
+    expect(windups.slice(1).every(f => f.d === 0)).toBe(true);
+    expect(frames.some(f => f.melee)).toBe(false);             // 距离 44px > 近战半径
+  });
+
+  it('枷锁守卫 chain：环带 110px，3.2s 预警 1s 后 110ms 间隔两连弹', () => {
+    const tune = AI_PROFILE.shackle_guard.tune;
+    const { frames } = runFrames('shackle_guard', {
+      start: { x: 240, y: 200, speed: 30, radius: 11 }, player: { x: 240, y: 90 }, steps: 600,
+    });
+    expect(tune.holdDist).toBe(110);
+    const windups = frames.filter(f => f.windup);
+    expect(windups[0].t).toBe(tune.intervalMs);                // 3200
+    nearFrame(windups.length * 10, tune.windupMs);             // 1000
+    const shots = frames.filter(f => f.shots.length);
+    expect(shots.map(f => f.t)).toEqual([4200, 4310]);
+    for (const f of shots) {
+      const shot = f.shots[0];
+      expect(Math.hypot(shot.vx, shot.vy)).toBeCloseTo(tune.shotSpeed, 5);   // 120
+      expect(shot.lifeMs).toBe(tune.shotLifeMs);                              // 1600
+      expect(shot.damage).toBe(Math.round(OPTS.damage * tune.damageMul));     // 9
+    }
+    // 两发之间站定
+    const between = frames.filter(f => f.t > 4200 && f.t < 4310);
+    expect(between.every(f => f.d === 0)).toBe(true);
+  });
+
+  it('符纹蛛 skitter：380ms 直线 1.7 倍速 → 160ms 侧移 1.3 倍速，侧移不超过 40px', () => {
+    const tune = AI_PROFILE.rune_spider.tune;
+    const { frames } = runFrames('rune_spider', {
+      start: { x: 240, y: 200, speed: 30, radius: 5 }, player: { x: 240, y: 60 }, steps: 120,
+    });
+    const straightD = median(frames.filter(f => f.mode === 'walk').map(f => f.d));
+    const lateralD = median(frames.filter(f => f.mode === 'lateral').map(f => f.d));
+    expect(straightD).toBeCloseTo(30 * tune.straightMul * 0.01, 6);   // 0.51
+    expect(lateralD).toBeCloseTo(30 * tune.lateralMul * 0.01, 6);     // 0.39
+    // 只取第一段侧移（120 帧里会出现两段）
+    const startI = frames.findIndex(f => f.mode === 'lateral');
+    const run = [];
+    for (let i = startI; i < frames.length && frames[i].mode === 'lateral'; i++) run.push(frames[i]);
+    nearFrame(run.length * 10, tune.lateralMs);
+    // 玩家在正上方：侧移方向是水平轴
+    const dir = run[0].dir;
+    expect(Math.abs(dir.y)).toBeLessThan(1e-9);
+    expect(Math.abs(dir.x)).toBeCloseTo(1, 6);
+    // 单段侧移不超过 lateralDist（首帧还带着直线位移，从第二帧量起）
+    const real = run.slice(1);
+    if (real.length > 1) {
+      const span = Math.hypot(real.at(-1).x - real[1].x, real.at(-1).y - real[1].y);
+      expect(span).toBeLessThanOrEqual(tune.lateralDist + tune.lateralMul * 30 * 0.01);
+    }
+  });
+
+  it('幽誓女妖 stalk：环带 120px，3s 预警 0.5s 后 2.1 倍速突进 0.55s，回收 0.9s', () => {
+    const tune = AI_PROFILE.wraith.tune;
+    const { frames } = runFrames('wraith', {
+      start: { x: 240, y: 200, speed: 30, radius: 6 }, player: { x: 240, y: 80 }, steps: 700,
+    });
+    const blocks = blocksOf(frames);
+    const windupBlock = blocks.find(b => b.mode === 'windup');
+    expect(windupBlock.start).toBe(tune.intervalMs);           // 3000
+    nearFrame(windupBlock.len * 10, tune.windupMs);            // 500
+    const chargeBlock = blocks.find(b => b.mode === 'charge');
+    nearFrame(chargeBlock.len * 10, tune.dashMs);              // 550
+    const recoverBlock = blocks.find(b => b.mode === 'recover');
+    nearFrame(recoverBlock.len * 10, tune.recoverMs);          // 900
+    // 绕圈时 walk 只有 orbitMul 的切向速度，所以按「满速 × dashMul」比绝对值
+    const dashD = median(frames.filter(f => f.mode === 'charge').map(f => f.d));
+    expect(dashD).toBeCloseTo(30 * tune.dashMul * 0.01, 6);    // 2.1
+    expect(frames.filter(f => f.mode === 'charge').every(f => f.charging === true)).toBe(true);
+    expect(steady(frames).filter(f => f.mode === 'recover').every(f => f.d === 0)).toBe(true);
+  });
+
+  it('墨灵 drift：每 1.6s 瞬移 40~60px，且与玩家保持 ≥26px', () => {
+    const tune = AI_PROFILE.ink_wisp.tune;
+    const player = { x: 240, y: 60 };
+    const { frames } = runFrames('ink_wisp', {
+      start: { x: 240, y: 200, speed: 30, radius: 7 }, player, steps: 500,
+    });
+    const jumps = frames.filter(f => f.d > 30);
+    expect(jumps.map(f => f.t)).toEqual([1600, 3200, 4800]);
+    for (const jump of jumps) {
+      expect(jump.d).toBeGreaterThanOrEqual(tune.blinkMin - 1);   // 40 - 一帧游走
+      expect(jump.d).toBeLessThanOrEqual(tune.blinkMax + 1);      // 60 + 一帧游走
+    }
+    for (const f of frames) {
+      expect(distance(f, player)).toBeGreaterThanOrEqual(tune.minPlayerDist - 1e-6);
+    }
+  });
+
+  it('判词幽灵 lance：环带 130px，3s 抬手 0.7s 后打一发 160 速高速弹', () => {
+    const tune = AI_PROFILE.verdict_wraith.tune;
+    const rule = RANGED_RULES.verdict_wraith;
+    const { frames } = runFrames('verdict_wraith', {
+      start: { x: 240, y: 220, speed: 30, radius: 7 }, player: { x: 240, y: 90 }, steps: 500,
+    });
+    expect(tune.holdDist).toBe(130);
+    const windups = frames.filter(f => f.windup);
+    expect(windups[0].t).toBe(tune.intervalMs);                // 3000
+    nearFrame(windups.length * 10, rule.windupMs);             // 700
+    const shotFrame = frames.find(f => f.shots.length);
+    expect(shotFrame.t).toBe(tune.intervalMs + rule.windupMs); // 3700
+    const shot = shotFrame.shots[0];
+    expect(shot.kind).toBe('bolt');
+    expect(Math.hypot(shot.vx, shot.vy)).toBeCloseTo(rule.speed, 5); // 160
+    expect(shot.lifeMs).toBe(rule.lifeMs);                            // 1100
+    expect(shot.damage).toBe(OPTS.damage);                            // §4 表未给倍率
+  });
+
+  it('晓色之影 mirror：沿玩家上一段位移方向冲刺 0.42s（1.7 倍速）', () => {
+    const tune = AI_PROFILE.dawn_shade.tune;
+    // 玩家持续朝 +x 走，mirror 应该朝 +x 冲，而不是朝玩家当前位置
+    const { frames } = runFrames('dawn_shade', {
+      start: { x: 240, y: 200, speed: 30, radius: 8 }, steps: 260,
+      onFrame: (i) => ({ x: 100 + (i + 1) * 2, y: 200 }),
+    });
+    const dashFrames = frames.filter(f => f.mode === 'dash');
+    nearFrame(dashFrames.length * 10, tune.dashMs);            // 420
+    expect(dashFrames[0].t).toBe(tune.cooldownMs);             // 2000
+    expect(dashFrames.every(f => f.charging === false)).toBe(true); // 复刻走位，不吃 ×2.5
+    for (const f of dashFrames) {
+      expect(f.dir.x).toBeCloseTo(1, 6);
+      expect(Math.abs(f.dir.y)).toBeLessThan(1e-9);
+    }
+    const dashD = median(dashFrames.map(f => f.d));
+    expect(dashD).toBeCloseTo(30 * tune.dashMul * 0.01, 6);    // 1.7
+  });
+
+  it('火星精 dart：280ms 2 倍速冲刺 / 260ms 停顿，脉冲式贴脸', () => {
+    const tune = AI_PROFILE.ember_imp.tune;
+    const { frames } = runFrames('ember_imp', {
+      start: { x: 240, y: 200, speed: 30, radius: 6 }, player: { x: 240, y: 60 }, steps: 120,
+    });
+    const blocks = blocksOf(frames);
+    expect(blocks.slice(0, 4).map(b => b.mode)).toEqual(['sprint', 'pause', 'sprint', 'pause']);
+    nearFrame(blocks[0].len * 10, tune.sprintMs);              // 280
+    nearFrame(blocks[1].len * 10, tune.pauseMs);               // 260
+    const sprintD = median(frames.filter(f => f.mode === 'sprint').map(f => f.d));
+    expect(sprintD).toBeCloseTo(30 * tune.sprintMul * 0.01, 6); // 0.6
+    expect(steady(frames).filter(f => f.mode === 'pause').every(f => f.d === 0)).toBe(true);
+  });
+
+  it('熔岩石像鬼 slam_charge：3.4s 预警 0.9s → 2.6 倍速冲锋 0.9s → 500ms 硬直', () => {
+    const tune = AI_PROFILE.stone_gargoyle.tune;
+    const { frames } = runFrames('stone_gargoyle', {
+      start: { x: 240, y: 200, speed: 30, radius: 9 }, player: { x: 240, y: 60 }, steps: 600,
+    });
+    const blocks = blocksOf(frames);
+    const windupBlock = blocks.find(b => b.mode === 'windup');
+    expect(windupBlock.start).toBe(tune.intervalMs);           // 3400
+    nearFrame(windupBlock.len * 10, tune.windupMs);            // 900
+    const chargeBlock = blocks.find(b => b.mode === 'charge');
+    nearFrame(chargeBlock.len * 10, tune.chargeMs);            // 900
+    const staggerBlock = blocks.find(b => b.mode === 'stagger');
+    nearFrame(staggerBlock.len * 10, tune.staggerMs);          // 500
+    const walkD = median(frames.filter(f => f.mode === 'walk').map(f => f.d));
+    const chargeD = median(frames.filter(f => f.mode === 'charge').map(f => f.d));
+    expect(chargeD / walkD).toBeCloseTo(tune.chargeMul, 6);    // 2.6
+    expect(steady(frames).filter(f => f.mode === 'stagger').every(f => f.d === 0)).toBe(true);
+  });
+
+  it('黄铜守誓者 double_charge：3s 一套两段冲锋，中间 320ms 短停', () => {
+    const tune = AI_PROFILE.brass_warden.tune;
+    const { frames } = runFrames('brass_warden', {
+      start: { x: 240, y: 220, speed: 30, radius: 12 }, player: { x: 240, y: 100 }, steps: 800,
+    });
+    const blocks = blocksOf(frames);
+    expect(blocks.slice(0, 6).map(b => b.mode)).toEqual(['walk', 'windup', 'charge', 'pause', 'charge', 'recover']);
+    nearFrame(blocks[1].len * 10, tune.windupMs);              // 650
+    nearFrame(blocks[2].len * 10, tune.chargeMs);              // 800
+    nearFrame(blocks[3].len * 10, tune.pauseMs);               // 320
+    nearFrame(blocks[4].len * 10, tune.secondChargeMs);        // 700
+    nearFrame(blocks[5].len * 10, tune.cooldownMs);            // 2400
+    const charges = frames.filter(f => f.mode === 'charge');
+    expect(charges.length).toBe(tune.chargeMs / 10 + tune.secondChargeMs / 10);
+    expect(charges.every(f => f.charging === true)).toBe(true);
+    const walkD = median(frames.filter(f => f.mode === 'walk').map(f => f.d));
+    const chargeD = median(charges.map(f => f.d));
+    expect(chargeD / walkD).toBeCloseTo(tune.chargeMul, 6);    // 2.4
+    expect(steady(frames).filter(f => f.mode === 'pause').every(f => f.d === 0)).toBe(true);
+  });
+
+  it('星屑骑士 charge_volley：冲锋 1s 后停 300ms，再沿冲锋方向打 4 发正向扇（0.5rad）', () => {
+    const tune = AI_PROFILE.stardust_knight.tune;
+    const rule = RANGED_RULES.stardust_knight;
+    const { frames } = runFrames('stardust_knight', {
+      start: { x: 240, y: 220, speed: 30, radius: 10 }, player: { x: 240, y: 100 }, steps: 700,
+    });
+    const blocks = blocksOf(frames);
+    const windupBlock = blocks.find(b => b.mode === 'windup');
+    expect(windupBlock.start).toBe(tune.intervalMs);           // 3000
+    nearFrame(windupBlock.len * 10, tune.windupMs);            // 650
+    const chargeBlock = blocks.find(b => b.mode === 'charge');
+    nearFrame(chargeBlock.len * 10, tune.chargeMs);            // 1000
+
+    // 冲锋结束不立刻出弹：先站定 300ms（cast）收势
+    const castBlock = blocks.find(b => b.mode === 'cast');
+    expect(castBlock).toBeDefined();
+    nearFrame(castBlock.len * 10, rule.windupMs);              // 300
+    const volleyFrame = frames.find(f => f.shots.length);
+    expect(volleyFrame.t).toBe(tune.intervalMs + tune.windupMs + tune.chargeMs + rule.windupMs);
+    expect(volleyFrame.shots).toHaveLength(rule.count);        // 4
+
+    // 4 发以冲锋方向（brain.dir）为中轴，总张角 0.5rad
+    const dir = volleyFrame.dir;
+    expect(dir.y).toBeCloseTo(-1, 5);                          // 玩家在正上方
+    const base = Math.atan2(dir.y, dir.x);
+    const rel = volleyFrame.shots.map(s => {
+      let a = Math.atan2(s.vy, s.vx) - base;
+      while (a > Math.PI) a -= Math.PI * 2;
+      while (a < -Math.PI) a += Math.PI * 2;
+      return a;
+    });
+    expect(Math.max(...rel) - Math.min(...rel)).toBeCloseTo(rule.spread, 5);
+    for (const shot of volleyFrame.shots) {
+      expect(shot.kind).toBe('bolt');
+      expect(Math.hypot(shot.vx, shot.vy)).toBeCloseTo(rule.speed, 5); // 76
+      expect(shot.lifeMs).toBe(rule.lifeMs);                           // 2000
+      expect(shot.damage).toBe(OPTS.damage);                           // §4 表未给倍率
+    }
+  });
+});
+
+// ---------- 2026-11 敌人攻击重做：T2 近战 / 弹幕 / 召唤 ----------
+const MELEE_DEFS = Object.keys(MELEE_RULES);
+const RANGED_CASES = [
+  { def: 'cultist', count: 3, spread: 0.32, speed: 85, kind: 'bolt', lifeMs: 4200 },
+  { def: 'crystal_dryad', count: 5, spread: 0.40, speed: 92, kind: 'bolt', lifeMs: 3600 },
+  { def: 'void_elemental', count: 2, speed: 115, kind: 'bolt', lifeMs: 3200, gapMs: 170 },
+  { def: 'oath_bishop', count: 3, speed: 150, kind: 'bolt', lifeMs: 3200, gapMs: 150 },
+  { def: 'verdict_wraith', count: 1, speed: 160, kind: 'bolt', lifeMs: 1100 },
+  { def: 'scale_arbiter', count: 1, speed: 72, kind: 'orb', lifeMs: 4200, damageMul: 1.6 },
+  { def: 'ember_imp', count: 3, spread: 0.30, speed: 120, kind: 'bolt', lifeMs: 2400 },
+  { def: 'dawn_shade', count: 1, speed: 46, kind: 'homing', lifeMs: 4200 },
+  { def: 'eclipse_priest', count: 8, speed: 55, kind: 'bolt', lifeMs: 3600, ring: true },
+  { def: 'stardust_knight', count: 4, spread: 0.5, speed: 76, kind: 'bolt', lifeMs: 2000, forward: true },
+];
+
+describe('近战事件（§3）', () => {
+  it.each(MELEE_DEFS)('%s：前摇结束时产出一个 melee，扇形参数与 table 一致', (defId) => {
+    const rule = MELEE_RULES[defId];
+    const player = { x: 240, y: 190 };                        // 距出生点 10px，进入 range+4
+    const { frames, brain } = runFrames(defId, {
+      start: { x: 240, y: 200, speed: 20, radius: 8 }, player, steps: 120, dtMs: 10,
+    });
+    const hits = frames.filter(f => f.melee);
+    expect(hits.length).toBeGreaterThanOrEqual(1);
+    const hit = hits[0];
+    // 第一帧起手，前摇整段结束后出手（起手帧之后过 windupMs）
+    expect(hit.t).toBe(rule.windupMs + 10);
+    expect(hit.windup).toBe(false);
+    expect(hit.melee).toMatchObject({
+      arc: rule.arc, range: rule.range, damage: OPTS.damage, kind: rule.kind,
+    });
+    // 事件位置与本帧输出坐标一致，朝向指向出手瞬间的玩家（含本帧移动后的位置）
+    expect(hit.melee.x).toBe(hit.x);
+    expect(hit.melee.y).toBe(hit.y);
+    expect(hit.melee.angle).toBeCloseTo(Math.atan2(player.y - hit.y, player.x - hit.x), 6);
+    // arc 是弧度（100° = Math.PI/180*100）
+    expect(Number.isFinite(hit.melee.arc)).toBe(true);
+    expect(hit.melee.arc).toBeGreaterThan(0);
+    expect(hit.melee.arc).toBeLessThanOrEqual(Math.PI);
+    expect(brain.melees).toBe(1);
+    // 冷却从出手帧起算满额（后续帧已在走冷却）
+    expect(hit.meleeIn).toBe(rule.cooldownMs);
+    expect(brain.meleeIn).toBeLessThanOrEqual(rule.cooldownMs);
+    expect(brain.meleePreview).toBeNull();
+    // 冷却期内不会再次出手
+    const second = hits[1];
+    if (second) expect(second.t - hit.t).toBeGreaterThanOrEqual(rule.cooldownMs);
+  });
+
+  it('张角按 spec 度数换算成弧度（骷髅 100° / 墨灵 160°）', () => {
+    expect(MELEE_RULES.skeleton.arc).toBeCloseTo((Math.PI / 180) * 100, 9);
+    expect(MELEE_RULES.ink_wisp.arc).toBeCloseTo((Math.PI / 180) * 160, 9);
+    for (const rule of Object.values(MELEE_RULES)) {
+      expect(rule.arc).toBeGreaterThan(0);
+      expect(rule.arc).toBeLessThanOrEqual(Math.PI);
+    }
+  });
+
+  it('前摇期间 brain.meleePreview 实时指向玩家，出手后清空（T3 绘制提示用）', () => {
+    const brain = createBrain('skeleton', { seed: 1 });
+    const self = { x: 240, y: 200, speed: 20, radius: 6 };
+    let r = stepBrain(brain, { dtMs: 10, now: 10, self, player: { x: 240, y: 190 }, opts: OPTS });
+    expect(r.windup).toBe(true);
+    expect(brain.meleePreview).toMatchObject({
+      arc: MELEE_RULES.skeleton.arc, range: 30, kind: 'bone_slash',
+    });
+    expect(brain.meleePreview.angle).toBeCloseTo(-Math.PI / 2, 6);
+
+    // 玩家绕到右侧：提示角跟随（不是起手时的快照）
+    r = stepBrain(brain, {
+      dtMs: 10, now: 20, self: { x: r.x, y: r.y }, player: { x: 300, y: 200 }, opts: OPTS,
+    });
+    expect(Math.abs(brain.meleePreview.angle)).toBeLessThan(0.02);   // ≈ +x（骷髅本帧仍在向上微移）
+    expect(brain.meleePreview.angle).toBeGreaterThan(0);
+  });
+
+  it('冲锋系 5 只怪永不产出 melee（冲撞仍走接触伤害/charging）', () => {
+    for (const defId of ['knight', 'stone_gargoyle', 'brass_warden', 'stardust_knight', 'index_hound']) {
+      const { frames } = runFrames(defId, {
+        start: { x: 240, y: 200, speed: 30, radius: 10 }, player: { x: 240, y: 190 }, steps: 800,
+      });
+      expect(frames.some(f => f.melee)).toBe(false);
+    }
+  });
+
+  it('范围近战保持 stomp 事件，不被 melee 替代', () => {
+    for (const defId of ['stitch_abomination', 'anvil_tyrant']) {
+      const { frames } = runFrames(defId, {
+        start: { x: 240, y: 200, speed: 30, radius: 12 }, player: { x: 240, y: 190 }, steps: 400,
+      });
+      expect(frames.filter(f => f.stomp).length).toBeGreaterThan(0);
+      expect(frames.some(f => f.melee)).toBe(false);
+    }
+  });
+});
+
+describe('远程弹幕形状（§4）：每只远程的弹数 / 形状 / 弹速', () => {
+  const collectFirstVolley = (c) => {
+    const { frames, brain } = runFrames(c.def, {
+      start: { x: 240, y: 200, speed: 30, radius: 8 },
+      player: { x: 240, y: 60 },
+      steps: 1400,
+      dtMs: 10,
+    });
+    const first = frames.find(f => f.shots.length);
+    expect(first).toBeDefined();
+    const window = c.gapMs ? c.gapMs * (c.count - 1) + 20 : 20;
+    const shots = frames.filter(f => f.t >= first.t && f.t <= first.t + window).flatMap(f => f.shots);
+    return { frames, brain, first, shots };
+  };
+
+  it.each(RANGED_CASES)('$def：$count 发 $kind，速度 $speed', (c) => {
+    const { first, shots, brain } = collectFirstVolley(c);
+    expect(shots).toHaveLength(c.count);
+    const damage = c.damageMul ? Math.round(OPTS.damage * c.damageMul) : OPTS.damage;
+    for (const shot of shots) {
+      expect(shot.kind).toBe(c.kind);
+      expect(shot).toMatchObject({ damage, lifeMs: c.lifeMs });
+      expect(shot.radius).toBeGreaterThan(0);
+      expect(Math.hypot(shot.vx, shot.vy)).toBeCloseTo(c.speed, 5);
+    }
+    // 远程弹道不再依赖 aim 快照；只有 stardust 仍写 aim —— 那是冲锋方向（移动），不是弹道
+    if (!c.forward) expect(brain.aim).toBeNull();
+    else expect(brain.aim).not.toBeNull();
+    expect(first.windup).toBe(false);
+  });
+
+  it('扇形总张角与 §4 一致（cultist 0.32 / crystal 0.40 / ember 0.30 / stardust 0.5）', () => {
+    for (const c of RANGED_CASES.filter(item => item.spread)) {
+      const { first, shots } = collectFirstVolley(c);
+      const dir = first.dir ?? { x: 0, y: 1 };
+      const base = c.forward ? Math.atan2(dir.y, dir.x) : Math.atan2(60 - first.y, 240 - first.x);
+      const rel = shots.map((s) => {
+        let a = Math.atan2(s.vy, s.vx) - base;
+        while (a > Math.PI) a -= Math.PI * 2;
+        while (a < -Math.PI) a += Math.PI * 2;
+        return a;
+      });
+      expect(Math.max(...rel) - Math.min(...rel)).toBeCloseTo(c.spread, 5);
+      // 关于中轴对称
+      expect(Math.max(...rel) + Math.min(...rel)).toBeCloseTo(0, 5);
+    }
+  });
+
+  it('八向星环：8 发角度等分整圈', () => {
+    const c = RANGED_CASES.find(item => item.def === 'eclipse_priest');
+    const { shots } = collectFirstVolley(c);
+    const angles = shots.map(s => (Math.atan2(s.vy, s.vx) + Math.PI * 2) % (Math.PI * 2)).sort((a, b) => a - b);
+    expect(angles).toHaveLength(8);
+    for (let i = 1; i < angles.length; i++) {
+      expect(angles[i] - angles[i - 1]).toBeCloseTo((Math.PI * 2) / 8, 5);
+    }
+  });
+
+  it('连发型（void 170ms / oath 150ms）在抬手后按间隔逐发打出', () => {
+    for (const c of RANGED_CASES.filter(item => item.gapMs)) {
+      const { frames } = collectFirstVolley(c);
+      const times = frames.filter(f => f.shots.length).slice(0, c.count).map(f => f.t);
+      expect(times).toHaveLength(c.count);
+      for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1]).toBe(c.gapMs);
+    }
+  });
+
+  it('远程抬手期间玩家移动会改变弹道（leadAim 在发射帧现算）', () => {
+    const { frames } = runFrames('crystal_dryad', {
+      start: { x: 240, y: 200, speed: 30, radius: 8 },
+      player: { x: 240, y: 80 },
+      steps: 500,
+      dtMs: 10,
+      onFrame: (i) => (i < 300 ? { x: 240, y: 80 } : { x: 320, y: 60 }),
+    });
+    const shotFrame = frames.find(f => f.shots.length);
+    expect(shotFrame.t).toBeGreaterThan(3000);                // 抬手在 3000~3650
+    const angles = shotFrame.shots.map(s => Math.atan2(s.vy, s.vx));
+    const toOld = Math.atan2(80 - shotFrame.y, 240 - shotFrame.x);
+    const toNew = Math.atan2(60 - shotFrame.y, 320 - shotFrame.x);
+    expect(angles[2]).toBeCloseTo(toNew, 4);
+    expect(Math.abs(angles[2] - toOld)).toBeGreaterThan(0.1);
+  });
+});
+
+describe('召唤事件（§5）：节拍 / 伤害折算 / owner', () => {
+  it('咒誓主教第 2 轮召唤炮台，伤害 = 敌人 damage ×0.6，owner 透传 brain.id', () => {
+    const { frames } = runFrames('oath_bishop', {
+      brainId: 42, steps: 950, player: { x: 240, y: 60 }, opts: { ...OPTS, damage: 10 },
+    });
+    const summons = frames.filter(f => f.summon);
+    expect(summons).toHaveLength(1);
+    const at = summons[0];
+    expect(at.t).toBe(8950);                                  // 第 2 轮
+    expect(at.summon).toMatchObject({ kind: 'turret', damage: 6, lifeMs: 5000, owner: 42 });
+    expect(at.summon.x).toBe(at.x);                           // 炮台落在施法者位置
+    expect(at.summon.y).toBe(at.y);
+  });
+
+  it('蚀日祭司第 2 轮召唤炮台：伤害同样 ×0.6', () => {
+    const { frames } = runFrames('eclipse_priest', {
+      steps: 1150, player: { x: 240, y: 60 }, opts: { ...OPTS, damage: 10 },
+    });
+    const summons = frames.filter(f => f.summon);
+    expect(summons).toHaveLength(1);
+    expect(summons[0].t).toBe(11000);
+    expect(summons[0].summon).toMatchObject({ kind: 'turret', damage: 6, lifeMs: 5000 });
+    expect(summons[0].summon).not.toHaveProperty('owner');      // 没有 id 时不写 owner
+    expect(summons[0].summon.x).toBe(summons[0].x);
+    expect(summons[0].summon.y).toBe(summons[0].y);
+  });
+
+  it('判词幽灵第 3 轮放符文：伤害直接用敌人 damage，落在玩家当前位置', () => {
+    const player = { x: 240, y: 60 };
+    const { frames } = runFrames('verdict_wraith', {
+      steps: 1200, player, opts: { ...OPTS, damage: 10 },
+    });
+    const summons = frames.filter(f => f.summon);
+    expect(summons).toHaveLength(1);
+    expect(summons[0].t).toBe(11100);
+    expect(summons[0].summon).toMatchObject({ kind: 'rune', damage: 10, lifeMs: 1200 });
+    expect(summons[0].summon.x).toBe(player.x);
+    expect(summons[0].summon.y).toBe(player.y);
+  });
+
+  it('天平裁决者第 2 轮放符文，重弹伤害 ×1.6', () => {
+    const player = { x: 240, y: 60 };
+    const { frames } = runFrames('scale_arbiter', {
+      steps: 950, player, opts: { ...OPTS, damage: 10 },
+    });
+    const summons = frames.filter(f => f.summon);
+    expect(summons).toHaveLength(1);
+    expect(summons[0].t).toBe(8900);
+    expect(summons[0].summon).toMatchObject({ kind: 'rune', damage: 10, lifeMs: 1200 });
+    const orb = frames.find(f => f.shots.length).shots[0];
+    expect(orb.damage).toBe(Math.round(10 * 1.6));
+  });
+
+  it('虚空元素每 3 轮补 1 个追踪球（homing / 46 速 / 4200ms）', () => {
+    const { frames } = runFrames('void_elemental', {
+      steps: 1200, player: { x: 240, y: 60 },
+    });
+    const homings = frames.filter(f => f.shots.some(s => s.kind === 'homing'));
+    expect(homings).toHaveLength(1);
+    expect(homings[0].t).toBe(11400);                         // 第 3 轮
+    const homing = homings[0].shots.find(s => s.kind === 'homing');
+    expect(homing).toMatchObject({ radius: 4, lifeMs: 4200, damage: OPTS.damage });
+    expect(Math.hypot(homing.vx, homing.vy)).toBeCloseTo(46, 5);
+    expect(homing.turnRate).toBeCloseTo(1.6, 6);
+    // 同一轮的先头两发 bolt
+    const roundShots = frames.filter(f => f.t >= 11400 && f.t <= 11400 + 170).flatMap(f => f.shots);
+    expect(roundShots.filter(s => s.kind === 'bolt')).toHaveLength(2);
+  });
+});
+
+describe('攻击参数表与 spec §3 / §4 逐值一致', () => {
+  const DEG = Math.PI / 180;
+
+  it('§3 近战表：距离 / 张角（弧度） / 前摇 / 冷却', () => {
+    const table = {
+      skeleton: [30, 100, 420, 1800],
+      bat: [22, 120, 260, 1500],
+      corpse: [26, 70, 520, 2000],
+      rune_spider: [24, 80, 300, 1400],
+      clockwork_doll: [30, 60, 380, 1800],
+      wraith: [30, 110, 400, 1900],
+      ink_wisp: [26, 160, 350, 2000],
+      page_golem: [36, 150, 620, 2400],
+      shackle_guard: [40, 160, 550, 2200],
+      slag_beast: [30, 90, 480, 2100],
+    };
+    expect(Object.keys(MELEE_RULES).sort()).toEqual(Object.keys(table).sort());
+    for (const [def, [range, deg, windupMs, cooldownMs]] of Object.entries(table)) {
+      expect(MELEE_RULES[def].range).toBe(range);
+      expect(MELEE_RULES[def].arc).toBeCloseTo(deg * DEG, 12);
+      expect(MELEE_RULES[def].windupMs).toBe(windupMs);
+      expect(MELEE_RULES[def].cooldownMs).toBe(cooldownMs);
+    }
+  });
+
+  it('§4 远程表：抬手 / 弹数 / 张角 / 弹速 / 召唤节拍', () => {
+    const table = {
+      cultist: { windupMs: 600, count: 3, spread: 0.32, speed: 85 },
+      crystal_dryad: { windupMs: 650, count: 5, spread: 0.40, speed: 92 },
+      void_elemental: { windupMs: 600, count: 2, speed: 115, every: 3 },
+      oath_bishop: { windupMs: 550, count: 3, speed: 150, summonEvery: 2, summonKind: 'turret' },
+      verdict_wraith: { windupMs: 700, count: 1, speed: 160, summonEvery: 3, summonKind: 'rune' },
+      scale_arbiter: { windupMs: 850, count: 1, speed: 72, damageMul: 1.6, summonEvery: 2, summonKind: 'rune' },
+      ember_imp: { windupMs: 400, count: 3, spread: 0.30, speed: 120 },
+      dawn_shade: { windupMs: 650, count: 1, speed: 46, kind: 'homing' },
+      eclipse_priest: { windupMs: 700, count: 8, speed: 55, ring: true, summonEvery: 2, summonKind: 'turret' },
+      stardust_knight: { windupMs: 300, count: 4, spread: 0.5, speed: 76, forward: true },
+    };
+    expect(Object.keys(RANGED_RULES).sort()).toEqual(Object.keys(table).sort());
+    for (const [def, want] of Object.entries(table)) {
+      for (const [key, value] of Object.entries(want)) {
+        if (typeof value === 'number' && !Number.isInteger(value)) {
+          expect(RANGED_RULES[def][key]).toBeCloseTo(value, 12);
+        } else {
+          expect(RANGED_RULES[def][key]).toBe(value);
+        }
+      }
+    }
+  });
+
+  it('§3 的 10 只近战与 §4 的 10 只远程互不重叠，冲锋系不在近战表内', () => {
+    const meleeIds = Object.keys(MELEE_RULES);
+    const rangedIds = Object.keys(RANGED_RULES);
+    expect(meleeIds.filter(id => rangedIds.includes(id))).toEqual([]);
+    for (const id of ['knight', 'stone_gargoyle', 'brass_warden', 'stardust_knight', 'index_hound']) {
+      expect(meleeIds).not.toContain(id);
+    }
+    expect(AI_PROFILE.stitch_abomination.melee).toBeUndefined();
+    expect(AI_PROFILE.anvil_tyrant.melee).toBeUndefined();
+  });
+});
+
+// ---------- AI_PROFILE 契约 ----------
+describe('AI_PROFILE：26 个 defId 的单一事实源', () => {
+  const ids = Object.keys(ENEMY_TYPES);
+
+  it('roster 共 26 种敌人，AI_PROFILE 与之一一对应', () => {
+    expect(ids).toHaveLength(26);
+    expect(Object.keys(AI_PROFILE).sort()).toEqual([...ids].sort());
+    for (const id of ids) {
+      expect(AI_PROFILE[id].behavior).toBe(ENEMY_TYPES[id].behavior);
+      expect(AI_PROFILE[id].tune).toBeTypeOf('object');
+      const brain = createBrain(id, { seed: 1 });
+      expect(brain.behavior).toBe(ENEMY_TYPES[id].behavior);
+      expect(brain.tune).toBe(AI_PROFILE[id].tune);
+      expect(brain.defId).toBe(id);
+    }
+  });
+
+  it('26 个 behavior 名全局唯一（没有两只怪共用同一行为）', () => {
+    const names = ids.map(id => AI_PROFILE[id].behavior);
+    expect(new Set(names).size).toBe(26);
+    expect(names).toContain('lurch');
+    expect(names).toContain('charge_volley');
+    expect(names).not.toContain('stepBat');
+  });
+
+  it('旧行为 tune 直接引用旧常量（数值/时序零漂移）', () => {
+    expect(AI_PROFILE.skeleton.tune).toEqual({});
+    expect(AI_PROFILE.bat.tune).toBe(BAT_RULE);
+    expect(AI_PROFILE.cultist.tune).toBe(CULTIST_RULE);
+    expect(AI_PROFILE.crystal_dryad.tune).toBe(VOLLEY_RULE);
+    expect(AI_PROFILE.void_elemental.tune).toBe(PHASE_RULE);
+    expect(AI_PROFILE.oath_bishop.tune).toBe(OATH_RULE);
+    expect(AI_PROFILE.index_hound.tune).toBe(LUNGE_RULE);
+    expect(AI_PROFILE.scale_arbiter.tune).toBe(JUDGE_RULE);
+    expect(AI_PROFILE.anvil_tyrant.tune).toBe(SLAM_RULE);
+    expect(AI_PROFILE.eclipse_priest.tune).toBe(ECLIPSE_RULE);
+    expect(AI_PROFILE.knight.tune).toBe(KNIGHT_RULE);
+    expect(AI_PROFILE.stitch_abomination.tune).toBe(STITCH_RULE);
+  });
+
+  it('14 个新行为的 tune 与契约 §5.2 逐字一致', () => {
+    const SPEC = {
+      corpse: { walkMs: 520, holdMs: 260, triggerDist: 40, windupMs: 450, lungeMs: 320, lungeMul: 1.5, recoverMs: 800 },
+      clockwork_doll: { walkMs: 700, windupMs: 420, dashMs: 600, dashMul: 1.9, recoverMs: 500 },
+      page_golem: { approachMul: 0.85, guardEveryMs: 3000, guardMs: 900, guardArmor: 0.55, guardSlowMul: 0.4 },
+      slag_beast: { triggerDist: 64, intervalMs: 3800, windupMs: 700, stompRadius: 40, stompDamageMul: 1.6, cooldownMs: 1400 },
+      shackle_guard: { holdDist: 110, retreatDist: 80, intervalMs: 3200, windupMs: 1000, shots: 2, gapMs: 110, shotSpeed: 120, shotLifeMs: 1600, damageMul: 1.1 },
+      rune_spider: { straightMs: 380, lateralMs: 160, straightMul: 1.7, lateralMul: 1.3, lateralDist: 40 },
+      wraith: { holdDist: 120, orbitMul: 0.5, intervalMs: 3000, windupMs: 500, dashMs: 550, dashMul: 2.1, recoverMs: 900 },
+      ink_wisp: { approachMul: 0.7, blinkEveryMs: 1600, blinkMin: 40, blinkMax: 60, minPlayerDist: 26 },
+      verdict_wraith: { holdDist: 130, retreatDist: 96, intervalMs: 3000, windupMs: 750, shotSpeed: 140, shotLifeMs: 1100, damageMul: 1.4 },
+      ember_imp: { sprintMs: 280, sprintMul: 2.0, pauseMs: 260 },
+      dawn_shade: { holdDist: 90, dashMs: 420, dashMul: 1.7, cooldownMs: 2000 },
+      stone_gargoyle: { intervalMs: 3400, windupMs: 900, chargeMs: 900, chargeMul: 2.6, staggerMs: 500 },
+      brass_warden: { intervalMs: 3000, windupMs: 650, chargeMs: 800, chargeMul: 2.4, pauseMs: 320, secondChargeMs: 700, secondMul: 2.4, cooldownMs: 2400 },
+      stardust_knight: { intervalMs: 3000, windupMs: 650, chargeMs: 1000, chargeMul: 2.9, shots: 4, shotSpeed: 76, shotLifeMs: 2000, damageMul: 1.2, cooldownMs: 2600 },
+    };
+    for (const [id, tune] of Object.entries(SPEC)) {
+      expect(AI_PROFILE[id].tune, id).toEqual(tune);
+    }
+    expect(Object.keys(SPEC)).toHaveLength(14);
+  });
+
+  it('非法 defId 回退 skeleton / march', () => {
+    const brain = createBrain('dragon', { seed: 1 });
+    expect(brain.defId).toBe('skeleton');
+    expect(brain.behavior).toBe('march');
+    expect(brain.tune).toBe(AI_PROFILE.skeleton.tune);
+  });
+});
+
+// ---------- 新行为安全性 ----------
+describe('新行为安全性：6s 连续推进', () => {
+  it.each(NEW_BEHAVIOR_DEFS)('%s 无 NaN / 不越 1e5 / 单帧弹数 ≤4', (defId) => {
+    const { frames } = runFrames(defId, {
+      start: { x: 240, y: 120, speed: 40, radius: 8 }, player: { x: 240, y: 220 }, dtMs: 16, steps: 375,
+    });
+    for (const f of frames) {
+      expect(Number.isFinite(f.x) && Number.isFinite(f.y)).toBe(true);
+      expect(Math.abs(f.x)).toBeLessThan(1e5);
+      expect(Math.abs(f.y)).toBeLessThan(1e5);
+      if (!Number.isFinite(f.x) || !Number.isFinite(f.y)) continue;
+      expect(f.shots.length).toBeLessThanOrEqual(4);
+      for (const shot of f.shots) {
+        expect(Number.isFinite(shot.x) && Number.isFinite(shot.y)).toBe(true);
+        expect(Number.isFinite(shot.vx) && Number.isFinite(shot.vy)).toBe(true);
+        expect(shot.damage).toBeGreaterThanOrEqual(1);
+        expect(shot.lifeMs).toBeGreaterThan(0);
+      }
+      if (f.stomp) {
+        expect(Number.isFinite(f.stomp.radius)).toBe(true);
+        expect(f.stomp.radius).toBeGreaterThan(0);
+        expect(f.stomp.damage).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
+});
+
 const weightOf = (chapter, id) => {
   const row = ACT_ENEMY_WEIGHTS[chapter].find(([key]) => key === id);
   return row ? row[1] : 0;
@@ -684,10 +1520,10 @@ describe('roster：敌人数据与五幕权重', () => {
     expect(Number.isInteger(def.color)).toBe(true);
   });
 
-  it('七种敌人的行为标签与逻辑层一一对应', () => {
+  it('七种敌人的行为标签与逻辑层一一对应（腐尸已改为 lurch 节拍）', () => {
     expect(ENEMY_TYPES.skeleton.behavior).toBe('march');
     expect(ENEMY_TYPES.bat.behavior).toBe('weave');
-    expect(ENEMY_TYPES.corpse.behavior).toBe('march');
+    expect(ENEMY_TYPES.corpse.behavior).toBe('lurch');
     expect(ENEMY_TYPES.cultist.behavior).toBe('orbit');
     expect(ENEMY_TYPES.knight.behavior).toBe('charge');
     expect(ENEMY_TYPES.stitch_abomination.behavior).toBe('stomp');

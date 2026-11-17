@@ -22,7 +22,9 @@ export class SigilEngine {
   constructor(opts) {
     this.grid = opts.grid;
     this.comboWindowMul = Number.isFinite(opts.comboWindowMul) && opts.comboWindowMul > 0 ? opts.comboWindowMul : 1;
-    this.combos = opts.combos ? new ComboTracker(opts.combos, this.comboWindowMul) : null;
+    // 联组资格闸：由场景注入「这一格的法术能不能参与联组」，引擎自己不认法术数据。
+    this.comboEligible = typeof opts.comboEligible === 'function' ? opts.comboEligible : null;
+    this.combos = opts.combos ? new ComboTracker(opts.combos, this.comboWindowMul, this.comboEligible) : null;
     this.startCells = (opts.startCells || [5]).slice();
     this.rng = new Rng(opts.seed ?? 1);
     this.queue = new EventQueue();
@@ -66,7 +68,7 @@ export class SigilEngine {
 
   // 暂停改阵后重算联组目录（进行中的联组进度作废——暂停中清空无感）
   setCombos(catalog) {
-    this.combos = catalog ? new ComboTracker(catalog, this.comboWindowMul) : null;
+    this.combos = catalog ? new ComboTracker(catalog, this.comboWindowMul, this.comboEligible) : null;
   }
 
   setParams({ grid, startCells, seed } = {}) {
@@ -166,11 +168,16 @@ export class SigilEngine {
     this.#emit('signal:trigger', { signalId, cellId, from: sig.prevId, isNew, t: this.now });
 
     if (this.combos) {
-      const fired = this.combos.onTrigger(signalId, cellId, this.now, this.grid);
-      for (const f of fired) {
-        this.stats.combos++;
-        this.stats.combosByShape[f.defId] = (this.stats.combosByShape[f.defId] || 0) + 1;
-        this.#emit('combo:fire', { defId: f.defId, order: f.order, bonus: f.bonus, at: this.now });
+      // 资格制：踩中的符印必须可联组（谐律形态），否则打断本脉流进行中的联组，也不再接续。
+      if (this.comboEligible && !this.comboEligible(cell.slot)) {
+        this.#breakCombos(signalId, 'no-combo');
+      } else {
+        const fired = this.combos.onTrigger(signalId, cellId, this.now, this.grid);
+        for (const f of fired) {
+          this.stats.combos++;
+          this.stats.combosByShape[f.defId] = (this.stats.combosByShape[f.defId] || 0) + 1;
+          this.#emit('combo:fire', { defId: f.defId, order: f.order, bonus: f.bonus, at: this.now });
+        }
       }
     }
 

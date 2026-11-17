@@ -76,8 +76,10 @@ export function computeWindowMs(order, grid) {
 
 // 联组运行时：每个脉流独立维护进度，互不拼接
 export class ComboTracker {
-  constructor(instances, windowMul = 1) {
+  constructor(instances, windowMul = 1, eligible = null) {
     this.windowMul = Number.isFinite(windowMul) && windowMul > 0 ? windowMul : 1;
+    // 资格回调：传每格的 slot，返回该格能否参与联组。缺省全放行（旧调用方/测试）。
+    this.eligible = typeof eligible === 'function' ? eligible : null;
     this.instances = instances;
     this.byFirst = new Map();   // 首格 -> 实例索引
     this.byCell = new Map();    // 任意格 -> 实例索引（用于快速断链判定）
@@ -121,6 +123,12 @@ export class ComboTracker {
     return this.breakAll(signalId);
   }
 
+  // 整条序列都必须是可联组符印；缺省资格回调时视为全部合格。
+  #sequenceOk(inst, grid) {
+    if (!this.eligible) return true;
+    return inst.order.every(id => this.eligible(grid?.cells?.[id]?.slot));
+  }
+
   // 返回本次触发导致成立的联组列表
   onTrigger(signalId, cellId, now, grid) {
     const m = this.statesOf(signalId);
@@ -129,6 +137,11 @@ export class ComboTracker {
     // 1. 先处理进行中的实例：不是期望格就断链（含组外绕路与跳序）
     for (const [idx, st] of [...m.entries()]) {
       const inst = this.instances[idx];
+      // 目标格失去联组资格（被换成锐/标准/终局法术）就断这一条，不再推进。
+      if (this.eligible && !this.eligible(grid?.cells?.[cellId]?.slot)) {
+        m.delete(idx);
+        continue;
+      }
       if (inst.order[st.progress] === cellId) {
         if (now > st.windowEnd) {
           m.delete(idx);
@@ -150,6 +163,7 @@ export class ComboTracker {
       for (const idx of firsts) {
         if (m.has(idx)) continue;
         const inst = this.instances[idx];
+        if (!this.#sequenceOk(inst, grid)) continue;
         const windowMs = computeWindowMs(inst.order, grid) * this.windowMul;
         m.set(idx, { progress: 1, windowEnd: now + windowMs, startedAt: now });
       }

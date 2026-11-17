@@ -7,9 +7,10 @@ import { cold } from './spells/cold.js';
 import { hot } from './spells/hot.js';
 import { storm } from './spells/storm.js';
 import { wild } from './spells/wild.js';
+import { fourth } from './spells/fourth.js';
 
 // 元素组合并：同 id 覆盖（后写优先），方便单组独立开发
-const SPELLS = { ...cold, ...hot, ...storm, ...wild };
+const SPELLS = { ...cold, ...hot, ...storm, ...wild, ...fourth };
 
 export const FX_DEF_IDS = [
   'frost_arrow',
@@ -28,6 +29,14 @@ export const FX_DEF_IDS = [
   'soul_lance',
   'aegis_ring',
   'meteor_judgment',
+  'frost_nova',
+  'thunder_storm',
+  'sunflare',
+  'void_lance',
+  'sanctum',
+  'bramble_maul',
+  'soul_echo',
+  'glacier',
 ];
 
 // 兜底：未知 defId 沿用旧的「菱形 + 白高光」语言
@@ -135,6 +144,14 @@ export const IMPACT_SCALE = {
   judgment_hammer: 0.56,
   quake_maw: 0.56,
   meteor_judgment: 0.56,
+  frost_nova: 0.54,
+  thunder_storm: 0.54,
+  sunflare: 0.56,
+  void_lance: 0.56,
+  sanctum: 0.5,
+  bramble_maul: 0.54,
+  soul_echo: 0.5,
+  glacier: 0.52,
 };
 const DEFAULT_IMPACT_SCALE = 0.5;
 
@@ -173,6 +190,14 @@ export const ENTRY_STYLE = {
   judgment_hammer: 'erupt',
   holy_ward: 'assemble',
   aegis_ring: 'assemble',
+  sanctum: 'assemble',
+  frost_nova: 'erupt',
+  thunder_storm: 'erupt',
+  sunflare: 'erupt',
+  void_lance: 'converge',
+  bramble_maul: 'erupt',
+  soul_echo: 'converge',
+  glacier: 'erupt',
 };
 
 export const EXIT_STYLE = {
@@ -192,6 +217,14 @@ export const EXIT_STYLE = {
   judgment_hammer: 'settle',
   holy_ward: 'shatter',
   aegis_ring: 'shatter',
+  sanctum: 'shatter',
+  frost_nova: 'settle',
+  thunder_storm: 'settle',
+  sunflare: 'settle',
+  void_lance: 'dissipate',
+  bramble_maul: 'settle',
+  soul_echo: 'dissipate',
+  glacier: 'settle',
 };
 
 // 「出现」：主体不是啪一下满尺寸，而是从 50% 弹到 100%（smoothstep），配上前 13% 的凝聚层。

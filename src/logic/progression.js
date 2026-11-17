@@ -111,3 +111,21 @@ export function rollBuff(pool, rng) {
   if (!Number.isFinite(value) || value < 0 || value >= 1) return null;
   return pool[Math.floor(value * pool.length)] ?? null;
 }
+
+// 职业本命被动加权抽取：pool 里 id 命中 affinity 的条目权重 ×weight。
+// 与 rollBuff 一样只在 [0,1) 上取一个 rng 值，便于确定性测试与复盘。
+export function rollBuffWeighted(pool, rng, affinity = [], weight = 2) {
+  if (!Array.isArray(pool) || pool.length === 0 || typeof rng !== 'function') return null;
+  const value = rng();
+  if (!Number.isFinite(value) || value < 0 || value >= 1) return null;
+  const preferred = new Set(Array.isArray(affinity) ? affinity : []);
+  const bonus = Number.isFinite(weight) && weight > 0 ? weight : 1;
+  const total = pool.reduce((sum, buff) => sum + (preferred.has(buff?.id) ? bonus : 1), 0);
+  if (!Number.isFinite(total) || total <= 0) return null;
+  let cursor = value * total;
+  for (const buff of pool) {
+    cursor -= preferred.has(buff?.id) ? bonus : 1;
+    if (cursor < 0) return buff ?? null;
+  }
+  return pool[pool.length - 1] ?? null;
+}

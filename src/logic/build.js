@@ -2,11 +2,17 @@
 import { createGrid, rebuildDerived, neighborsOf } from './grid.js';
 import { ORTHO_DIRS, ACTS, DIRS, CELL_COUNT } from './constants.js';
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS } from './effects.js';
+import { VARIANT_DEFS, variantOf } from '../data/variants.js';
+import { evolutionOf } from '../data/evolutions.js';
+
+// 符位允许的字段。变体只在符印上存在；进化字段波 3 才放开取值校验。
+const SLOT_KEYS = Object.freeze(['kind', 'defId', 'variant', 'evo']);
 
 export const BUILD_ERROR = Object.freeze({
   INVALID_DRAFT: 'invalid_draft', INVALID_ACT: 'invalid_act', INVALID_CELL: 'invalid_cell',
   DUPLICATE_CELL: 'duplicate_cell', LOCKED_CELL: 'locked_cell', SLOT_CONFLICT: 'slot_conflict',
-  UNKNOWN_DEF: 'unknown_def', RUNE_SLOT_FULL: 'rune_slot_full', DUPLICATE_RUNE: 'duplicate_rune',
+  UNKNOWN_DEF: 'unknown_def', UNKNOWN_VARIANT: 'unknown_variant', UNKNOWN_EVOLUTION: 'unknown_evolution',
+  RUNE_SLOT_FULL: 'rune_slot_full', DUPLICATE_RUNE: 'duplicate_rune',
   AUX_NEEDS_TARGET: 'aux_needs_target', AUX_TARGET_INVALID: 'aux_target_invalid',
   OATH_UNKNOWN: 'oath_unknown', TOO_MANY_UNLOCKED: 'too_many_unlocked',
   INVALID_EXITS: 'invalid_exits', WRONG_PHASE: 'wrong_phase',
@@ -23,6 +29,8 @@ const BUILD_ERROR_TEXT = Object.freeze({
   locked_cell: '这一格还没解封',
   slot_conflict: '符位上的卡数据不合法',
   unknown_def: '不认识的符印或辅助',
+  unknown_variant: '这个变体不存在，或该法术没有这个变体',
+  unknown_evolution: '这个进化不存在，或该法术没有这条进化',
   rune_slot_full: '铭文槽已满',
   duplicate_rune: '同一格装了重复铭文',
   aux_needs_target: '还没选作用目标（要指向一个相邻的符印格）',
@@ -43,7 +51,9 @@ export function explainBuildErrors(errors, draft) {
     if (id === null || id < 0 || id >= CELL_COUNT) return text;
     const slot = draft?.slots?.[id];
     const card = slot ? (slot.kind === 'sigil' ? SIGIL_DEFS : AUX_DEFS)[slot.defId] : null;
-    return (id + 1) + '号位' + (card?.name ? '「' + card.name + '」' : '') + '：' + text;
+    // 符印带变体时显示变体名（「寒霜箭·锐」），玩家才知道自己装的是哪一版。
+    const label = card && slot.kind === 'sigil' ? variantOf(slot.defId, slot.variant).name : card?.name;
+    return (id + 1) + '号位' + (label ? '「' + label + '」' : '') + '：' + text;
   }).join('；');
 }
 
@@ -126,7 +136,18 @@ export function validateDraft(draft, opts = {}) {
     if (!record(slot)) { fail(BUILD_ERROR.SLOT_CONFLICT, { cellId: key }); continue; }
     const table = slot.kind === 'sigil' ? SIGIL_DEFS : slot.kind === 'auxiliary' ? AUX_DEFS : null;
     if (!table || typeof slot.defId !== 'string' || !own(table, slot.defId)) fail(BUILD_ERROR.UNKNOWN_DEF, { cellId: key });
-    if (Object.keys(slot).some(k => !['kind', 'defId'].includes(k))) fail(BUILD_ERROR.SLOT_CONFLICT, { cellId: key });
+    if (Object.keys(slot).some(k => !SLOT_KEYS.includes(k))) fail(BUILD_ERROR.SLOT_CONFLICT, { cellId: key });
+    // 变体：缺省等同 base；给了就必须是该法术真实存在的变体（强力法术只有 base）。
+    if (slot.kind === 'sigil' && slot.variant !== undefined && slot.variant !== null
+      && (typeof slot.variant !== 'string' || !own(VARIANT_DEFS[slot.defId] ?? {}, slot.variant))) {
+      fail(BUILD_ERROR.UNKNOWN_VARIANT, { cellId: key });
+    }
+    // 进化：空值表示没进化；给了就必须是该法术真实存在的路线。
+    if (slot.kind === 'sigil' && slot.evo !== undefined && slot.evo !== null
+      && (typeof slot.evo !== 'string' || !evolutionOf(slot.defId, slot.evo))) {
+      fail(BUILD_ERROR.UNKNOWN_EVOLUTION, { cellId: key });
+    }
+    if (slot.kind !== 'sigil' && slot.evo !== undefined && slot.evo !== null) fail(BUILD_ERROR.SLOT_CONFLICT, { cellId: key });
     if (slot.kind === 'auxiliary' && AUX_TARGETED.has(slot.defId)) {
       if (!own(maps.auxTargets, key)) fail(BUILD_ERROR.AUX_NEEDS_TARGET, { cellId: key });
     }

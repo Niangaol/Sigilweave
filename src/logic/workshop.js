@@ -1,6 +1,7 @@
 // 幕间工作台：仅维护构筑草稿与交易，不依赖渲染或运行中法阵。
 import { validateDraft, emptyDraft, explainBuildErrors } from './build.js';
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS } from './effects.js';
+import { VARIANT_DEFS, rollVariant } from '../data/variants.js';
 import { CELL_COUNT } from './constants.js';
 import { Rng } from './rng.js';
 
@@ -18,9 +19,37 @@ export const CARD_POOL = Object.freeze([
 const sessions = new WeakMap();
 const clone = value => structuredClone(value);
 const result = (ok, message) => ({ ok, message });
-const keyOf = card => card.kind + ':' + card.defId;
-const validCard = card => card && typeof card.defId === 'string'
-  && (card.kind === 'sigil' ? Object.hasOwn(SIGIL_DEFS, card.defId)
+
+// 手牌键：符印带变体（sigil:frost_arrow#harmon），辅助不带（auxiliary:hourglass）。
+export function cardKeyOf(card) {
+  if (!card || typeof card.defId !== 'string') return '';
+  if (card.kind === 'sigil') return 'sigil:' + card.defId + '#' + (card.variant ?? 'base');
+  return 'auxiliary:' + card.defId;
+}
+
+// 反向解析手牌键；格式不对返回 null，placeCard 统一报「卡牌类型或名称无效」。
+export function cardOf(key) {
+  if (typeof key !== 'string') return null;
+  const colon = key.indexOf(':');
+  if (colon <= 0) return null;
+  const kind = key.slice(0, colon);
+  const rest = key.slice(colon + 1);
+  if (!rest) return null;
+  if (kind === 'auxiliary') return { kind, defId: rest };
+  if (kind !== 'sigil') return null;
+  const hash = rest.indexOf('#');
+  if (hash < 0) return { kind, defId: rest, variant: 'base' };
+  const defId = rest.slice(0, hash);
+  const variant = rest.slice(hash + 1);
+  return defId && variant ? { kind, defId, variant } : null;
+}
+
+const keyOf = cardKeyOf;
+const validCard = card => !!card && typeof card.defId === 'string'
+  && (card.kind === 'sigil'
+    ? Object.hasOwn(SIGIL_DEFS, card.defId)
+      && (card.variant === undefined || card.variant === null
+        || Object.hasOwn(VARIANT_DEFS[card.defId] ?? {}, card.variant))
     : card.kind === 'auxiliary' && Object.hasOwn(AUX_DEFS, card.defId));
 const validState = state => !!state && sessions.has(state);
 function cellError(state, id) {
@@ -47,13 +76,28 @@ export function createWorkshop({ draft = emptyDraft(), shards = 0, seed = 'works
   const offers = Array.from({ length: 3 }, (_, round) => {
     const pool = [...(round === 0 ? CARD_POOL.slice(0, 4) : CARD_POOL)];
     const cards = [];
-    while (cards.length < 3) cards.push({ ...pool.splice(rng.int(pool.length), 1)[0] });
+    while (cards.length < 3) {
+      const base = pool.splice(rng.int(pool.length), 1)[0];
+      // 符印在抽出的瞬间就定下变体；辅助没有变体。
+      cards.push(base.kind === 'sigil'
+        ? { kind: 'sigil', defId: base.defId, variant: rollVariant(rng, base.defId) }
+        : { ...base });
+    }
     return { id: 'workshop:' + JSON.stringify(String(seed)) + ':' + (round + 1), cards };
   });
+  // 手牌预填所有「法术 × 合法变体」组合，界面按 0 张显示，装/卸不会写出未定义键。
+  const hand = {};
+  for (const card of CARD_POOL) {
+    if (card.kind === 'sigil') {
+      for (const variant of Object.keys(VARIANT_DEFS[card.defId] ?? {})) hand[cardKeyOf({ ...card, variant })] = 0;
+    } else {
+      hand[cardKeyOf(card)] = 0;
+    }
+  }
   const state = {
     draft: copy,
     shards: Number.isSafeInteger(shards) && shards >= 0 ? shards : 0,
-    hand: Object.fromEntries(CARD_POOL.map(card => [keyOf(card), 0])),
+    hand,
     offer: clone(offers[0]), roundsRemaining: 3, runeCosts: {},
   };
   for (const id of copy.unlocked) {
@@ -79,9 +123,8 @@ export function chooseReward(state, offerId, index) {
 export function placeCard(state, cellId, cardKey) {
   const error = cellError(state, cellId);
   if (error) return result(false, error);
-  const parts = typeof cardKey === 'string' ? cardKey.split(':') : [];
-  const card = { kind: parts[0], defId: parts[1] };
-  if (parts.length !== 2 || !validCard(card)) return result(false, '卡牌类型或名称无效');
+  const card = cardOf(cardKey);
+  if (!card || !validCard(card)) return result(false, '卡牌类型或名称无效');
   if (!Number.isSafeInteger(state.hand[cardKey]) || state.hand[cardKey] <= 0) return result(false, '手牌中没有这张卡');
   const previous = state.draft.slots[cellId];
   if (previous && !validCard(previous)) return result(false, '原主槽卡牌无效');

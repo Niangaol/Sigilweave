@@ -3,7 +3,7 @@ import { SPELL_PUNCH, DEFAULT_PUNCH, punchFor, shouldPunch } from '../src/ui/spe
 import { FX_DEF_IDS } from '../src/ui/spell-fx.js';
 
 describe('命中重量表', () => {
-  it('16 个法术每个都有重量，键与 FX_DEF_IDS 对齐', () => {
+  it('24 个法术每个都有重量，键与 FX_DEF_IDS 对齐', () => {
     expect(Object.keys(SPELL_PUNCH).sort()).toEqual([...FX_DEF_IDS].sort());
   });
 

@@ -24,6 +24,15 @@ export const SPELL_PUNCH = {
   judgment_hammer: { ms: 190, amp: 0.007, stopMs: 55, gapMs: 220 },
   quake_maw: { ms: 230, amp: 0.008, stopMs: 65, gapMs: 240 },
   meteor_judgment: { ms: 280, amp: 0.009, stopMs: 75, gapMs: 260 },
+  // 第三批：前摇长的法术给更重的落点（前摇本身就是演出，命中必须接住）
+  frost_nova: { ms: 120, amp: 0.004, stopMs: 0, gapMs: 150 },
+  thunder_storm: { ms: 160, amp: 0.0055, stopMs: 45, gapMs: 190 },
+  sunflare: { ms: 200, amp: 0.0075, stopMs: 60, gapMs: 230 },
+  void_lance: { ms: 120, amp: 0.0042, stopMs: 35, gapMs: 140 },
+  sanctum: { ms: 90, amp: 0.0026, stopMs: 0, gapMs: 200 },
+  bramble_maul: { ms: 190, amp: 0.007, stopMs: 55, gapMs: 220 },
+  soul_echo: { ms: 100, amp: 0.0032, stopMs: 0, gapMs: 110 },
+  glacier: { ms: 140, amp: 0.0046, stopMs: 40, gapMs: 160 },
 };
 
 export const DEFAULT_PUNCH = { ms: 90, amp: 0.003, stopMs: 0, gapMs: 120 };

@@ -421,7 +421,8 @@ describe('返回结构与既有行为回归', () => {
     for (const id of [0, 1, 2]) sigil(g, id, 'arcane_bolt');
     const enemies = [enemy(1, -100, -100), enemy(2, -30, -100), enemy(3, 30, -100)];
     resolveComboBonus({ grid: g, order: [0, 1, 2], defId: 'line3', bonus: 0.4, state: state(), enemies });
-    expect(enemies.map((e) => e.hp)).toEqual([100, 100, 95.2]);
+    // 三格同派系相邻：末格吃到 +10% 共鸣，5.28 = 12 × 0.4 × 1.1
+    expect(enemies.map((e) => e.hp)).toEqual([100, 100, 94.72]);
   });
 
   it('从合法构筑草稿落地后，星陨与献祭直接可结算', () => {

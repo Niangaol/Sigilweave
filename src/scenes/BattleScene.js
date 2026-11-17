@@ -8,19 +8,25 @@ import { buildComboCatalog } from '../logic/combo.js';
 import { resolveTarget, resolveVolley, volleyLimit, visibleFilter } from '../logic/sector.js';
 import { ACTS, WORLD_SIZES, ORTHO_DIRS } from '../logic/constants.js';
 import { applyDraft, snapshotBuild, draftFromGrid, validateDraft, AUX_TARGETED, missingAuxTargets, explainBuildErrors, auxTargetCandidates } from '../logic/build.js';
-import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, resolveSigilTrigger, resolveComboBonus, resolveDeathBursts } from '../logic/effects.js';
+import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, resolveSigilTrigger, resolveComboBonus, resolveDeathBursts, castTimeOf } from '../logic/effects.js';
 import { createRun, recordAct } from '../logic/run.js';
-import { createProgression, grantExp, levelStats, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuff } from '../logic/progression.js';
+import { createProgression, grantExp, levelStats, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuffWeighted } from '../logic/progression.js';
 import { getEventPoints } from '../data/map-events.js';
 import { getEncounterById } from '../data/encounters.js';
 import { Rng } from '../logic/rng.js';
-import { CARD_POOL } from '../logic/workshop.js';
+import { CARD_POOL, cardKeyOf, cardOf } from '../logic/workshop.js';
+import { slotComboEligible, variantOf, rollVariant } from '../data/variants.js';
+import { EVOLUTIONS, evolutionOf } from '../data/evolutions.js';
+import { REACTIONS, FACTIONS, factionOf } from '../data/factions.js';
+import { resonanceMultiplier, reactionAt } from '../logic/resonance.js';
 import { expNeeded } from '../logic/progression.js';
 import { Pool } from '../logic/pool.js';
-import { pickSpawnPoint, pickWavePoints, separateEnemiesBucketed } from '../logic/spawn.js';
+import { pickSpawnPoint, pickWavePoints, separateEnemiesBucketed, enemySpawnLoad } from '../logic/spawn.js';
+import { pickEnemyVariant, composeEnemyDef } from '../data/enemy-variants.js';
 import { getEncounterForStage } from '../data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../logic/encounters.js';
 import { resolveBossOnce } from '../logic/boss.js';
+import { HOSTILE_LIMITS, stepHostileShots, stepSummons, meleeHits, makeShot, normalizeSummon } from '../logic/hostile.js';
 import { chapterOf, isValidStage, nextStage, firstStageOf } from '../logic/acts.js';
 import { chapterDurationMs, stageSpellCard, stageAdvanceDecision } from './battle-pure.js';
 import { loadMeta, metaLevel, applyPassiveToCharacter, applyPassiveToCompass, metaPassiveLabel } from '../logic/meta.js';
@@ -41,7 +47,7 @@ import Enemy from '../entities/Enemy.js';
 import Projectile from '../entities/Projectile.js';
 import Shard from '../entities/Shard.js';
 import ExpMote from '../entities/ExpMote.js';
-import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, applyPixelZoom, getRenderScale, uiLayerOffset, isPortrait, isTouchUI, CONSOLE_TOP, CANVAS_H_PORTRAIT } from '../ui/Palette.js';
+import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, pxRing, applyPixelZoom, getRenderScale, uiLayerOffset, isPortrait, isTouchUI, CONSOLE_TOP, CANVAS_H_PORTRAIT } from '../ui/Palette.js';
 import { kitPanel, kitBoard, kitBoardMotion, kitHeader, kitSteps, kitCell, kitHandRow, kitDetail, kitAction, clipText } from '../ui/editor-ui.js';
 import { CARD_HINTS } from '../data/card-hints.js';
 import { punchFor, shouldPunch, strikePunchFor } from '../ui/spell-punch.js';
@@ -57,10 +63,25 @@ export function createBattleFrame(scene, { seed, stage }) {
 }
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
+// 镜头取景：横屏把跟随中心上抬一点，人物略低于屏幕中心，多露上方战场与来袭方向。
+// 死区高 40，半高 20 会吃掉一半偏移，所以这里给 50 → 实际净上抬约 30px。
+// 竖屏沿用 190 的专用偏移（人物落在地图区中上部，下方留给触控台），不再叠加。
+const CAMERA_LIFT = 50;
+const PORTRAIT_FOLLOW_Y = 190;
+const followBaseY = () => (isPortrait() ? PORTRAIT_FOLLOW_Y : CAMERA_LIFT);
 const FREQ_WINDOW_MS = 5000;
 // 击杀经验折算：1 杀 1 点。这个常量保留成可调项——如果实机觉得升级三选一太频繁，
 // 把它调到 2/3 即可整体降速，不需要改任何结算代码。
 const KILL_EXP_PER_POINT = 1;
+
+// 卡片显示名：符印带变体后缀（寒霜箭·谐），进化再挂一层路线名（寒霜箭·谐·冰河箭）。
+const cardDisplayName = card => {
+  if (!card) return '';
+  if (card.kind === 'auxiliary') return AUX_DEFS[card.defId]?.name ?? card.defId;
+  const base = variantOf(card.defId, card.variant).name;
+  const route = card.evo ? evolutionOf(card.defId, card.evo) : null;
+  return route ? base + '·' + route.name : base;
+};
 
 export default class BattleScene extends Phaser.Scene {
   constructor() {
@@ -72,7 +93,7 @@ export default class BattleScene extends Phaser.Scene {
     // 由过场进入时，过场负责揭开，战斗不再自己从黑场淡入
     this.__cine = !!data.__cine;
     const params = new URLSearchParams(window.location.search);
-    this.run = data.run ?? createRun(params.get('seed') ?? ('sigil-' + Date.now()));
+    this.run = data.run ?? createRun(params.get('seed') ?? ('sigil-' + Date.now()), params.get('kit') ?? undefined);
     this.stage = isValidStage(this.run.stage) ? this.run.stage : 1;
     this.run.stage = this.stage;
     this.chapter = chapterOf(this.stage);
@@ -103,6 +124,9 @@ export default class BattleScene extends Phaser.Scene {
     this.bossStarted = false;
     this.bossDefeated = false;
     this.hostileShots = [];
+    // 敌方召唤物（滞空炮台 / 地面符文）：独立实体列表，不进 enemies，也不吃击杀奖励
+    this.summons = [];
+    this.summonsSeq = -1;
     this.transitionLeft = 0;
     this.paused = false;
     this.menuOpen = false;
@@ -111,6 +135,7 @@ export default class BattleScene extends Phaser.Scene {
 
     this.enemies = [];
     this.projectiles = [];
+    this.pendingCasts = [];
     this.shards = [];
     this.kills = 0;
     this.shardCount = this.run.shards;
@@ -150,6 +175,10 @@ export default class BattleScene extends Phaser.Scene {
       mute: () => { if (this.menuOpen) this.onMute(); },
     });
     this.hostileG = this.add.graphics().setDepth(450);
+    // 召唤物分两层：符文贴地（449，低于敌人，避免盖住脚）；炮台悬浮（1150，高于敌人，
+    // 否则「炮台落在施法者位置」时会被施法者自己的立绘整个盖住）。
+    this.summonG = this.add.graphics().setDepth(449);
+    this.summonAirG = this.add.graphics().setDepth(1150);
     this.encounterPanel = new EncounterPanel(this, id => this.selectEncounterAnswer(id), () => this.confirmEncounterAnswer(), () => this.continueEncounter());
     // 面板交互：场景级命中测试（画布坐标，不受镜头滚动影响）
     // 面板交互挂 DOM window 事件：绕开 Phaser 输入插件在镜头滚动后的投递丢失
@@ -176,8 +205,8 @@ export default class BattleScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, world.w, world.h);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setDeadzone(60, 40);
-    // 竖屏：镜头中心压低，让人物落在地图区中上部，下方留给触控台
-    if (isPortrait()) this.cameras.main.setFollowOffset(0, 190);
+    // 镜头基准偏移：横屏上抬 CAMERA_LIFT；竖屏用专用偏移让人物落在地图区中上部
+    this.cameras.main.setFollowOffset(0, followBaseY());
     // 事件点（依赖世界尺寸，必须在 world 赋值之后）
     this.eventPoints = getEventPoints(this.stage, this.world).map(p => ({ ...p, done: !!this.run.completedEvents[p.id], icon: null, label: null }));
 
@@ -243,7 +272,9 @@ export default class BattleScene extends Phaser.Scene {
       combos: buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4'])
         .map(inst => (inst.defId === 'duo' && this.tuning.duoBonus !== null
           ? { ...inst, bonus: this.tuning.duoBonus } : inst))
-        .filter(inst => inst.order.every(id => this.grid.cells[id].unlocked && this.grid.cells[id].slot?.kind === 'sigil' && !this.grid.cells[id].mutedOutput)),
+        .filter(inst => inst.order.every(id => this.grid.cells[id].unlocked && this.grid.cells[id].slot?.kind === 'sigil'
+          && slotComboEligible(this.grid.cells[id].slot) && !this.grid.cells[id].mutedOutput)),
+      comboEligible: slot => slotComboEligible(slot),
       onEvent: (type, data) => this.onEngineEvent(type, data),
     });
     this.engine.start();
@@ -443,6 +474,11 @@ export default class BattleScene extends Phaser.Scene {
           this.effects.directionTrace(origin, owner, this.sectorRect(cellId), def.color, false);
           this.applySigil(cellId, def.id);
           this.effects.spellWard(def.id, SIGIL_DEFS[def.id].radius ?? 40);
+        } else if (kind === 'nova') {
+          // 新星以自身为圆心，不需要锁敌：光迹收到自己身上，落点就是玩家位置（castMs 走前摇）
+          this.effects.directionTrace(origin, owner, this.sectorRect(cellId), def.color, false);
+          this.queueOrCommit(cellId, def.id, { x: owner.x, y: owner.y }, castAngle);
+          this.effects.burst(owner.x, owner.y, def.color, 4);
         } else {
           // 割草齐射：单次触发对扇区内最近的 N 个敌人各打一发（各类型 N 见 sector.VOLLEY_LIMITS）。
           // 屏幕内一个可选目标都没有时「停火等待」：不放弹丸、不朝屏外画光迹，等怪进屏再打。
@@ -505,6 +541,16 @@ export default class BattleScene extends Phaser.Scene {
         const lastCell = data.order?.[data.order.length - 1];
         const bonusVisual = Number.isInteger(lastCell) && this.grid.cells[lastCell]?.slot ? this.sigilOf(lastCell) : null;
         for (const enemy of bonusResult.targets ?? []) this.onEnemyHit(enemy, null, null, bonusVisual, true);
+        // 专属连携：在联组中心飘一个短词，命中目标再补一次元素色冲击
+        if (bonusResult.linkage) {
+          const center = centers?.[Math.floor((centers.length - 1) / 2)] ?? this.player;
+          const pair = bonusResult.linkage;
+          const color = HEX.brassLight;
+          this.effects.labelPopup(center.x, center.y - 26, '连携 · ' + pair.name, color, 9);
+          for (const enemy of pair.targets ?? []) {
+            if (Number.isFinite(enemy?.x)) this.effects.hitSpark(enemy.x, enemy.y, 0, -1, C.brassLight, 0.55);
+          }
+        }
         this.triggerDeathBursts();
         this.collectDefeated();
         break;
@@ -605,10 +651,12 @@ export default class BattleScene extends Phaser.Scene {
 
     if (this.phase === 'play' && !this.paused && !frozen) {
       this.engine.advance(dt);
+      this.tickPendingCasts();
       this.updatePlayer(dt);
       this.updateSpawner(dt);
       this.updateEnemies(dt);
       this.updateHostileShots(dt);
+      this.updateSummons(dt);
       this.updateProjectiles(dt);
       this.updateShards(dt);
       this.updateExpMotes(dt);
@@ -725,7 +773,8 @@ export default class BattleScene extends Phaser.Scene {
     if (this.spawnTimer > 0) return;
     const dif = difficultyAt(this.engine.now, this.stage);
     const warming = this.engine.now < this.warmupMs;
-    const room = dif.maxAlive - this.enemies.length;
+    // 槽位预算：变体 cost 2 的怪顶两只，所以 room 按 enemySpawnLoad 而不是只数算
+    const room = dif.maxAlive - enemySpawnLoad(this.enemies);
     if (room <= 0) {
       // 满场：短暂停手等击杀腾位，避免每帧空转
       this.spawnTimer = 160;
@@ -748,7 +797,14 @@ export default class BattleScene extends Phaser.Scene {
       minDist: 275, maxDist: 380, minGap: 30,
       nearDist: 250, farDist: 430,
     });
-    for (const point of points) this.spawnEnemy(dif, point);
+    let spawned = 0;
+    for (const point of points) {
+      // 槽位预算：变体 cost 2（持盾/精英/天生精英）时一波可能只塞得下 1 只。
+      // 已刷出 ≥1 只后超载就 break；一只都还没刷时仍落第一只，避免整波空转。
+      if (spawned > 0 && enemySpawnLoad(this.enemies) >= dif.maxAlive) break;
+      this.spawnEnemy(dif, point);
+      spawned++;
+    }
   }
 
   spawnEnemy(dif, point = null) {
@@ -761,10 +817,14 @@ export default class BattleScene extends Phaser.Scene {
       minDist: 275, maxDist: 380, minGap: 30,
       nearDist: 250, farDist: 430,
     });
-    // 按幕权重抽敌人类型；属性 = 难度基准 × 等级成长 × 敌种倍率
-    const def = pickEnemyType(this.chapter, this.combatRng.next());
+    // 按幕权重抽敌人类型，再按幕权重叠一层变体；天生精英（def.elite）不再叠变体。
+    // RNG 顺序固定：类型 roll → 变体 roll，同一 seed 的刷怪序列可复现。
+    const base = pickEnemyType(this.chapter, this.combatRng.next());
+    const variant = base.elite ? null : pickEnemyVariant(this.chapter, base, this.combatRng.next());
+    const def = composeEnemyDef(base, variant);
+    // 属性 = 难度基准 × 等级成长 × 敌种/变体倍率
     const lv = levelStats(this.run.progression.level);
-    this.enemies.push(new Enemy(
+    const enemy = new Enemy(
       this,
       def,
       x, y,
@@ -773,7 +833,9 @@ export default class BattleScene extends Phaser.Scene {
       dif.speed * (def.speedMul ?? 1) * lv.speedMul,
       Math.round((def.damage ?? dif.damage) * lv.damageMul),
       this.enemySeq++,
-    ));
+    );
+    this.enemies.push(enemy);
+    return enemy;
   }
 
   updateEnemies(dt) {
@@ -915,6 +977,8 @@ export default class BattleScene extends Phaser.Scene {
       player: this.player, oath: this.grid.oath, now: this.engine.now,
       buffMul: this.run.compassBuffs.damageMul, hitBonus: this.run.compassBuffs.hitBonus,
       view: this.viewRect(),
+      // 专属连携的同对冷却表挂在 run 上，跨帧保留
+      linkageCd: (this.run.linkageCd ??= {}),
     };
   }
 
@@ -924,10 +988,22 @@ export default class BattleScene extends Phaser.Scene {
     if (!cell) {
       return { hits: 0, damage: 0, aim: null, empty: true, targets: [], sacrificeSpent: 0, sacrificeApplied: false };
     }
-    // 清掉上一轮的伤害读数：applyDamage 会把这一下真实扣血写回 enemy.lastHitAmount
-    for (const e of this.enemies) e.lastHitAmount = 0;
+    // 清掉上一轮的伤害读数：applyDamage 会把这一下真实扣血写回 enemy.lastHitAmount。
+    // lastBlocked 也清零，避免 applyDamage 早退（已死/非法伤害）时残留上一发的护盾火花。
+    for (const e of this.enemies) {
+      e.lastHitAmount = 0;
+      e.lastBlocked = 0;
+    }
+    // 召唤物的读数一起清（它们走同一套 onEnemyHit 反馈，但不进敌人列表）
+    for (const s of this.summons ?? []) {
+      if (!s) continue;
+      s.lastHitAmount = 0;
+      s.lastBlocked = 0;
+    }
     const view = this.viewRect();
-    const result = resolveSigilTrigger({ grid: this.grid, cellId, defId, state: this.combatState(), enemies: this.enemies, aimPoint, view });
+    // 召唤物也能被法术选中/打掉：只在这一处把敌人列表换成「敌人 + 召唤物」，
+    // 其余结算循环（经验/碎片/尸爆/连斩）仍只看 this.enemies。
+    const result = resolveSigilTrigger({ grid: this.grid, cellId, defId, state: this.combatState(), enemies: this.combatTargets(), aimPoint, view });
     if (result.sacrificeApplied) {
       const c = cellCenter(cellId);
       this.effects.text(c.x, c.y - 10, '献祭 -8盾 双倍', HEX.blood, true);
@@ -939,6 +1015,8 @@ export default class BattleScene extends Phaser.Scene {
     for (const enemy of result.targets) this.onEnemyHit(enemy, aimPoint, impactAngle, visual, perTarget);
     this.triggerDeathBursts();
     this.collectDefeated();
+    // 被法术打掉的召唤物：只做爆散，不给经验/碎片/尸爆种子（不进 collectDefeated）
+    this.sweepSummons();
     return result;
   }
 
@@ -960,6 +1038,12 @@ export default class BattleScene extends Phaser.Scene {
     const amount = Number.isFinite(enemy.lastHitAmount) ? enemy.lastHitAmount : 0;
     enemy.hitAt = now;
     enemy.hitReact?.(dx, dy, amount, now);
+    // 护盾吸收：青钢色火花 + 金属音，和普通受击叠加（护盾档伤害时 amount=0，不会重复飘字）。
+    // 放在 detailed 早退之前：低细节档（群伤）也要有「这只有盾」的反馈。
+    if (Number.isFinite(enemy.lastBlocked) && enemy.lastBlocked > 0) {
+      this.effects.hitSpark(enemy.x, enemy.y, dx, dy, C.teal, 0.5);
+      sfx.shieldHit();
+    }
     if (!detailed) return;
     const color = visual?.color ?? C.arcane;
     this.effects.hitSpark(enemy.x, enemy.y, dx, dy, color, enemy.hitPower ?? 0.6);
@@ -986,6 +1070,17 @@ export default class BattleScene extends Phaser.Scene {
     return burst.killed;
   }
 
+  // 破盾：碎片爆散 + 金属碎裂音 + 一次 ≤2px/120ms 的轻震屏。
+  // 由 Enemy.consumeShieldBreak 在 update 里只回调一次；这里不重复结算伤害/碎片。
+  onEnemyShieldBreak(enemy) {
+    if (!enemy) return;
+    const x = Number.isFinite(enemy.x) ? enemy.x : this.player.x;
+    const y = Number.isFinite(enemy.y) ? enemy.y : this.player.y;
+    this.effects.shieldBreak(x, y);
+    sfx.shieldBreak();
+    this.cameras.main.shake(120, 0.002);
+  }
+
   // 精英践踏：圈内玩家受击（带无敌帧，不会连续吃满）
   onEnemyStomp(enemy, stomp) {
     if (!stomp || this.phase !== 'play' || !this.player.alive) return;
@@ -1008,18 +1103,47 @@ export default class BattleScene extends Phaser.Scene {
   resolveProjectile(p) {
     if (!Number.isInteger(p.cellId)) return;   // 没有格号的弹丸不结算，见 applySigil 的防御
     const impactAngle = Math.atan2(p.ty - p.sy, p.tx - p.sx);
-    // 命中方向 = 弹道方向，供受击后坐使用（比用落点差值更稳，落点常常就在目标身上）
-    const result = this.applySigil(p.cellId, p.def.id, { x: p.tx, y: p.ty }, impactAngle);
-    const def = SIGIL_DEFS[p.def.id];
+    // 有前摇的法术：先亮预警圈，castMs 后再真正结算（弹丸这一下已经飞到了，等的是「落点要爆」）
+    this.queueOrCommit(p.cellId, p.def.id, { x: p.tx, y: p.ty }, impactAngle);
+  }
+
+  // 前摇统一入口：castMs > 0 只排队 + 预警，否则立刻结算。
+  queueOrCommit(cellId, defId, point, angle) {
+    const def = SIGIL_DEFS[defId];
+    const castMs = castTimeOf(defId);
+    if (castMs > 0) {
+      this.pendingCasts.push({ cellId, defId, x: point.x, y: point.y, angle, at: this.engine.now + castMs });
+      this.effects.telegraph(point.x, point.y, castMs, def.color, def.radius ?? 46);
+      return null;
+    }
+    return this.commitSigil(cellId, defId, point, angle);
+  }
+
+  // 真正结算一次命中 + 播全部命中表现。resolveProjectile 与前摇到点都走这里，保证两路表现一致。
+  commitSigil(cellId, defId, point, angle) {
+    const result = this.applySigil(cellId, defId, point, angle);
+    const def = SIGIL_DEFS[defId];
     const radius = Number.isFinite(def?.radius) ? def.radius
-      : p.def.id === 'meteor_judgment' ? 95
-        : p.def.id === 'quake_maw' ? 80
-          : p.def.id === 'starfall' ? 70
+      : defId === 'meteor_judgment' ? 95
+        : defId === 'quake_maw' ? 80
+          : defId === 'starfall' ? 70
             : 14;
-    this.effects.spellImpact(p.def.id, p.tx, p.ty, radius, impactAngle);
-    this.spellPunch(p.def.id, p.tx, p.ty, radius, impactAngle);
-    this.spellLinkFx(p.def.id, p, result);
-    if (!result.hits) this.effects.impact(p.x, p.y, p.def.color, true);
+    this.effects.spellImpact(defId, point.x, point.y, radius, angle);
+    this.spellPunch(defId, point.x, point.y, radius, angle);
+    this.spellLinkFx(defId, {}, result);
+    this.reactionFx({ tx: point.x, ty: point.y }, result);
+    if (!result.hits) this.effects.impact(point.x, point.y, def?.color ?? C.arcane, true);
+    return result;
+  }
+
+  // 前摇到点：engine.now 到 at 才结算。暂停/顿帧时 engine.now 不走，前摇自然停住。
+  tickPendingCasts() {
+    if (!this.pendingCasts?.length) return;
+    const now = this.engine.now;
+    const due = this.pendingCasts.filter(cast => now >= cast.at);
+    if (!due.length) return;
+    this.pendingCasts = this.pendingCasts.filter(cast => now < cast.at);
+    for (const cast of due) this.commitSigil(cast.cellId, cast.defId, { x: cast.x, y: cast.y }, cast.angle);
   }
 
   // 命中重量：按法术分级震屏，重击额外给短顿帧。同法术 gapMs 内只吃一次，
@@ -1064,6 +1188,21 @@ export default class BattleScene extends Phaser.Scene {
     } else if (defId === 'soul_lance' || defId === 'mana_siphon') {
       for (const t of targets) this.effects.spellLink(defId, t, this.player, 0);
     }
+  }
+
+  // 派系反应的表现层：落点飘反应名，补跳目标点各自补一次元素色冲击，
+  // 净化回血在玩家头顶补一个绿色短词。数值全部已经在 effects.js 里结算完，这里只画。
+  reactionFx(p, result) {
+    const reaction = result?.reaction;
+    if (!reaction) return;
+    const color = parseInt(String(reaction.color ?? REACTIONS[reaction.id]?.color ?? '#b8a0ff').slice(1), 16);
+    if (reaction.id === 'purify' && reaction.healed > 0) {
+      this.effects.labelPopup(this.player.x, this.player.y - 24, `+${reaction.healed}`, C.teal, 8);
+    }
+    for (const target of reaction.extraTargets ?? []) {
+      this.effects.hitSpark(target.x, target.y, target.x - p.tx, target.y - p.ty, color, 0.5);
+    }
+    this.effects.labelPopup(p.tx, p.ty - 30, reaction.name, color, 9);
   }
 
   // ---------- 暂停编辑法阵（保留冷却；战斗实时不可改，暂停可改） ----------
@@ -1159,6 +1298,11 @@ export default class BattleScene extends Phaser.Scene {
     };
     const names = this.editNames();
     const draft = this.editDraft;
+    // 编辑中的共鸣要按「尚未提交的草稿」算，不能读已应用的盘面
+    const draftGrid = {
+      ...this.grid,
+      cells: this.grid.cells.map((c, i) => ({ ...c, slot: draft.slots?.[i] ?? null })),
+    };
 
     // 背景：与幕间同一套双层外框 + 硬边竖纹
     pxRect(g, 0, 0, 480, 270, C.void);
@@ -1204,6 +1348,7 @@ export default class BattleScene extends Phaser.Scene {
         focus: this.editFocus,
         auxSrc: this.editAuxPending === id ? id : null,
         auxValid: !!auxNeighbors?.has(id) && slot?.kind === 'sigil',
+        resonant: slot?.kind === 'sigil' && resonanceMultiplier(draftGrid, id) > 1,
         selecting: !!this.editSelected,
         target: draft.auxTargets?.[id],
         runes: (draft.runes?.[id] ?? []).filter(Boolean).length,
@@ -1214,13 +1359,15 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     // 左下：待放置卡 / 当前符位详情 / 操作指引三选一
-    const selDef = this.editSelected ? this.editSelected.split(':')[1] : null;
-    if (selDef) {
-      const visual = cardVisual({ kind: this.editSelected.split(':')[0], defId: selDef });
+    const selCard = cardOf(this.editSelected);
+    const selDef = selCard?.defId ?? null;
+    const selLabel = selCard ? cardDisplayName(selCard) : '';
+    if (selCard) {
+      const visual = cardVisual(selCard);
       kitDetail(g, text, { x: 10, y: 174, w: 224, h: 74 }, {
         title: '待放置 · 点左侧空符位', accent: C.brassLight, icon: visual.glyph,
         lines: [
-          { text: (names[selDef]?.name ?? selDef) + ' ×' + (this.editHand[this.editSelected] ?? 0), color: HEX.arcaneLight, size: 8 },
+          { text: selLabel + ' ×' + (this.editHand[this.editSelected] ?? 0), color: HEX.arcaneLight, size: 8 },
           { text: this.editHint(selDef), color: HEX.mute, size: 7, max: 28 },
           { text: '放置后点「完成」才会生效', color: HEX.teal, size: 7 },
         ],
@@ -1234,13 +1381,17 @@ export default class BattleScene extends Phaser.Scene {
       const exitText = (draft.exits?.[id] ?? ['up', 'down', 'left', 'right'])
         .map(d => ({ up: '上', down: '下', left: '左', right: '右' })[d]).join('') || '无';
       const tgt = draft.auxTargets?.[id];
+      const faction = slot?.kind === 'sigil' ? factionOf(slot.defId) : null;
+      const resonance = faction ? resonanceMultiplier(draftGrid, id) : 1;
+      const reaction = faction ? reactionAt(draftGrid, id) : null;
       kitDetail(g, text, { x: 10, y: 174, w: 224, h: 74 }, {
         title: '符位详情 · ' + (id + 1) + ' 号',
         accent: slot?.kind === 'auxiliary' ? C.teal : C.arcane,
         icon: visual?.glyph ?? null,
         lines: [
-          { text: slot ? (names[slot.defId]?.name ?? slot.defId) : (unlocked.includes(id) ? '空符位' : '未解封'), color: HEX.parchment, size: 8 },
+          { text: slot ? cardDisplayName(slot) : (unlocked.includes(id) ? '空符位' : '未解封'), color: HEX.parchment, size: 8 },
           { text: '间隔 ' + (cell.effIntervalMs / 1000).toFixed(2) + 's / 冷却 ' + (cell.effCooldownMs / 1000).toFixed(2) + 's', color: HEX.mute, size: 7 },
+          ...(faction ? [{ text: '派系 ' + FACTIONS[faction].name + ' · 共鸣 +' + Math.round((resonance - 1) * 100) + '%' + (reaction ? ' · 反应' + reaction.name : ''), color: resonance > 1 || reaction ? HEX.teal : HEX.mute, size: 7, max: 30 }] : []),
           { text: '铭文 ' + runeText + ' · 出口 ' + exitText + (tgt !== undefined ? ' · 目标 ' + (tgt + 1) + '号' : ''), color: HEX.mute, size: 7, max: 28 },
         ],
       });
@@ -1264,11 +1415,12 @@ export default class BattleScene extends Phaser.Scene {
     text(465, 45, hand.reduce((a, [, c]) => a + c, 0) + ' 张', 7, HEX.mute).setOrigin(1, 0);
     let row = 0;
     for (const [key, count] of hand.slice(this.editHandPage * 5, this.editHandPage * 5 + 5)) {
-      const defId = key.split(':')[1];
+      const handCard = cardOf(key);
+      const defId = handCard?.defId;
       const rect = { x: 244, y: 57 + row * 17, w: 216, h: 15 };
       const isSel = this.editSelected === key;
       kitHandRow(g, text, rect, {
-        defId, kind: key.split(':')[0], count,
+        defId, kind: handCard?.kind, count, label: cardDisplayName(handCard),
         hint: this.editHint(defId),
         selected: isSel,
       });
@@ -1276,7 +1428,7 @@ export default class BattleScene extends Phaser.Scene {
         this.editSelected = isSel ? null : key;
         this.editAuxPending = null;
         this.editNote = this.editSelected
-          ? '已选 ' + (names[defId]?.name ?? defId) + '：点左侧空符位放置'
+          ? '已选 ' + cardDisplayName(handCard) + '：点左侧空符位放置'
           : '已取消选择';
         this.drawGridEdit();
       } });
@@ -1336,19 +1488,22 @@ export default class BattleScene extends Phaser.Scene {
     // 选牌优先于绑定：等待目标期间如果玩家选了一张牌，他要能先改牌面（比如把符印补回去），
     // 否则「目标失效 → 进入绑定模式 → 却放不了牌」会把局面卡死。
     if (selKey) {
-      const [kind, defId] = selKey.split(':');
-      const card = { kind, defId };
+      const card = cardOf(selKey);
+      if (!card) { this.editNote = '这张卡的数据不合法，已取消选择'; this.editSelected = null; this.drawGridEdit(); return; }
+      const kind = card.kind, defId = card.defId;
       const old = draft.slots?.[id];
       // 收回原卡到手的副本
-      if (old) { const k = old.kind + ':' + old.defId; this.editHand[k] = (this.editHand[k] ?? 0) + 1; }
+      if (old) { const k = cardKeyOf(old); this.editHand[k] = (this.editHand[k] ?? 0) + 1; }
       this.editHand[selKey]--;
       if (this.editHand[selKey] <= 0) delete this.editHand[selKey];
       draft.slots ??= {};
-      draft.slots[id] = card;
+      // 这张法术若已进化，新放置的格子直接带上进化路线
+      const evolved = card.kind === 'sigil' ? this.run.evolutions?.[card.defId] : null;
+      draft.slots[id] = evolved ? { ...card, evo: evolved } : card;
       // 指向该格的辅助目标随之失效
       for (const [src, tgt] of Object.entries(draft.auxTargets ?? {})) if (src === String(id) || (tgt === id && kind !== 'sigil')) delete draft.auxTargets[src];
       this.editSelected = null;
-      this.editNote = '已放置 ' + (names[defId]?.name ?? defId);
+      this.editNote = '已放置 ' + cardDisplayName(card);
       if (kind === 'auxiliary' && AUX_TARGETED.has(defId) && auxTargetCandidates(this.editDraft, id).length) {
         this.editAuxPending = id;
         this.editNote = '点相邻输出格绑定目标';
@@ -1385,11 +1540,11 @@ export default class BattleScene extends Phaser.Scene {
     // 无选择：收回该格卡牌
     const old = draft.slots?.[id];
     if (!old) { this.editNote = (id + 1) + ' 号是空格'; this.drawGridEdit(); return; }
-    const k = old.kind + ':' + old.defId;
+    const k = cardKeyOf(old);
     this.editHand[k] = (this.editHand[k] ?? 0) + 1;
     delete draft.slots[id];
     for (const [src, tgt] of Object.entries(draft.auxTargets ?? {})) if (tgt === id || src === String(id)) delete draft.auxTargets[src];
-    this.editNote = '已收回 ' + (names[old.defId]?.name ?? old.defId);
+    this.editNote = '已收回 ' + cardDisplayName(old);
     this.syncAuxPending();
     this.drawGridEdit();
   }
@@ -1431,7 +1586,8 @@ export default class BattleScene extends Phaser.Scene {
     this.run.hand = { ...this.editHand };
     // 罗盘乘算在改阵后重放
     rebuildDerived(this.grid, ACTS[this.chapter - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
-    this.engine.setCombos(buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4']).filter(inst => inst.order.every(id => this.grid.cells[id].unlocked && this.grid.cells[id].slot?.kind === 'sigil' && !this.grid.cells[id].mutedOutput)));
+    this.engine.setCombos(buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4']).filter(inst => inst.order.every(id => this.grid.cells[id].unlocked && this.grid.cells[id].slot?.kind === 'sigil'
+      && slotComboEligible(this.grid.cells[id].slot) && !this.grid.cells[id].mutedOutput)));
     this.editOpen = false;
     if (this.editPointer) { this.input.off('pointerdown', this.editPointer); this.editPointer = null; }
     if (this.editHoverMove) { this.input.off('pointermove', this.editHoverMove); this.editHoverMove = null; }
@@ -1478,8 +1634,21 @@ export default class BattleScene extends Phaser.Scene {
     this.input.keyboard.resetKeys();
     const pool = [...CARD_POOL];
     const picks = [];
-    while (picks.length < 3 && pool.length) picks.push(pool.splice(Math.floor(this.combatRng.next() * pool.length), 1)[0]);
+    // 进化优先：盘面/手牌里已有、还没升级的法术，有 45% 概率占一个候选位。
+    const evoPick = this.rollEvolutionPick();
+    if (evoPick) picks.push(evoPick);
+    while (picks.length < 3 && pool.length) {
+      const base = pool.splice(Math.floor(this.combatRng.next() * pool.length), 1)[0];
+      picks.push(base.kind === 'sigil' ? { kind: 'sigil', defId: base.defId, variant: rollVariant(this.combatRng, base.defId) } : base);
+    }
     const names = { ...SIGIL_DEFS, ...AUX_DEFS };
+    const cardLabel = card => card.kind === 'evolution'
+      ? '进化 · ' + card.route.name
+      : card.kind === 'auxiliary'
+        ? (names[card.defId]?.name ?? card.defId) : variantOf(card.defId, card.variant).name;
+    const cardSub = card => card.kind === 'evolution' ? (names[card.defId]?.name ?? card.defId) + ' 全部强化'
+      : card.kind === 'auxiliary' ? '辅助'
+        : card.variant === 'harmon' ? '符印 · 谐' : card.variant === 'sharp' ? '符印 · 锐' : '符印 · 标';
     this.levelupUI = this.add.container(0, 0).setDepth(2600).setScrollFactor(0);
     this.uiRoot?.add(this.levelupUI);
     const g = this.add.graphics();
@@ -1491,8 +1660,9 @@ export default class BattleScene extends Phaser.Scene {
       const bg = this.add.graphics();
       pxRect(bg, x, 102, 108, 66, C.stoneDark); pxFrame(bg, x, 102, 108, 66, this.combatRng.next() < 0.5 ? C.brass : C.teal, 1, 1);
       this.levelupUI.add(bg);
-      this.levelupUI.add(addText(this, x + 54, 108, names[card.defId]?.name ?? card.defId, 9, card.kind === 'auxiliary' ? HEX.teal : HEX.parchment).setOrigin(0.5, 0));
-      this.levelupUI.add(addText(this, x + 54, 126, card.kind === 'auxiliary' ? '辅助' : '符印', 7, HEX.mute).setOrigin(0.5, 0));
+      this.levelupUI.add(addText(this, x + 54, 108, cardLabel(card), 9,
+        card.kind === 'evolution' ? HEX.brassLight : card.kind === 'auxiliary' ? HEX.teal : HEX.parchment).setOrigin(0.5, 0));
+      this.levelupUI.add(addText(this, x + 54, 126, cardSub(card), 7, card.variant === 'harmon' ? HEX.teal : HEX.mute).setOrigin(0.5, 0));
       this.levelupUI.add(addText(this, x + 54, 156, '点击或按 ' + (i + 1), 7, HEX.brass).setOrigin(0.5, 0));
     });
     this.levelupRects = picks.map((card, i) => ({ card, x: 78 + i * 118, y: 102, w: 108, h: 66 }));
@@ -1511,17 +1681,57 @@ export default class BattleScene extends Phaser.Scene {
     this.levelupUI.add(addText(this, 240, 182, '点击卡片或按 1/2/3 选择；卡片进手牌，暂停菜单→编辑法阵 可放置', 7, HEX.mute).setOrigin(0.5, 0));
   }
 
+  // 进化候选：只从「已拥有且未升级」的法术里挑一条路线，避免三选一里出现用不上的进化。
+  rollEvolutionPick() {
+    if (this.combatRng.next() > 0.45) return null;
+    const owned = new Set();
+    for (const cell of this.grid.cells) if (cell.slot?.kind === 'sigil') owned.add(cell.slot.defId);
+    for (const key of Object.keys(this.run.hand ?? {})) {
+      const card = cardOf(key);
+      if (card?.kind === 'sigil') owned.add(card.defId);
+    }
+    const options = [];
+    for (const defId of owned) {
+      if (this.run.evolutions?.[defId]) continue;
+      for (const route of EVOLUTIONS[defId] ?? []) options.push({ kind: 'evolution', defId, evo: route.id, route });
+    }
+    if (!options.length) return null;
+    return options[Math.floor(this.combatRng.next() * options.length)];
+  }
+
+  // 选中进化：写进 run.evolutions，并把盘面上该法术的所有格子一起升级（立刻重建派生）。
+  applyEvolution({ defId, evo }) {
+    this.run.evolutions ??= {};
+    this.run.evolutions[defId] = evo;
+    let count = 0;
+    for (const cell of this.grid.cells) {
+      if (cell.slot?.kind === 'sigil' && cell.slot.defId === defId) {
+        cell.slot = { ...cell.slot, evo };
+        count++;
+      }
+    }
+    rebuildDerived(this.grid, ACTS[this.chapter - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
+    return count;
+  }
+
   pickLevelupCard(card) {
     if (this.phase !== 'levelup' || !card) return;
-    const key = card.kind + ':' + card.defId;
-    this.run.hand[key] = (this.run.hand[key] ?? 0) + 1;
+    const evolved = card.kind === 'evolution';
+    if (evolved) this.applyEvolution(card);
+    else {
+      const key = cardKeyOf(card);
+      this.run.hand[key] = (this.run.hand[key] ?? 0) + 1;
+    }
     if (this.levelupHandler) { this.input.off('pointerdown', this.levelupHandler); this.levelupHandler = null; }
     for (const key of ['ONE', 'TWO', 'THREE']) this.input.keyboard?.off('keydown-' + key);
     this.levelupUI?.destroy(true); this.levelupUI = null;
     this.levelupRects = null;
     this.pendingPicks--;
     sfx.correct();
-    this.effects.text(240, 150, '已入手 ' + key.split(':')[1], HEX.teal, true);
+    this.effects.text(240, 150, evolved
+      ? '已进化 ' + (SIGIL_DEFS[card.defId]?.name ?? card.defId) + ' → ' + card.route.name
+      : '已入手 ' + (card.kind === 'auxiliary'
+        ? (AUX_DEFS[card.defId]?.name ?? card.defId) : variantOf(card.defId, card.variant).name), evolved ? HEX.brassLight : HEX.teal, true);
     if (this.pendingPicks > 0) this.openLevelupPick();
     else { this.phase = 'play'; this.paused = false; this.engine.paused = false; }
   }
@@ -1540,7 +1750,7 @@ export default class BattleScene extends Phaser.Scene {
         pxRect(chest.g, chest.x - 1, chest.y - 1, 2, 2, C.brassLight, 1);
       }
       if (Math.hypot(this.player.x - chest.x, this.player.y - chest.y) < 16) {
-        const buff = rollBuff(CHARACTER_BUFFS, () => this.combatRng.next());
+        const buff = rollBuffWeighted(CHARACTER_BUFFS, () => this.combatRng.next(), this.run.kitAffinity);
         if (buff) {
           const adapter = {
             maxHp: this.player.maxHp,
@@ -1647,6 +1857,7 @@ export default class BattleScene extends Phaser.Scene {
     this.bossDefeated = false;
     this.releaseProjectiles();
     this.hostileShots = []; this.hostileG.clear();
+    this.summons = []; this.summonG?.clear(); this.summonAirG?.clear();
     for (const chest of this.chests) chest.g?.destroy();
     this.chests = [];
     // 新场中心落位 + 事件点按新场重建（旧场已完成点仍记在 run.completedEvents）
@@ -1656,7 +1867,7 @@ export default class BattleScene extends Phaser.Scene {
     this.player.draw(this.engine.now);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setDeadzone(60, 40);
-    this.cameras.main.setFollowOffset(0, isPortrait() ? 190 : 0);
+    this.cameras.main.setFollowOffset(0, followBaseY());
     this.eventPoints = getEventPoints(next, this.world).map(p => ({ ...p, done: !!this.run.completedEvents[p.id], icon: null, label: null }));
     // 刷怪节奏轻启，但引擎时间/等级/构筑全部延续（密度按新的幕生效）。
     this.spawnTimer = 700;
@@ -1703,9 +1914,9 @@ export default class BattleScene extends Phaser.Scene {
     if (this.combatRng.next() < 0.008 && this.chests.length < 4) this.spawnChest(e.x, e.y);
     // 击杀爆散：小怪碎成骨屑与身体碎片飞出去（精英更大一圈），经验粒子就在这团里飞出
     this.effects.deathScatter(e.x, e.y, e.def?.color ?? C.bone, { elite: !!e.def?.elite });
-    // 碎片：密度 ×10 后按概率掉（精英必掉 4 颗），避免工作台经济被瞬间刷爆
+    // 碎片：密度 ×10 后按概率掉（精英必掉 4 颗，变体再按 shardsAdd 加量），避免工作台经济被瞬间刷爆
     if (e.def?.elite || this.combatRng.next() < 0.45) {
-      const drop = e.def?.elite ? 4 : 1;
+      const drop = (e.def?.elite ? 4 : 1) + (e.def?.variant?.shardsAdd ?? 0);
       for (let i = 0; i < drop; i++) this.spawnShard(e.x + (i - (drop - 1) / 2) * 4, e.y - (i % 2) * 3);
     }
     e.alive = false;
@@ -1879,9 +2090,10 @@ export default class BattleScene extends Phaser.Scene {
     if (!receipt.ok) return;
     this.shardCount += receipt.reward; this.kills++;
     // Boss 战利品：问答定义给出法术卡进手牌 + 随机一个罗盘本体增益
-    const spellKey = 'sigil:' + stageSpellCard(this.stage);
+    const spellDefId = stageSpellCard(this.stage);
+    const spellKey = cardKeyOf({ kind: 'sigil', defId: spellDefId, variant: rollVariant(this.combatRng, spellDefId) });
     this.run.hand[spellKey] = (this.run.hand[spellKey] ?? 0) + 1;
-    const buff = rollBuff(COMPASS_BUFFS, () => this.combatRng.next());
+    const buff = rollBuffWeighted(COMPASS_BUFFS, () => this.combatRng.next(), this.run.kitAffinity);
     if (buff) {
       const level = metaLevel(this.metaSave, buff.id);
       const desc = applyPassiveToCompass(buff, this.run.compassBuffs, level);
@@ -1899,6 +2111,7 @@ export default class BattleScene extends Phaser.Scene {
     }
     this.bossStarted = false; // 复位：小Boss解决后，大Boss等级触发仍可生效
     this.hostileShots = []; this.hostileG.clear();
+    this.summons = []; this.summonG?.clear(); this.summonAirG?.clear();
     if (this.boss) {
       const x = this.boss.x, y = this.boss.y;
       this.boss.alive = false; this.boss.rewarded = true; this.boss.destroy();
@@ -1913,8 +2126,8 @@ export default class BattleScene extends Phaser.Scene {
   resumeFollow(offsetY = 0) {
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setDeadzone(60, 40);
-    // 竖屏原本就有 190 的取景偏移；Boss 战再把镜头往上抬，避免 72/104px 立绘顶出 HUD。
-    const base = isPortrait() ? 190 : 0;
+    // 先回到本局基准取景；Boss 战再临时上抬，避免 72/104px 立绘顶出 HUD。
+    const base = followBaseY();
     this.cameras.main.setFollowOffset(0, base + offsetY);
   }
 
@@ -1926,6 +2139,7 @@ export default class BattleScene extends Phaser.Scene {
     this.bossCamOffset = 0;
     this.resumeFollow();
     this.hostileShots = []; this.hostileG.clear();
+    this.summons = []; this.summonG?.clear(); this.summonAirG?.clear();
     for (const enemy of this.enemies) enemy.destroy(); this.enemies = [];
     this.releaseProjectiles();
     // 通幕瞬间的余韵：白闪 + 杖尖余波，再交给过场接住
@@ -1936,25 +2150,239 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   addHostileShot(shot) {
-    if (this.bossDefeated || this.hostileShots.length >= 64) return;
-    this.hostileShots.push({ ...shot });
+    if (!shot || this.bossDefeated) return;
+    const shots = Array.isArray(this.hostileShots) ? this.hostileShots : (this.hostileShots = []);
+    // 上限 96（spec §5.1：64 → 96），超限直接丢弃新弹，不抢占场上已有的弹
+    if (shots.length >= HOSTILE_LIMITS.shots) return;
+    shots.push({ ...shot });
     sfx.enemyShot();
   }
 
   updateHostileShots(dt) {
-    for (let i = this.hostileShots.length - 1; i >= 0; i--) {
-      const s = this.hostileShots[i];
-      s.lifeMs -= dt; s.x += s.vx * dt / 1000; s.y += s.vy * dt / 1000;
-      // 弹丸是世界坐标（Boss/远程怪在玩家附近开火），清退边界必须跟世界尺寸走；
-      // 旧单屏 480×270 边界会让地图左上角以外的战斗首发弹即消失（偶发弹幕失效的根因）。
-      if (s.lifeMs <= 0 || s.x < 0 || s.x > this.world.w || s.y < 0 || s.y > this.world.h) { this.hostileShots.splice(i, 1); continue; }
-      if (Math.hypot(s.x - this.player.x, s.y - this.player.y) < this.player.radius + 3) {
-        if (this.player.takeDamage(s.damage, this.engine.now)) { this.effects.hurt(); sfx.hurt(); }
-        this.hostileShots.splice(i, 1);
+    // 推进/命中/出界/寿命/上限全部在 hostile.js；这里只做受击结算与绘制。
+    // 测试假场景可能没有 summons/summonG，此处不假设它们存在。
+    const shots = Array.isArray(this.hostileShots) ? this.hostileShots : (this.hostileShots = []);
+    const result = stepHostileShots(shots, {
+      dtMs: dt,
+      player: this.player,
+      world: this.world,
+      maxShots: HOSTILE_LIMITS.shots,
+    });
+    this.hostileShots = result.list;
+    for (const hit of result.hits) {
+      // 命中只走玩家 takeDamage（含 1400ms 无敌帧），命中反馈与旧版一致
+      if (typeof this.player?.takeDamage !== 'function') continue;
+      if (this.player.takeDamage(hit.damage, this.engine?.now ?? 0)) {
+        this.effects?.hurt?.();
+        this.effects?.impact?.(hit.x, hit.y, C.blood, true);
+        sfx.hurt();
       }
     }
-    this.hostileG.clear();
-    for (const s of this.hostileShots) { this.hostileG.fillStyle(C.blood, 1); this.hostileG.fillRect(Math.round(s.x) - 1, Math.round(s.y) - 1, 3, 3); }
+    const g = this.hostileG;
+    if (!g) return;
+    g.clear();
+    for (const shot of this.hostileShots) drawHostileShot(g, shot);
+  }
+
+  // 可被法术选中的目标：敌人 + 召唤物。只传给 resolveSigilTrigger 的 enemies 参数；
+  // 经验/碎片/尸爆/连斩等结算循环仍只看 this.enemies，召唤物永远不算击杀。
+  combatTargets() {
+    const enemies = Array.isArray(this.enemies) ? this.enemies : [];
+    const summons = Array.isArray(this.summons) ? this.summons : [];
+    return enemies.concat(summons);
+  }
+
+  // 敌方召唤物入场：全场上限 20、跨列表炮台 12 / 符文 8、同一 owner 同时 1 个。
+  // 入列前 normalizeSummon 并分配负数 id（与敌人正 id 不冲突）；被拒绝时不产生任何表现。
+  addEnemySummon(enemy, spec) {
+    if (!spec || this.bossDefeated) return null;
+    const list = Array.isArray(this.summons) ? this.summons : (this.summons = []);
+    if (list.length >= HOSTILE_LIMITS.summons) return null;
+    const kind = spec.kind === 'rune' ? 'rune' : 'turret';
+    // owner 可能是数字 id 或字符串键（enemy-ai 两种都允许），只认非空值
+    const hasOwner = (typeof spec.owner === 'string' && spec.owner.length > 0) || Number.isFinite(spec.owner);
+    const owner = hasOwner ? spec.owner : (Number.isFinite(enemy?.id) ? enemy.id : -1);
+    const cap = kind === 'rune' ? HOSTILE_LIMITS.rune : HOSTILE_LIMITS.turret;
+    let sameKind = 0;
+    let ownerBusy = false;
+    for (const s of list) {
+      if (!s || s.alive === false) continue;
+      if (s.kind === kind) sameKind++;
+      const sHasOwner = (typeof s.owner === 'string' && s.owner.length > 0) || Number.isFinite(s.owner);
+      const sOwner = sHasOwner ? s.owner : -1;
+      if (sOwner === owner) ownerBusy = true;
+    }
+    if (sameKind >= cap || ownerBusy) return null;
+    // 炮台弹伤 = 召唤者伤害 ×0.6（hostile.js 明确不在这里打折，由场景侧折算一次）；
+    // T2 若已在事件里给了折算后的 damage，就直接用，绝不二次乘。
+    const fallbackDamage = Math.max(1, Math.round((enemy?.damage ?? enemy?.baseDamage ?? 6) * (kind === 'turret' ? 0.6 : 1)));
+    const damage = Number.isFinite(spec.damage) && spec.damage > 0 ? spec.damage : fallbackDamage;
+    this.summonsSeq = Number.isFinite(this.summonsSeq) ? this.summonsSeq : -1;
+    const summon = normalizeSummon({
+      ...spec,
+      kind,
+      owner,
+      id: this.summonsSeq--,
+      damage,
+      def: {
+        id: kind === 'rune' ? 'summon_rune' : 'summon_turret',
+        color: spec.def?.color ?? (kind === 'rune' ? C.blood : C.arcane),
+      },
+      lastHitAmount: 0,
+      lastBlocked: 0,
+    });
+    summon.lifeMax = summon.lifeMs;
+    list.push(summon);
+    this.effects?.summonPulse?.(summon.x, summon.y, kind, summon.def.color);
+    sfx.summon();
+    return summon;
+  }
+
+  // 召唤物每帧：先兜底清扫死亡（stepSummons 会静默丢弃 dead 项，不扫就丢表现），
+  // 再推进（炮台弹并入 hostileShots、符文引信产出 detonations），最后单批绘制。
+  updateSummons(dt) {
+    this.sweepSummons();
+    const summons = Array.isArray(this.summons) ? this.summons : (this.summons = []);
+    const result = stepSummons(summons, {
+      dtMs: dt,
+      player: this.player,
+      world: this.world,
+      maxShots: HOSTILE_LIMITS.shots,
+    });
+    this.summons = result.list;
+    for (const shot of result.shots) this.addHostileShot(shot);
+    for (const det of result.detonations) this.detonateRune(det);
+    this.drawSummons();
+  }
+
+  // 死亡扫描：applySigil 命中后 / 每帧推进前各兜底一次。
+  // 召唤物死亡只做爆散表现，不给经验/碎片/掉落，也不进 collectDefeated。
+  sweepSummons() {
+    const list = this.summons;
+    if (!Array.isArray(list) || !list.length) return 0;
+    let removed = 0;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const summon = list[i];
+      if (summon && summon.alive !== false && summon.hp > 0) continue;
+      if (summon) this.onSummonDestroyed(summon);
+      list.splice(i, 1);
+      removed++;
+    }
+    return removed;
+  }
+
+  onSummonDestroyed(summon) {
+    if (!summon) return;
+    const x = Number.isFinite(summon.x) ? summon.x : this.player.x;
+    const y = Number.isFinite(summon.y) ? summon.y : this.player.y;
+    const color = summon.def?.color ?? C.bone;
+    this.effects?.deathScatter?.(x, y, color, { elite: false });
+    this.effects?.burst?.(x, y, color, 6);
+    sfx.dissipate();
+  }
+
+  // 符文引爆：半径内玩家吃伤害（走 takeDamage 尊重无敌帧）+ 向外 6 发环形弹 + 爆炸表现。
+  detonateRune(det) {
+    if (!det) return;
+    const x = Number.isFinite(det.x) ? det.x : this.player.x;
+    const y = Number.isFinite(det.y) ? det.y : this.player.y;
+    const radius = Number.isFinite(det.radius) ? det.radius : 44;
+    const damage = Number.isFinite(det.damage) && det.damage > 0 ? det.damage : 8;
+    this.effects?.burst?.(x, y, C.blood, 14);
+    this.effects?.impact?.(x, y, C.blood, true);
+    this.cameras?.main?.shake?.(120, 0.004);
+    if (this.player?.alive && typeof this.player.takeDamage === 'function') {
+      const dist = Math.hypot(this.player.x - x, this.player.y - y);
+      if (dist <= radius + (this.player.radius ?? 0)) {
+        if (this.player.takeDamage(damage, this.engine?.now ?? 0)) {
+          this.effects?.hurt?.();
+          sfx.hurt();
+        }
+      }
+    }
+    const ringDamage = Math.max(1, Math.round(damage * 0.5));
+    for (let i = 0; i < 6; i++) {
+      if (this.hostileShots.length >= HOSTILE_LIMITS.shots) break;
+      const a = (i / 6) * Math.PI * 2;
+      this.hostileShots.push(makeShot({ x, y }, { x: Math.cos(a), y: Math.sin(a) }, {
+        kind: 'bolt', speed: 90, damage: ringDamage, radius: 3, lifeMs: 5200,
+      }));
+    }
+    sfx.enemyShot();
+  }
+
+  // 召唤物绘制（两层）：符文贴地画在 summonG（低于敌人），炮台悬浮画在 summonAirG
+  // （高于敌人）。炮台悬停菱形环（now 推导上下浮动，确定性）/ 符文地面菱形 + 引信进度。
+  drawSummons() {
+    const ground = this.summonG;
+    const air = this.summonAirG ?? this.summonG;
+    if (!ground && !air) return;
+    ground?.clear();
+    if (air !== ground) air?.clear();
+    // 符文与炮台都画在上层：符文在玩家脚下（会被玩家身体遮住一半），炮台在施法者头顶。
+    // 若场景只提供了 summonG（测试假场景），退回同一张画布即可。
+    const g = air ?? ground;
+    const now = Number.isFinite(this.engine?.now) ? this.engine.now : 0;
+    for (const s of this.summons ?? []) {
+      if (!s || s.alive === false) continue;
+      const x = Math.round(s.x);
+      const y = Math.round(s.y);
+      if (s.kind === 'rune') {
+        const lifeMax = Number.isFinite(s.lifeMax) && s.lifeMax > 0 ? s.lifeMax : 1200;
+        const progress = Math.max(0, Math.min(1, 1 - s.lifeMs / lifeMax));
+        const gy = y + 5; // 视觉落点在脚前，逻辑判定仍在 (x, y)
+        pxDiamond(g, x, gy, 6, C.outline, 0.9, false);
+        pxDiamond(g, x, gy, 5, C.blood, 0.85, false);
+        pxDiamond(g, x, gy, 2, C.bloodDark, 1, true);
+        pxRing(g, x, gy, 10 - Math.round(6 * progress), C.blood, 0.6 + 0.4 * progress, 1);
+        // 引信条：符头上方 9×1，随时间缩短；最后 300ms 闪白提示「马上炸」
+        const flash = s.lifeMs < 300 && Math.floor(now / 80) % 2 === 0;
+        pxRect(g, x - 5, gy - 10, 11, 1, C.void, 0.8);
+        pxRect(g, x - 4, gy - 10, Math.max(1, Math.round(9 * (1 - progress))), 1, flash ? C.white : C.arcane, 1);
+        continue;
+      }
+      const bob = Math.round(Math.sin((now + (s.id ?? 0) * 97) / 240) * 1.5);
+      // 炮台画在施法者侧上方（视觉偏移 +14，逻辑位置不变），避免和施法者立绘糊成一团；
+      // 地面投影留在视觉位置下方，读作「悬浮装置」。
+      const sx = x + 14;
+      const hy = y - 26 + bob;
+      pxRect(g, sx - 5, y + 1, 11, 1, C.void, 0.45);
+      pxRing(g, sx, hy, 7, C.arcane, 0.45, 1);
+      pxDiamond(g, sx, hy, 4, C.outline, 0.95, false);
+      pxDiamond(g, sx, hy, 3, C.arcane, 1, false);
+      pxDiamond(g, sx, hy, 1, C.white, 1, true);
+      // 两侧稳定翼 + 下垂天线 + 虚线锚索，读起来像「装置」而不是宝石
+      pxRect(g, sx - 9, hy, 2, 3, C.arcaneLight, 0.85);
+      pxRect(g, sx + 7, hy, 2, 3, C.arcaneLight, 0.85);
+      pxRect(g, sx, hy + 4, 1, 3, C.arcaneLight, 0.9);
+      for (let d = 10; d < 26; d += 5) pxRect(g, sx, y - d, 1, 1, C.arcane, 0.35);
+    }
+  }
+
+  // 近战出手：扇形判定走 hostile.meleeHits（距离 ≤ range + 玩家半径、夹角 ≤ arc/2）。
+  // 命中才 takeDamage（尊重无敌帧）；无论命中都出 slash + meleeSwing + 轻震屏。
+  // 不走 applyDamage —— 那是敌人受伤的口径。
+  onEnemyMelee(enemy, melee) {
+    if (!melee || this.phase !== 'play' || !this.player?.alive) return false;
+    const x = Number.isFinite(melee.x) ? melee.x : (enemy?.x ?? this.player.x);
+    const y = Number.isFinite(melee.y) ? melee.y : (enemy?.y ?? this.player.y);
+    const angle = Number.isFinite(melee.angle) ? melee.angle : 0;
+    const range = Number.isFinite(melee.range) && melee.range > 0 ? melee.range : 24;
+    const arc = Number.isFinite(melee.arc) && melee.arc > 0 ? melee.arc : Math.PI / 2;
+    this.effects?.slash?.(x, y, angle, range, arc, enemy?.def?.color ?? C.blood);
+    sfx.meleeSwing();
+    this.cameras?.main?.shake?.(70, 0.0022);
+    if (!meleeHits(melee, this.player)) return false;
+    if (typeof this.player.takeDamage !== 'function') return false;
+    const damage = Number.isFinite(melee.damage) ? melee.damage : (enemy?.damage ?? 8);
+    const dealt = this.player.takeDamage(damage, this.engine?.now ?? 0);
+    if (dealt) {
+      this.effects?.hurt?.();
+      this.effects?.impact?.(this.player.x, this.player.y, C.blood, true);
+      sfx.hurt();
+      this.cameras?.main?.shake?.(120, 0.004);
+    }
+    return !!dealt;
   }
 
   checkDeath() {
@@ -1966,6 +2394,9 @@ export default class BattleScene extends Phaser.Scene {
     this.phase = 'dying';
     this.paused = true;
     this.engine.paused = true;
+    // 玩家死亡：清空敌方弹幕与召唤物（炮台/符文不再继续打）
+    this.hostileShots = []; this.hostileG?.clear();
+    this.summons = []; this.summonG?.clear(); this.summonAirG?.clear();
     this.pauseMenu.hide();
     this.board.setDetailVisible(false);
     this.pauseHint.setVisible(false);
@@ -2069,7 +2500,12 @@ export default class BattleScene extends Phaser.Scene {
     this.background = null;
     this.encounterPanel.destroy();
     this.hostileG.destroy();
+    this.summonG?.destroy();
+    this.summonAirG?.destroy();
+    this.summonG = null;
+    this.summonAirG = null;
     this.hostileShots = [];
+    this.summons = [];
     for (const e of this.enemies) e.destroy();
     for (const p of this.projectiles) p.destroy();
     for (const s of this.shards) s.destroy();
@@ -2082,4 +2518,33 @@ export default class BattleScene extends Phaser.Scene {
     this.shards = [];
     if (window.__SIGILWEAVE_BATTLE__ === this) window.__SIGILWEAVE_BATTLE__ = null;
   }
+}
+
+// 敌方弹丸按形状绘制：bolt 3×3 方点 / orb 5×5 菱形 / homing 4×4 方点 + 反向尾迹。
+// 放在模块级而不是场景方法：updateHostileShots 的裸 ctx 测试（只给 graphics 替身）
+// 也能照常走绘制路径，不必为渲染细节在测试里伪造方法。全部硬边几何，零渐变零随机。
+function drawHostileShot(g, shot) {
+  const x = Math.round(shot.x);
+  const y = Math.round(shot.y);
+  if (shot.kind === 'orb') {
+    pxDiamond(g, x, y, 2, C.blood, 1, true);
+    pxDiamond(g, x, y, 1, C.arcaneLight, 0.9, true);
+    return;
+  }
+  if (shot.kind === 'homing') {
+    const speed = Math.hypot(shot.vx, shot.vy);
+    if (speed > 1e-6) {
+      const ux = shot.vx / speed;
+      const uy = shot.vy / speed;
+      for (let i = 1; i <= 3; i++) {
+        const d = i * 4;
+        pxRect(g, Math.round(x - ux * d) - 1, Math.round(y - uy * d) - 1, 2, 2, C.bloodDark, 0.55 - i * 0.13);
+      }
+    }
+    pxRect(g, x - 2, y - 2, 4, 4, C.blood, 1);
+    pxRect(g, x - 1, y - 1, 2, 2, C.arcaneLight, 1);
+    return;
+  }
+  pxRect(g, x - 1, y - 1, 3, 3, C.blood, 1);
+  pxRect(g, x, y, 1, 1, C.arcaneLight, 0.9);
 }

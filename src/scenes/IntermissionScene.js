@@ -6,14 +6,19 @@ import { createGrid } from '../logic/grid.js';
 import { applyDraft, draftFromGrid, unlockToTarget, AUX_TARGETED, missingAuxTargets, auxTargetCandidates } from '../logic/build.js';
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS } from '../logic/effects.js';
 import { neighborsOf } from '../logic/grid.js';
-import { createWorkshop, chooseReward, placeCard, removeCard, installRune, removeRune, canDepart } from '../logic/workshop.js';
+import { createWorkshop, chooseReward, placeCard, removeCard, installRune, removeRune, canDepart, cardOf } from '../logic/workshop.js';
+import { variantOf } from '../data/variants.js';
 import { ACTS, ORTHO_DIRS } from '../logic/constants.js';
 import { playCutscene } from '../ui/transition.js';
 import { kitPanel, kitBoard, kitBoardMotion, kitHeader, kitSteps, kitCell, kitHandRow, clipText } from '../ui/editor-ui.js';
-import { CARD_HINTS } from '../data/card-hints.js';
+import { CARD_HINTS, variantHintOf } from '../data/card-hints.js';
 
 const names = { ...SIGIL_DEFS, ...AUX_DEFS, ...RUNE_DEFS };
 const hints = CARD_HINTS;
+// 符印显示变体名（寒霜箭·谐），辅助用基础名。
+const cardLabel = card => !card ? ''
+  : card.kind === 'auxiliary' ? (AUX_DEFS[card.defId]?.name ?? card.defId)
+    : variantOf(card.defId, card.variant).name;
 const OATH_LIST = [['lone_star', '孤星'], ['watcher', '守夜'], ['martyr', '殉道']];
 
 export default class IntermissionScene extends Phaser.Scene {
@@ -208,9 +213,9 @@ export default class IntermissionScene extends Phaser.Scene {
       offer.cards.forEach((card, i) => {
         const r = L.rewardCard(i);
         this.iconButton(r.x, r.y, r.w, r.h, card.defId,
-          names[card.defId].name + '  领取', () => this.choose(i),
-          card.kind === 'auxiliary' ? HEX.teal : HEX.arcaneLight, card.kind);
-        this.text(r.x + 3, L.rewardHintY, hints[card.defId] ?? '', 7, HEX.mute);
+          cardLabel(card) + '  领取', () => this.choose(i),
+          card.kind === 'auxiliary' ? HEX.teal : (card.variant === 'harmon' ? HEX.teal : HEX.arcaneLight), card.kind);
+        this.text(r.x + 3, L.rewardHintY, clipText((variantHintOf(card) ? variantHintOf(card) + ' · ' : '') + (hints[card.defId] ?? ''), 34), 7, card.variant === 'harmon' ? HEX.teal : HEX.mute);
       });
     } else {
       this.text(20, 42, '三轮奖励已领取 · 选右侧手牌，再点左侧符位放置', 8, HEX.teal);
@@ -260,7 +265,7 @@ export default class IntermissionScene extends Phaser.Scene {
     if (this.exitMode) {
       // 出口编辑面板：临时覆盖统计区，不改动法阵本身
       this.panel(g, L.exitPanel.x, L.exitPanel.y, L.exitPanel.w, L.exitPanel.h, { fill: C.ink, alpha: 0.97, frame: C.brass });
-      this.text(16, L.exitTitleY, '出口编辑 · ' + (this.focusCell + 1) + ' 号（' + (w.draft.slots[this.focusCell] ? names[w.draft.slots[this.focusCell].defId] : '空符位') + '）', 8, HEX.brassLight);
+      this.text(16, L.exitTitleY, '出口编辑 · ' + (this.focusCell + 1) + ' 号（' + (w.draft.slots[this.focusCell] ? cardLabel(w.draft.slots[this.focusCell]) : '空符位') + '）', 8, HEX.brassLight);
       const cur = this.currentExits(this.focusCell);
       const dirs = [['up', '上'], ['down', '下'], ['left', '左'], ['right', '右']];
       dirs.forEach(([d, label], i) => {
@@ -285,7 +290,7 @@ export default class IntermissionScene extends Phaser.Scene {
     this.text(16, L.statsY[0], '输出 ' + outputs + ' / 辅助 ' + auxes + ' / 空位 ' + empties, 8, HEX.teal);
     this.text(232, L.statsY[0], '上幕 触发 ' + (this.report.triggers ?? 0) + ' · 击杀 ' + (this.report.kills ?? 0), 7, HEX.mute).setOrigin(1, 0);
     const focusSlot = w.draft.slots[this.focusCell];
-    const focusName = focusSlot ? (names[focusSlot.defId]?.name ?? focusSlot.defId) : '空符位';
+    const focusName = focusSlot ? cardLabel(focusSlot) : '空符位';
     this.text(16, L.statsY[1], (this.focusCell + 1) + ' 号 · ' + focusName + '　间隔 ' + (cell.effIntervalMs / 1000).toFixed(2) + 's / 冷却 ' + (cell.effCooldownMs / 1000).toFixed(2) + 's', 8, HEX.parchment);
     const runeText = (w.draft.runes[this.focusCell] ?? []).filter(Boolean).map(r => names[r]?.name ?? r).join(' / ') || '无';
     const exitText = this.currentExits(this.focusCell).map(d => ({ up: '上', down: '下', left: '左', right: '右' })[d]).join('') || '无';
@@ -305,8 +310,8 @@ export default class IntermissionScene extends Phaser.Scene {
     const handTypes = Object.values(w.hand).filter(Boolean).length;
     const handTotal = Object.values(w.hand).reduce((a, b) => a + b, 0);
     this.panel(g, L.handPanel.x, L.handPanel.y, L.handPanel.w, L.handPanel.h, { fill: C.ink, alpha: 0.9 });
-    const selDefId = this.selectedCard ? this.selectedCard.split(':')[1] : null;
-    const selName = selDefId ? (names[selDefId]?.name ?? selDefId) : null;
+    const selCard = cardOf(this.selectedCard);
+    const selName = selCard ? cardLabel(selCard) : null;
     this.text(L.handPanel.x + 4, L.handPanel.y + 4,
       selName ? clipText('已选 ' + selName + ' · 点左侧空符位放置', 17) : ('手牌 ' + handTypes + ' 种 / ' + handTotal + ' 张'),
       8, selName ? HEX.teal : HEX.brass);
@@ -320,11 +325,13 @@ export default class IntermissionScene extends Phaser.Scene {
     const maxRows = isPortrait() ? 6 : 5;
     for (const [key, count] of Object.entries(w.hand)) {
       if (!count || row >= maxRows) continue;
-      const defId = key.split(':')[1];
+      const handCard = cardOf(key);
+      const defId = handCard?.defId;
       const r = L.handRow(row);
       this.handRow(r.x, r.y, r.w, r.h, {
         defId,
-        kind: key.split(':')[0],
+        kind: handCard?.kind,
+        label: cardLabel(handCard),
         count,
         hint: hints[defId] ?? '',
         selected: this.selectedCard === key,
@@ -429,7 +436,7 @@ export default class IntermissionScene extends Phaser.Scene {
     // 选牌优先于绑定：等待目标期间玩家也要能先改牌面（例如把被换掉的符印补回去），
     // 否则「目标失效 → 等绑定 → 却放不了牌」会把局面卡死。
     if (this.selectedCard) {
-      const defId = this.selectedCard.split(':')[1];
+      const defId = cardOf(this.selectedCard)?.defId;
       const result = placeCard(this.workshop, id, this.selectedCard);
       this.note = result.message;
       if (result.ok) {

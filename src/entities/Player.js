@@ -3,6 +3,7 @@
 // 法杖尖端必须与 staffTipOf 严格对齐——所有法术特效从这里起手（见 docs/staff-origin.png）。
 import { C, pxRect } from '../ui/Palette.js';
 import { PLAYER } from '../data/roster.js';
+import { kitStyle } from '../ui/kit-style.js';
 
 // 法杖尖端（世界坐标）：所有法术特效的统一出发位置。
 // 美术升级后立绘高 42px，法杖随之上移：杖头在朝向侧 +10/-11，尖端在 y-27。
@@ -26,6 +27,8 @@ export default class Player {
     this.y = y;
     this.hp = PLAYER.hp;
     this.shield = 0;
+    // 三套职业只改「披风/胸章/法杖尖端」三处小配色，人物本体仍是同一张立绘。
+    this.kitStyle = kitStyle(scene.run?.kitId);
     this.maxHp = PLAYER.hp;
     this.radius = PLAYER.radius;
     this.alive = true;
@@ -142,8 +145,41 @@ export default class Player {
     const staffX = this.facing > 0 ? x + 10 : x - 11;
     pxRect(g, staffX, y - 24 - bob, 1, 31, 0x6b4a24, 1);
     pxRect(g, staffX - 1, y - 26 - bob, 3, 2, C.brass, 1);
-    pxRect(g, staffX, y - 27 - bob, 1, 1, C.teal, 1);
+    pxRect(g, staffX, y - 27 - bob, 1, 1, this.kitStyle?.accentLight ?? C.teal, 1);
     pxRect(g, staffX - 2, y - 27 - bob, 5, 1, C.brassDark, 0.55);
+    this.drawKitAccents(x, staffX, y - 27 - bob, y - 20 - bob);
+  }
+
+  // 职业小配件：披风拖尾（背向侧）+ 胸章 + 法杖尖端换色。
+  // 全部是 1~2px 的硬边色块，叠在现有立绘上，不改人物轮廓，也不新增美术图。
+  drawKitAccents(x, staffX, staffTipY, chestY) {
+    const style = this.kitStyle;
+    if (!style) return;
+    const g = this.g;
+    const dir = this.facing > 0 ? -1 : 1;   // 朝右时披风向左拖，朝左时向右拖
+    const backX = dir < 0 ? x - 5 : x + 3;
+    const wave = this.moving ? (Math.floor(this.walkPhase / 160) % 2) : 0;
+    pxRect(g, backX, chestY + 1 + wave, 2, 4, style.cape, 0.95);
+    pxRect(g, backX + dir, chestY + 3 + wave, 2, 2, style.capeDark, 0.9);
+    pxRect(g, backX + dir * 2, chestY + 4 + wave, 1, 2, style.accent, 0.8);
+    // 胸章：三种 3×3 像素字，形状不同、颜色不同
+    const ex = x - 1;
+    const ey = chestY + 5;
+    if (style.emblem === 'wing') {
+      pxRect(g, ex - 1, ey, 1, 2, style.accent, 1);
+      pxRect(g, ex + 1, ey, 1, 2, style.accentLight, 1);
+      pxRect(g, ex, ey + 1, 1, 1, style.accent, 1);
+    } else if (style.emblem === 'ember') {
+      pxRect(g, ex, ey, 1, 2, style.accentLight, 1);
+      pxRect(g, ex - 1, ey + 1, 1, 1, style.accent, 1);
+      pxRect(g, ex + 1, ey + 1, 1, 1, style.accent, 1);
+    } else {
+      pxRect(g, ex, ey, 1, 3, style.accent, 1);
+      pxRect(g, ex - 1, ey + 1, 3, 1, style.accentLight, 1);
+    }
+    // 法杖尖端小光点：与胸章同色系，施法时更容易认职业
+    pxRect(g, staffX - 1, staffTipY, 1, 1, style.accent, 0.85);
+    pxRect(g, staffX + 1, staffTipY, 1, 1, style.accent, 0.55);
   }
 
   // ---------- 程序化回退（素材缺失时） ----------
@@ -165,7 +201,7 @@ export default class Player {
     const staffX = this.facing > 0 ? x + 6 : x - 7;
     pxRect(g, staffX, y - 12 - bob, 1, 17, 0x6b4a24, 1);
     pxRect(g, staffX - 1, y - 14 - bob, 3, 2, C.brass, 1);
-    pxRect(g, staffX, y - 15 - bob, 1, 1, C.teal, 1);
+    pxRect(g, staffX, y - 15 - bob, 1, 1, this.kitStyle?.accentLight ?? C.teal, 1);
 
     const legL = step ? 1 : 0;
     pxRect(g, x - 3, y + 3, 2, 4 - legL, 0x6b4a24, 1);
@@ -188,6 +224,7 @@ export default class Player {
     pxRect(g, x - 2, y - 8 - bob, 1, 1, C.ink, 1);
     pxRect(g, x + 1, y - 8 - bob, 1, 1, C.ink, 1);
     pxRect(g, x - 3, y - 11 - bob, 6, 1, C.stoneLight, 1);
+    this.drawKitAccents(x, staffX, y - 15 - bob, y - 4 - bob);
 
     if (flash) {
       pxRect(g, x - 4, y - 10 - bob, 8, 15, C.white, 0.7);

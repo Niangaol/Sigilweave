@@ -48,9 +48,10 @@ describe('割草齐射：一格一次打多个', () => {
   });
 
   it('各结算类型的齐射上限就是设计值', () => {
-    expect(VOLLEY_LIMITS).toEqual({ single: 3, fan3: 2, chain: 2, pierce: 2, echo: 1, ward: 0, area: 1 });
+    expect(VOLLEY_LIMITS).toEqual({ single: 3, fan3: 2, chain: 2, pierce: 2, echo: 1, ward: 0, area: 1, nova: 1 });
     expect(volleyLimit('single')).toBe(3);
     expect(volleyLimit('area')).toBe(1);
+    expect(volleyLimit('nova')).toBe(1);
     expect(volleyLimit('nonsense')).toBe(1);
     expect(volleyLimit(undefined)).toBe(1);
   });

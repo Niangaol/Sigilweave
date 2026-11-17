@@ -2,6 +2,7 @@
 // 之前“无外部资源”的注释已作废——素材现位于 public/assets/，构建时随 Vite 拷贝。
 import Phaser from 'phaser';
 import { applyPixelZoom } from '../ui/Palette.js';
+import { ensureVariantTextures } from '../ui/variant-parts.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
 
 // 精灵表：key 与文稿参数总表一致；frameWidth/Height 即文稿规定的单帧像素尺寸
@@ -105,6 +106,8 @@ export default class BootScene extends Phaser.Scene {
   }
 
   create() {
+    // 变体配件纹理：必须在任何敌人实例创建前生成（幂等，已有同名美术 PNG 时跳过）
+    ensureVariantTextures(this);
     this.createAnims();
     applyPixelZoom(this);
     this.cameras.main.setBackgroundColor('#0d0a17');

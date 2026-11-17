@@ -25,8 +25,8 @@ function trigger(grid, cellId, defId, st, enemies, aimPoint) {
 
 describe('每个法术都必须有独立图标', () => {
   const ids = Object.keys(SIGIL_DEFS);
-  it('符印数量已扩充到 16', () => {
-    expect(ids.length).toBe(16);
+  it('符印数量已扩充到 24', () => {
+    expect(ids.length).toBe(24);
   });
   it('每个符印都在 SIGILS 里有 8×8 字模，且不是空格', () => {
     for (const id of ids) {

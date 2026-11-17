@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { STARTING_KITS, ACT1_STARTING_CELLS, getKit, createRun, recordAct } from '../src/logic/run.js';
 import { applyDraft } from '../src/logic/build.js';
+import { CHARACTER_BUFFS, COMPASS_BUFFS } from '../src/logic/progression.js';
 import { createGrid } from '../src/logic/grid.js';
 import { SIGIL_DEFS } from '../src/data/cards.js';
 
@@ -72,11 +73,12 @@ describe('开局法术套装', () => {
     expect(run.chapter).toBe(1);
     expect(run.stage).toBe(1);
     expect(run.shards).toBe(0);
+    // 开局四张固定谐律形态：伤害 -18%，但第一幕就能摆联组。
     expect(run.draft.slots).toEqual({
-      4: { kind: 'sigil', defId: 'frost_arrow' },
-      5: { kind: 'sigil', defId: 'arcane_bolt' },
-      6: { kind: 'sigil', defId: 'flame_burst' },
-      9: { kind: 'sigil', defId: 'holy_ward' },
+      4: { kind: 'sigil', defId: 'frost_arrow', variant: 'harmon' },
+      5: { kind: 'sigil', defId: 'arcane_bolt', variant: 'harmon' },
+      6: { kind: 'sigil', defId: 'flame_burst', variant: 'harmon' },
+      9: { kind: 'sigil', defId: 'holy_ward', variant: 'harmon' },
     });
     expect(createRun('compat').draft.slots).toEqual(createRun('compat', 'bolt').draft.slots);
     expect(createRun(123).seed).toBe('123');
@@ -115,5 +117,54 @@ describe('开局法术套装', () => {
     expect(recordAct(run, { triggers: 2 })).toBe(true);
     expect(run.reports.map(r => r.chapter)).toEqual([1, 2]);
     expect(run.reports[1].stage).toBe(2);
+  });
+});
+
+
+describe('三职业本命被动', () => {
+  it('每套绑两条 already-existing 被动，且 id 都能在现有池里查到', () => {
+    const ids = new Set([...CHARACTER_BUFFS, ...COMPASS_BUFFS].map(b => b.id));
+    for (const kit of STARTING_KITS) {
+      expect(kit.role.length).toBeGreaterThan(0);
+      expect(kit.affinity).toHaveLength(2);
+      expect(new Set(kit.affinity).size).toBe(2);
+      for (const id of kit.affinity) expect(ids.has(id)).toBe(true);
+    }
+    expect(STARTING_KITS.map(k => k.affinity)).toEqual([
+      ['swift', 'haste'], ['might', 'chain'], ['aegis', 'tough'],
+    ]);
+  });
+
+  it('疾风：开局移速 ×1.08、触发间隔 ×0.92', () => {
+    const run = createRun('kit', 'bolt');
+    expect(run.kitId).toBe('bolt');
+    expect(run.kitAffinity).toEqual(['swift', 'haste']);
+    expect(run.characterStats.speedMult).toBeCloseTo(1.08, 10);
+    expect(run.characterStats.shield).toBe(0);
+    expect(run.compassBuffs.intervalMul).toBeCloseTo(0.92, 10);
+    expect(run.compassBuffs.damageMul).toBe(1);
+  });
+
+  it('烈焰：开局伤害 ×1.12、连击窗口 ×1.25', () => {
+    const run = createRun('kit', 'flame');
+    expect(run.characterStats.speedMult).toBe(1);
+    expect(run.characterStats.maxHp).toBe(100);
+    expect(run.compassBuffs.damageMul).toBeCloseTo(1.12, 10);
+    expect(run.compassBuffs.comboWindowMul).toBeCloseTo(1.25, 10);
+  });
+
+  it('壁垒：护盾上限 50、无敌 +0.15s、开局 10 点盾', () => {
+    const run = createRun('kit', 'ward');
+    expect(run.characterStats.shieldCap).toBeCloseTo(50, 10);
+    expect(run.characterStats.iframesBonus).toBeCloseTo(0.15, 10);
+    expect(run.characterStats.shield).toBe(10);
+    expect(run.compassBuffs.damageMul).toBe(1);
+  });
+
+  it('回退 kit 也带上第一套的职业数据', () => {
+    const run = createRun('fallback-kit', 'nope');
+    expect(run.kitId).toBe('bolt');
+    expect(run.kitAffinity).toEqual(['swift', 'haste']);
+    expect(run.characterStats.speedMult).toBeCloseTo(1.08, 10);
   });
 });

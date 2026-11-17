@@ -4,6 +4,7 @@ import {
   POSITION_COOLDOWN, INTERVAL_FLOOR_MS, COOLDOWN_FLOOR_MS, RESONANCE_FACTOR,
 } from './constants.js';
 import { SIGIL_DEFS } from '../data/cards.js';
+import { evolutionOf } from '../data/evolutions.js';
 
 export function toId(r, c) {
   return r * GRID_N + c;
@@ -113,7 +114,10 @@ export function rebuildDerived(grid, baseIntervalMs, { cooldownMul = 1 } = {}) {
   }
   for (const cell of grid.cells) {
     const factor = Math.pow(RESONANCE_FACTOR, cell.resonanceStacks);
-    const cdMul = cell.slot?.kind === 'sigil' ? (SIGIL_DEFS[cell.slot.defId]?.cdMul ?? 1) : 1;
+    const evoMods = cell.slot?.kind === 'sigil' ? evolutionOf(cell.slot.defId, cell.slot.evo)?.mods : null;
+    const cdMul = cell.slot?.kind === 'sigil'
+      ? (SIGIL_DEFS[cell.slot.defId]?.cdMul ?? 1) * (evoMods?.cdMul ?? 1)
+      : 1;
     cell.effIntervalMs = Math.max(INTERVAL_FLOOR_MS, baseIntervalMs * factor * (cell.mutedOutput ? 0.6 : 1));
     cell.effCooldownMs = Math.max(COOLDOWN_FLOOR_MS, baseCooldown(cell.id) * factor * Math.pow(0.7, cell.hourglassStacks) * cdMul * cooldownMul);
   }

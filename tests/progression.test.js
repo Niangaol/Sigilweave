@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { expNeeded, createProgression, grantExp, levelStats, MAJOR_BOSS_LEVEL, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuff } from '../src/logic/progression.js';
+import { expNeeded, createProgression, grantExp, levelStats, MAJOR_BOSS_LEVEL, shouldTriggerMajorBoss, CHARACTER_BUFFS, COMPASS_BUFFS, rollBuff, rollBuffWeighted } from '../src/logic/progression.js';
 import { Rng } from '../src/logic/rng.js';
 
 const character = () => ({ maxHp: 100, hp: 60, speed: 100, pickupRadius: 40, iframeBonus: 0, shieldCap: 30 });
@@ -155,5 +155,42 @@ describe('确定性增益抽取', () => {
   });
   it('空池或非法参数返回 null', () => {
     expect(rollBuff([], () => 0)).toBeNull(); expect(rollBuff(null, () => 0)).toBeNull(); expect(rollBuff(COMPASS_BUFFS, null)).toBeNull();
+  });
+});
+
+
+describe('本命被动加权抽取', () => {
+  const pool = () => [
+    { id: 'life' }, { id: 'swift' }, { id: 'magnet' }, { id: 'aegis' },
+  ];
+
+  it('本命被动权重翻倍：区间边界可精确预测', () => {
+    // 权重：life 1 / swift 2 / magnet 1 / aegis 1，总权重 5。
+    const rng = (v) => () => v;
+    expect(rollBuffWeighted(pool(), rng(0), ['swift']).id).toBe('life');
+    expect(rollBuffWeighted(pool(), rng(0.199), ['swift']).id).toBe('life');
+    expect(rollBuffWeighted(pool(), rng(0.2), ['swift']).id).toBe('swift');
+    expect(rollBuffWeighted(pool(), rng(0.599), ['swift']).id).toBe('swift');
+    expect(rollBuffWeighted(pool(), rng(0.6), ['swift']).id).toBe('magnet');
+    expect(rollBuffWeighted(pool(), rng(0.8), ['swift']).id).toBe('aegis');
+    expect(rollBuffWeighted(pool(), rng(0.999), ['swift']).id).toBe('aegis');
+  });
+
+  it('无本命/非法参数时退化为均匀抽取或 null', () => {
+    expect(rollBuffWeighted(pool(), () => 0.5, []).id).toBe('magnet');
+    expect(rollBuffWeighted(pool(), () => 0.5, null).id).toBe('magnet');
+    expect(rollBuffWeighted(pool(), () => 0.5, ['swift'], 0).id).toBe('magnet');
+    expect(rollBuffWeighted(pool(), () => Number.NaN, ['swift'])).toBeNull();
+    expect(rollBuffWeighted(pool(), () => -0.1, ['swift'])).toBeNull();
+    expect(rollBuffWeighted(pool(), () => 1, ['swift'])).toBeNull();
+    expect(rollBuffWeighted([], () => 0.5, ['swift'])).toBeNull();
+    expect(rollBuffWeighted(pool(), null, ['swift'])).toBeNull();
+  });
+
+  it('只消费一个 rng 值，确定性可复盘', () => {
+    let calls = 0;
+    const rng = () => { calls++; return 0.5; };
+    rollBuffWeighted(pool(), rng, ['swift']);
+    expect(calls).toBe(1);
   });
 });

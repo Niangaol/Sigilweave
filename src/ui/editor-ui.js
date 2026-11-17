@@ -4,6 +4,7 @@
 // 这样两个 Scene 各自的容器（view / editUI）都能复用同一份界面语言，不会再各画一套。
 import { C, HEX, pxRect, pxFrame, pxLine, pxPoly, pxDiamond, drawGlyph } from './Palette.js';
 import { cardVisual } from '../data/roster.js';
+import { factionOf, FACTIONS } from '../data/factions.js';
 import { decoratePlan } from './board-decor.js';
 
 export function clipText(value, max = 24) {
@@ -324,7 +325,8 @@ export function kitCell(g, text, id, r, o = {}) {
     pxRect(g, x + 1, y + h - 2, w - 2, 1, C.nightDeep, 0.45);
   }
   // 左侧状态条：输出金 / 辅助青 / 空位暗紫 / 未解封石色
-  const stripe = !unlocked ? C.stoneDark : slot ? (slot.kind === 'auxiliary' ? C.teal : C.arcane) : C.groove;
+  const stripe = !unlocked ? C.stoneDark
+    : slot ? (slot.kind === 'auxiliary' ? C.teal : slot.evo ? C.brassLight : C.arcane) : C.groove;
   pxRect(g, x + 1, y + 2, 2, h - 4, stripe, unlocked ? 0.9 : 0.4);
   if (canPlace) pxRect(g, x, y, w, h, C.brassLight, 0.08);
   if (auxValid) pxRect(g, x, y, w, h, C.teal, 0.12);
@@ -337,6 +339,29 @@ export function kitCell(g, text, id, r, o = {}) {
       pxRect(g, sx, sy, 1, 1, C.brass, 0.35);
       pxLine(g, sx + dx, sy + dy, sx + dx * 2, sy + dy, C.brass, 0.22, 1);
       pxLine(g, sx + dx, sy + dy, sx + dx, sy + dy * 2, C.brass, 0.22, 1);
+    }
+  }
+
+  // 派系色点：左上角 2×2。共鸣时加一圈白框，编辑时一眼看出相邻同系。
+  const faction = slot?.kind === 'sigil' ? factionOf(slot.defId) : null;
+  if (unlocked && faction) {
+    const fc = parseInt(FACTIONS[faction].color.slice(1), 16);
+    pxRect(g, x + 3, y + 3, 2, 2, fc, 0.9);
+    if (o.resonant) pxFrame(g, x + 2, y + 2, 4, 4, C.white, 0.75);
+  }
+
+  // 进化徽记：右上金星，和变体徽记并排（变体靠最右，进化在它左边一格）
+  if (unlocked && slot?.kind === 'sigil' && slot.evo) {
+    pxDiamond(g, x + w - 9, y + 4, 2, C.brassLight, 0.95, true);
+  }
+
+  // 变体徽记：锐=右上三角（血橙），谐=右上菱形（青绿）。只标符印，不挡名字。
+  if (unlocked && slot?.kind === 'sigil' && slot.variant && slot.variant !== 'base') {
+    const bx = x + w - 5, by = y + 3;
+    if (slot.variant === 'sharp') {
+      pxPoly(g, [{ x: bx, y: by + 3 }, { x: bx + 2, y: by }, { x: bx + 4, y: by + 3 }], C.blood, 0.95);
+    } else {
+      pxDiamond(g, bx + 2, by + 1, 2, C.teal, 0.95, true);
     }
   }
 
@@ -443,7 +468,8 @@ export function kitHandRow(g, text, r, o = {}) {
   if (sel) pxRect(g, x + 1, y + 1, 2, h - 2, C.teal, 1);
   const visual = cardVisual({ kind: o.kind ?? 'sigil', defId: o.defId });
   if (visual.glyph) drawGlyph(g, x + 5, y + Math.max(2, Math.floor((h - 8) / 2)), visual.glyph, sel ? C.arcaneLight : C.parchment, { alpha: 0.95 });
-  text(x + 16, y + 2, clipText((visual.name ?? o.defId) + ' ×' + (o.count ?? 1), 11), 8, sel ? HEX.arcaneLight : HEX.parchment);
+  // label 让调用方传入变体名（「寒霜箭·谐」）；缺省仍用基础名。
+  text(x + 16, y + 2, clipText((o.label ?? visual.name ?? o.defId) + ' ×' + (o.count ?? 1), 11), 8, sel ? HEX.arcaneLight : HEX.parchment);
   if (o.hint) {
     text(x + w - 4, y + 4, clipText(o.hint, o.hintMax ?? 14), 7, sel ? HEX.arcaneLight : HEX.mute).setOrigin?.(1, 0);
   }

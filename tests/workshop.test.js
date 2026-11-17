@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createWorkshop, chooseReward, placeCard, removeCard, installRune, removeRune, canDepart, CARD_POOL } from '../src/logic/workshop.js';
-import { emptyDraft, validateDraft, applyDraft, snapshotBuild } from '../src/logic/build.js';
+import { createWorkshop, chooseReward, placeCard, removeCard, installRune, removeRune, canDepart, CARD_POOL, cardKeyOf } from '../src/logic/workshop.js';
+import { emptyDraft, validateDraft, applyDraft, snapshotBuild, AUX_TARGETED } from '../src/logic/build.js';
 import { createGrid } from '../src/logic/grid.js';
 
 function draft() {
@@ -11,7 +11,9 @@ function draft() {
   return d;
 }
 const make = (options = {}) => createWorkshop({ draft: draft(), ...options });
-const cardKey = card => card.kind + ':' + card.defId;
+const cardKey = cardKeyOf;
+// 池里的卡没有变体；变体在抽取时才摇定，覆盖断言按「种类 + 名称」比较。
+const poolKey = card => card.kind + ':' + card.defId;
 const total = state => Object.values(state.hand).reduce((sum, n) => sum + n, 0)
   + Object.values(state.draft.slots).filter(Boolean).length;
 function finish(state) {
@@ -35,7 +37,7 @@ describe('幕间三轮奖励', () => {
       expect(a.roundsRemaining).toBe(3 - round);
       expect(a.offer.cards).toHaveLength(3);
       expect(new Set(a.offer.cards.map(cardKey)).size).toBe(3);
-      for (const card of a.offer.cards) expect(CARD_POOL).toContainEqual(card);
+      for (const card of a.offer.cards) expect(CARD_POOL.some(c => poolKey(c) === poolKey(card))).toBe(true);
       if (round === 0) expect(a.offer.cards.every(c => c.kind === 'sigil')).toBe(true);
       ids.add(a.offer.id);
       expect(chooseReward(a, a.offer.id, round).ok).toBe(true);
@@ -65,9 +67,9 @@ describe('幕间三轮奖励', () => {
     for (let i = 0; i < 80; i++) {
       const s = make({ seed: i });
       chooseReward(s, s.offer.id, 0);
-      for (const card of s.offer.cards) seen.add(cardKey(card));
+      for (const card of s.offer.cards) seen.add(poolKey(card));
     }
-    expect([...seen].sort()).toEqual(CARD_POOL.map(cardKey).sort());
+    expect([...seen].sort()).toEqual(CARD_POOL.map(poolKey).sort());
   });
 });
 
@@ -78,7 +80,8 @@ describe('主槽与手牌交易', () => {
     for (let seed = 0; seed < 30; seed++) {
       s = make({ seed });
       chooseReward(s, s.offer.id, 0);
-      index = s.offer.cards.findIndex(card => card.kind === 'auxiliary');
+      // 只挑不需要目标的辅助：抽取顺序被变体判定改变后，这里不能再靠运气。
+      index = s.offer.cards.findIndex(card => card.kind === 'auxiliary' && !AUX_TARGETED.has(card.defId));
       if (index >= 0) break;
     }
     expect(index).toBeGreaterThanOrEqual(0);
@@ -96,25 +99,27 @@ describe('主槽与手牌交易', () => {
     const count = total(s);
     for (let i = 0; i < 25; i++) {
       expect(removeCard(s, 5).ok).toBe(true);
-      expect(placeCard(s, 6, 'sigil:arcane_bolt').ok).toBe(true);
-      expect(placeCard(s, 5, 'sigil:frost_arrow').ok).toBe(true);
+      expect(placeCard(s, 6, 'sigil:arcane_bolt#base').ok).toBe(true);
+      expect(placeCard(s, 5, 'sigil:frost_arrow#base').ok).toBe(true);
       expect(removeCard(s, 6).ok).toBe(true);
-      expect(placeCard(s, 5, 'sigil:arcane_bolt').ok).toBe(true);
-      expect(placeCard(s, 6, 'sigil:frost_arrow').ok).toBe(true);
+      expect(placeCard(s, 5, 'sigil:arcane_bolt#base').ok).toBe(true);
+      expect(placeCard(s, 6, 'sigil:frost_arrow#base').ok).toBe(true);
       expect(total(s)).toBe(count);
       expect(Object.values(s.hand).every(n => Number.isInteger(n) && n >= 0)).toBe(true);
     }
-    for (const slot of Object.values(s.draft.slots)) expect(Object.keys(slot).sort()).toEqual(['defId', 'kind']);
+    for (const slot of Object.values(s.draft.slots)) {
+      expect(Object.keys(slot).sort()).toEqual(slot.kind === 'sigil' ? ['defId', 'kind', 'variant'] : ['defId', 'kind']);
+    }
     expect(validateDraft(s.draft)).toEqual([]);
     expect(applyDraft(createGrid(), s.draft).ok).toBe(true);
   });
   it('空手牌、重复拆卸不会复制卡牌', () => {
     const s = make();
-    rejectedUnchanged(s, () => placeCard(s, 9, 'sigil:arcane_bolt'));
+    rejectedUnchanged(s, () => placeCard(s, 9, 'sigil:arcane_bolt#base'));
     expect(removeCard(s, 5).ok).toBe(true);
     rejectedUnchanged(s, () => removeCard(s, 5));
-    expect(placeCard(s, 9, 'sigil:arcane_bolt').ok).toBe(true);
-    rejectedUnchanged(s, () => placeCard(s, 10, 'sigil:arcane_bolt'));
+    expect(placeCard(s, 9, 'sigil:arcane_bolt#base').ok).toBe(true);
+    rejectedUnchanged(s, () => placeCard(s, 10, 'sigil:arcane_bolt#base'));
     expect(total(s)).toBe(2);
   });
   it.each(['remove', 'replace'])('拆走输出清除所有关联辅助目标：%s', action => {
@@ -211,7 +216,7 @@ describe('铭文支付与退款', () => {
 describe('边界、快照与出发', () => {
   it.each([-1, 16, 1.5, '5', null, undefined, NaN, {}, 0])('非法或未解封格号不抛错：%j', id => {
     const s = make({ shards: 20 });
-    for (const action of [() => placeCard(s, id, 'sigil:arcane_bolt'), () => removeCard(s, id),
+    for (const action of [() => placeCard(s, id, 'sigil:arcane_bolt#base'), () => removeCard(s, id),
       () => installRune(s, id, 'forge', 0), () => removeRune(s, id, 0)]) rejectedUnchanged(s, action);
   });
   it('不串改冻结输入快照、其他工作台以及提交后的快照', () => {
@@ -251,7 +256,7 @@ describe('边界、快照与出发', () => {
     expect(canDepart(s).ok).toBe(true);
     removeCard(s, 5);
     expect(canDepart(s).message).toContain('两张');
-    placeCard(s, 5, 'sigil:arcane_bolt');
+    placeCard(s, 5, 'sigil:arcane_bolt#base');
     s.draft.slots[5].unknown = true;
     const before = structuredClone(s);
     expect(canDepart(s).ok).toBe(false);

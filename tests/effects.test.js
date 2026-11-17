@@ -116,9 +116,9 @@ describe("联组追加结算", () => {
     for (const id of [0, 1]) g.cells[id].slot = { kind: "sigil", defId: "arcane_bolt" };
     const st = { player: player(0, 0), now: 0 };
     const enemies = [{ id: 9, alive: true, hp: 500, x: -100, y: -100, armor: 0 }];
-    // 两个格都就近补射同一个敌人，因此命中两次
+    // 两个格都就近补射同一个敌人，因此命中两次；两格相邻且同派系，共鸣 +10%
     const r = resolveComboBonus({ grid: g, order: [0, 1], bonus: 0.2, state: st, enemies, half: 120 });
     expect(r.hits).toBe(2);
-    expect(r.damage).toBeCloseTo(12 * 0.2 * 2, 6);
+    expect(r.damage).toBeCloseTo(12 * 0.2 * 2 * 1.1, 6);
   });
 });

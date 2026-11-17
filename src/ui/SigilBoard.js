@@ -4,6 +4,8 @@ import { C, HEX, addText, pxRect, pxFrame, pxLine, pxPoly, pxPolyLine, pxDiamond
 import { toRC } from '../logic/grid.js';
 import { cardVisual, sectorLabel } from '../data/roster.js';
 import { decoratePlan } from './board-decor.js';
+import { factionOf, FACTIONS } from '../data/factions.js';
+import { resonanceMultiplier } from '../logic/resonance.js';
 
 // 用户修订：地图为主画面，法术罗盘固定右下角，保留紧凑斜置盘面。
 // 竖屏（手机）时罗盘放大搬到触控台：面板 448 宽、格子 100×30，点得动看得清。
@@ -194,6 +196,22 @@ export default class SigilBoard {
           for (let cc = 0; cc < 8; cc++) {
             if (row[cc] === '#') g.fillRect(gx + cc * gs, gy + rr * gs, gs, gs);
           }
+        }
+
+        // 左上角进化金点：这一格的法术已经被进化路线强化
+        if (cell.slot?.kind === 'sigil' && cell.slot.evo) {
+          pxDiamond(g, Math.round(x0 + BOARD.shear + 4), y0 + 4, 2, C.brassLight, 0.95, true);
+        }
+
+        // 左下角派系色点：同派系相邻时加一圈白框，一眼看出「这格在共鸣」
+        const faction = factionOf(cell.slot?.defId);
+        if (faction) {
+          const fc = parseInt(FACTIONS[faction].color.slice(1), 16);
+          const resonant = resonanceMultiplier(this.grid, id) > 1;
+          const fx = Math.round(x0 + BOARD.shear + 3);
+          const fy = y0 + BOARD.cellH - 3 - 2 * gs;
+          pxRect(g, fx, fy, 2 * gs, 2 * gs, fc, resonant ? 1 : 0.8);
+          if (resonant) pxFrame(g, fx - 1, fy - 1, 2 * gs + 2, 2 * gs + 2, C.white, 0.75);
         }
 
         // 右上角 4×4 方位小图：点亮本格对应的扇区，教玩家「格=方位」

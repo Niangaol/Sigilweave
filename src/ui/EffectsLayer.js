@@ -82,6 +82,12 @@ export default class EffectsLayer {
     this.push({ kind: 'dissipate', dur: 540, x, y, color: color ?? C.groove });
   }
 
+  // 前摇预警：落点周围一圈闪动的方块 + 中心十字。dur 与 castMs 对齐，
+  // 到点时 BattleScene 才真正结算，所以这里只负责「告诉玩家这块地方要爆」。
+  telegraph(x, y, durationMs, color, radius) {
+    this.push({ kind: 'telegraph', dur: Math.max(140, durationMs ?? 400), x, y, color: color ?? C.arcane, radius: radius ?? 46 });
+  }
+
   combo(centers, label) {
     this.push({ kind: 'combo', dur: 1200, centers, label });
   }
@@ -119,8 +125,49 @@ export default class EffectsLayer {
     this.push({ kind: 'dissipate', dur: 700, x, y, color: C.blood });
   }
 
+  // 破盾：一次性护盾被打穿。白闪 + 青钢冲击环 + 4 块带暗描边的菱形碎片。
+  // 方向由落点做确定性推导（同 deathScatter，不用 Math.random），同位置重播一致；
+  // 单帧几何绘制 9~11 条、寿命 400ms，同屏多面盾一起破也不压预算。
+  shieldBreak(x, y) {
+    const seed = ((x * 0.53 + y * 0.29) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    const shards = [];
+    for (let i = 0; i < 4; i++) {
+      const a = seed + (i / 4) * Math.PI * 2 + 0.42;
+      const speed = 46 + ((i * 23) % 18);
+      shards.push({
+        vx: Math.cos(a) * speed,
+        vy: Math.sin(a) * speed - 26 - (i % 2) * 12,
+        gravity: 210 + (i % 3) * 40,
+      });
+    }
+    this.push({ kind: 'shieldBreak', x, y, shards, dur: 400 });
+  }
+
   hurt() {
     this.push({ kind: 'hurt', dur: 320 });
+  }
+
+  // 近战挥砍：以出手点为圆心的 2px 硬边弧线 + 尖端白点，260ms 内扫开又散尽。
+  // 挥空也画（表现先于结算），方向/范围/张角全部来自 melee 事件，不做二次推导。
+  slash(x, y, angle, range, arc, color) {
+    this.push({
+      kind: 'slash', dur: 260,
+      x, y,
+      angle: Number.isFinite(angle) ? angle : 0,
+      range: Number.isFinite(range) && range > 0 ? range : 24,
+      arc: Number.isFinite(arc) && arc > 0 ? Math.min(arc, Math.PI * 2) : Math.PI / 2,
+      color: color ?? C.blood,
+    });
+  }
+
+  // 召唤物登场：炮台一圈菱形环 / 符文落地裂开的菱形，400ms。
+  summonPulse(x, y, kind, color) {
+    const rune = kind === 'rune';
+    this.push({
+      kind: 'summonPulse', dur: 400, x, y,
+      rune,
+      color: color ?? (rune ? C.blood : C.arcane),
+    });
   }
 
   // ---------- 法术专属特效：全部按 defId 分派给 spell-fx ----------
@@ -241,7 +288,85 @@ export default class EffectsLayer {
     this.texts.push({ obj, y0: Math.round(y), t: 0, dur: 620, rise: heavy ? 18 : 14, pop: true });
   }
 
-  // 受击火花：白核 + 沿命中来向反向喷出的 4 条定向火星 + 扩散冲击环。
+  // 机制短词（反应名/回复量）：比伤害数字更慢、更淡，读作「附带效果」而不是数值。
+  labelPopup(x, y, text, color = HEX.white, size = 8) {
+    const label = String(text ?? '').trim();
+    if (!label) return;
+    const obj = addText(this.scene, Math.round(x), Math.round(y), label, size, color)
+      .setOrigin(0.5, 1).setDepth(916);
+    this.texts.push({ obj, y0: Math.round(y), t: 0, dur: 760, rise: 12, pop: true });
+  }
+
+  // 破盾：白闪先亮后收，青钢菱形环外扩，4 块碎片抛物线飞散后淡出。
+  // 全部硬边 px* 原语：无渐变、无模糊、无随机；碎片落到爆点下方 30px 就不画。
+  drawShieldBreak(g, it, k, a) {
+    const x = Math.round(it.x);
+    const y = Math.round(it.y);
+    const t = k * (it.dur / 1000);
+    // 白闪只留 ~110ms：读作「盾面被敲碎」的那一下，不盖住后面飞出来的碎片
+    if (k < 0.28) {
+      const f = 1 - k / 0.28;
+      pxDiamond(g, x, y, 5 + Math.round(8 * k), C.outline, 0.85 * f, false);
+      pxDiamond(g, x, y, 4 + Math.round(5 * k), C.white, 0.9 * f, true);
+    }
+    // 冲击环：青钢空心菱形从 3px 扩到 11px，硬边不收细
+    const rk = Math.min(1, k / 0.62);
+    if (rk < 1) {
+      pxDiamond(g, x, y, 3 + Math.round(8 * rk), C.teal, (1 - rk) * 0.55, false);
+    }
+    // 碎片：青钢菱形 + 暗描边，重力下坠；大小交替（2px / 1px）远看有层次
+    for (let i = 0; i < it.shards.length; i++) {
+      const s = it.shards[i];
+      const px = Math.round(x + s.vx * t);
+      const py = Math.round(y + s.vy * t + 0.5 * s.gravity * t * t);
+      if (py > y + 30) continue;
+      const r = i % 2 === 0 ? 2 : 1;
+      pxDiamond(g, px, py, r + 1, C.outline, a * 0.9, false);
+      pxDiamond(g, px, py, r, C.teal, a, true);
+    }
+  }
+
+  // 近战弧线：沿扇形从左侧扫到右侧，2×2 硬边块拼出弧。
+  // steps 按弧长定（range × arc / 3），夹在 6~16 之间：小怪短爪不会糊成一点，大型横扫也不爆预算。
+  drawSlash(g, it, k, a) {
+    const x = Math.round(it.x);
+    const y = Math.round(it.y);
+    const steps = Math.max(6, Math.min(16, Math.round((it.range * it.arc) / 3)));
+    // 弧线随时间从「前 35% 张角」扫开到完整张角，读作刀锋真的划过去
+    const sweep = it.arc * Math.min(1, 0.35 + k * 0.85);
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps;
+      const ang = it.angle - sweep / 2 + sweep * u;
+      const px = Math.round(x + Math.cos(ang) * it.range);
+      const py = Math.round(y + Math.sin(ang) * it.range);
+      pxRect(g, px - 1, py - 1, 2, 2, it.color, a * 0.92);
+    }
+    // 尖端白点：刀锋收势处亮一下，让「这一下划到哪」有落点
+    const tip = it.angle + sweep / 2;
+    pxRect(g, Math.round(x + Math.cos(tip) * it.range) - 1, Math.round(y + Math.sin(tip) * it.range) - 1, 2, 2, C.white, a);
+  }
+
+  // 召唤登场：炮台 = 外扩菱形环 + 白核；符文 = 菱形左右裂开 + 地面裂纹横向拉开。
+  drawSummonPulse(g, it, k, a) {
+    const x = Math.round(it.x);
+    const y = Math.round(it.y);
+    if (it.rune) {
+      const off = Math.round(2 + 6 * k);
+      pxDiamond(g, x - off, y, 3, C.outline, a * 0.85, false);
+      pxDiamond(g, x + off, y, 3, C.outline, a * 0.85, false);
+      pxDiamond(g, x - off, y, 2, it.color, a, true);
+      pxDiamond(g, x + off, y, 2, it.color, a, true);
+      const crack = Math.round(3 + 10 * k);
+      pxRect(g, x - crack, y + 4, crack * 2 + 1, 1, it.color, a * 0.7);
+      pxRect(g, x - crack, y + 6, crack * 2 + 1, 1, C.outline, a * 0.5);
+      return;
+    }
+    const r = 3 + Math.round(9 * k);
+    pxDiamond(g, x, y, r + 1, C.outline, a * 0.8, false);
+    pxDiamond(g, x, y, r, it.color, a * 0.9, false);
+    pxDiamond(g, x, y, 2, C.white, a, true);
+  }
+
   drawHitSpark(g, it, k, a) {
     const x = Math.round(it.x);
     const y = Math.round(it.y);
@@ -506,6 +631,12 @@ export default class EffectsLayer {
         this.drawExpPop(g, it, k, a);
       } else if (it.kind === 'hitSpark') {
         this.drawHitSpark(g, it, k, a);
+      } else if (it.kind === 'shieldBreak') {
+        this.drawShieldBreak(g, it, k, a);
+      } else if (it.kind === 'slash') {
+        this.drawSlash(g, it, k, a);
+      } else if (it.kind === 'summonPulse') {
+        this.drawSummonPulse(g, it, k, a);
       } else if (it.kind === 'hold') {
         this.drawHold(g, it, k, a);
       } else if (it.kind === 'impact') {
@@ -522,6 +653,24 @@ export default class EffectsLayer {
           const dist = 3 + k * 12;
           pxRect(g, Math.round(it.x + Math.cos(ang) * dist), Math.round(it.y + Math.sin(ang) * dist), 1, 1, it.color, a * 0.8);
         }
+      } else if (it.kind === 'telegraph') {
+        const R = it.radius ?? 46;
+        const kk = Math.min(1, it.t / it.dur);
+        // 最后 120ms 闪得更急，读作「要来了」
+        const blink = it.t > it.dur - 120 ? 0.35 + 0.65 * (Math.sin(it.t / 28) > 0 ? 1 : 0) : 0.55 + 0.35 * Math.sin(it.t / 90);
+        const rr = R * (1.18 - 0.18 * kk);
+        const col = it.color ?? C.arcane;
+        for (let i = 0; i < 12; i++) {
+          const ang = (i / 12) * Math.PI * 2 + it.t / 1400;
+          const px = Math.round(it.x + Math.cos(ang) * rr);
+          const py = Math.round(it.y + Math.sin(ang) * rr * 0.7);
+          pxRect(g, px - 1, py - 1, 3, 3, i % 2 ? col : C.white, blink * a);
+        }
+        const half = Math.round(3 + 5 * (1 - kk));
+        const hx = Math.round(it.x);
+        const hy = Math.round(it.y);
+        pxRect(g, hx - half, hy, half * 2 + 1, 1, col, blink * a);
+        pxRect(g, hx, hy - half, 1, half * 2 + 1, col, blink * a);
       } else if (it.kind === 'burst') {
         for (const p of it.particles) {
           const px = it.x + p.dx * k * 2.2;

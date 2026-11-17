@@ -17,6 +17,14 @@ export const CARD_HINTS = Object.freeze({
   soul_lance: '15 伤害／回复 3 生命',
   aegis_ring: '贴身 8 伤害／护盾 +20（上限 60）',
   meteor_judgment: '半径 95 区域 26 伤害／内圈 -40%',
+  frost_nova: '以自身为心 90 半径 13 伤害／减速 45%',
+  thunder_storm: '半径 110 区域 16 伤害／冻结 0.2 秒',
+  sunflare: '沿直线贯穿 20 伤害／前摇 0.7 秒',
+  void_lance: '沿直线贯穿 18 伤害／射程最长',
+  sanctum: '贴身 6 伤害／护盾 +24（上限 70）',
+  bramble_maul: '半径 60 区域 17 伤害／定身 1.5 秒',
+  soul_echo: '本格与对侧扇区各打 12／回复 2',
+  glacier: '贯穿 15 伤害／减速 50%',
   resonance_stone: '正交邻格间隔与冷却 -25%',
   slow_field: '近身 90 范围敌人减速 40%',
   shard_resonance: '大幅扩大碎片吸取范围',
@@ -31,4 +39,16 @@ export const CARD_HINTS = Object.freeze({
 
 export function hintOf(defId) {
   return CARD_HINTS[defId] ?? '';
+}
+
+// 变体说明：抽卡与构筑界面用一句话讲清锐/谐的取舍（base 不额外标注）。
+export const VARIANT_HINTS = Object.freeze({
+  base: '标准形态 · 不参与联组',
+  sharp: '锐化 · 伤害 +30%，不可联组',
+  harmon: '谐律 · 伤害 -18%，可参与联组',
+});
+
+export function variantHintOf(card) {
+  if (!card || card.kind !== 'sigil') return '';
+  return VARIANT_HINTS[card.variant ?? 'base'] ?? '';
 }

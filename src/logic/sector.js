@@ -95,7 +95,7 @@ export function regionCenter(regionId, px, py) {
 // 齐射让同一格在一次触发里对区域内最近的 N 个敌人各打一发，清怪速度随密度线性上升，才有割草感。
 // 各结算类型的 N 不同（单体 3、扇形/连锁/贯穿 2、回声/区域 1），见 VOLLEY_LIMITS。
 export const VOLLEY_LIMITS = Object.freeze({
-  single: 3, fan3: 2, chain: 2, pierce: 2, echo: 1, ward: 0, area: 1,
+  single: 3, fan3: 2, chain: 2, pierce: 2, echo: 1, ward: 0, area: 1, nova: 1,
 });
 export function volleyLimit(kind) {
   return Number.isInteger(VOLLEY_LIMITS[kind]) ? VOLLEY_LIMITS[kind] : 1;

@@ -33,6 +33,14 @@ const EXPECTED = [
   'soul_lance',
   'aegis_ring',
   'meteor_judgment',
+  'frost_nova',
+  'thunder_storm',
+  'sunflare',
+  'void_lance',
+  'sanctum',
+  'bramble_maul',
+  'soul_echo',
+  'glacier',
 ];
 
 // 性能预算（v2 契约；2026-11-09 补入场/退场层后：cast 73、impact 162、ward 142 实测峰值）
@@ -130,16 +138,16 @@ function assertNumbers(g, defId, kind) {
 }
 
 describe('导出契约', () => {
-  it('FX_DEF_IDS 是需求单上的 16 个 defId，顺序稳定且无重复', () => {
+  it('FX_DEF_IDS 是需求单上的 24 个 defId，顺序稳定且无重复', () => {
     expect(FX_DEF_IDS).toEqual(EXPECTED);
-    expect(new Set(FX_DEF_IDS).size).toBe(16);
+    expect(new Set(FX_DEF_IDS).size).toBe(24);
   });
 
   it('与 cards.js 的 SIGIL_DEFS 一一对应（不增不漏）', () => {
     expect(Object.keys(SIGIL_DEFS).sort()).toEqual([...FX_DEF_IDS].sort());
   });
 
-  it('SPELL_FX 正好 16 条，键与 FX_DEF_IDS 一致', () => {
+  it('SPELL_FX 正好 24 条，键与 FX_DEF_IDS 一致', () => {
     expect(Object.keys(SPELL_FX).sort()).toEqual([...FX_DEF_IDS].sort());
   });
 
@@ -169,9 +177,9 @@ describe('descriptor 合法性', () => {
     }
   });
 
-  it('16 个 silhouette 互不相同（撞型即不合格）', () => {
+  it('24 个 silhouette 互不相同（撞型即不合格）', () => {
     const s = FX_DEF_IDS.map((id) => SPELL_FX[id].silhouette);
-    expect(new Set(s).size).toBe(16);
+    expect(new Set(s).size).toBe(24);
   });
 
   it('colors 的 edge/body/core/accent 都是 0..0xffffff 的整数', () => {
@@ -187,14 +195,14 @@ describe('descriptor 合法性', () => {
     }
   });
 
-  it('16 组 body 两两不同（肉眼可区分）', () => {
+  it('24 组 body 两两不同（肉眼可区分）', () => {
     const bodies = FX_DEF_IDS.map((id) => SPELL_FX[id].colors.body);
-    expect(new Set(bodies).size).toBe(16);
+    expect(new Set(bodies).size).toBe(24);
   });
 });
 
 describe('六个绘制函数：不抛错 / 预算 / alpha / 坐标', () => {
-  it('16 个法术 × 6 个函数全部可绘制，调用数在预算内', () => {
+  it('24 个法术 × 6 个函数全部可绘制，调用数在预算内', () => {
     const offenders = [];
     for (const id of FX_DEF_IDS) {
       const desc = SPELL_FX[id];
@@ -304,7 +312,7 @@ describe('16 套特效确实不同型', () => {
       drawProjectileFx(g, id, ctxFor('projectile'));
       return geometrySig(g.log);
     });
-    expect(new Set(sigs).size).toBe(16);
+    expect(new Set(sigs).size).toBe(24);
   });
 
   it('命中图案几何签名两两不同', () => {
@@ -313,7 +321,7 @@ describe('16 套特效确实不同型', () => {
       drawImpactFx(g, id, ctxFor('impact'));
       return geometrySig(g.log);
     });
-    expect(new Set(sigs).size).toBe(16);
+    expect(new Set(sigs).size).toBe(24);
   });
 
   it('拖尾样式至少覆盖 8 种不同做法', () => {
