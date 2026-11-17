@@ -88,3 +88,80 @@ describe('裂纹生成', () => {
     expect(frameCracks('s', NaN)).toEqual([]);
   });
 });
+
+import BattleFrame from '../src/ui/battle-frame.js';
+
+function fakeGraphics() {
+  const calls = [];
+  const g = {
+    calls,
+    depth: 0,
+    scrollFactorX: 1,
+    scrollFactorY: 1,
+    setDepth(d) { g.depth = d; return g; },
+    setScrollFactor(n) { g.scrollFactorX = n; g.scrollFactorY = n; return g; },
+    fillStyle: () => g,
+    fillRect: (...a) => { calls.push(['rect', ...a]); return g; },
+    lineStyle: () => g,
+    strokePoints: () => g,
+    fillPoints: () => g,
+    clear: () => { calls.push(['clear']); return g; },
+  };
+  return g;
+}
+
+function fakeScene() {
+  const made = [];
+  return {
+    made,
+    add: {
+      graphics: () => {
+        const g = fakeGraphics();
+        made.push(g);
+        return g;
+      },
+    },
+  };
+}
+
+describe('BattleFrame 静态层', () => {
+  it('构造出三层 graphics，深度 6000/6001/6002 且固定于视口', () => {
+    const frame = new BattleFrame(fakeScene(), 'seed');
+    expect(frame.base.depth).toBe(6000);
+    expect(frame.wear.depth).toBe(6001);
+    expect(frame.dyn.depth).toBe(6002);
+    for (const g of [frame.base, frame.wear, frame.dyn]) expect(g.scrollFactorX).toBe(0);
+  });
+  it('底图绘制覆盖四边框身，且不越出画布', () => {
+    const frame = new BattleFrame(fakeScene(), 'seed');
+    expect(frame.base.calls.length).toBeGreaterThan(40);
+    for (const [, x, y, w, h] of frame.base.calls) {
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(x + w).toBeLessThanOrEqual(480);
+      expect(y + h).toBeLessThanOrEqual(270);
+    }
+  });
+  it('完好档不画裂纹；破损档画裂纹；血量回升后裂纹图元被清空', () => {
+    const rectsSinceClear = (g) => {
+      let start = 0;
+      g.calls.forEach((c, i) => { if (c[0] === 'clear') start = i + 1; });
+      return g.calls.slice(start).filter((c) => c[0] === 'rect').length;
+    };
+    const frame = new BattleFrame(fakeScene(), 'seed');
+    expect(rectsSinceClear(frame.wear)).toBe(0);
+    frame.setRatio(0.1);
+    expect(frame.tone.tier).toBe('failing');
+    expect(rectsSinceClear(frame.wear)).toBeGreaterThan(0);
+    frame.setRatio(1);
+    expect(frame.tone.tier).toBe('intact');
+    expect(rectsSinceClear(frame.wear)).toBe(0);
+  });
+  it('同档位重复喂入不重复重绘', () => {
+    const frame = new BattleFrame(fakeScene(), 'seed');
+    frame.setRatio(0.1);
+    const before = frame.wear.calls.length;
+    frame.setRatio(0.12);
+    expect(frame.wear.calls.length).toBe(before);
+  });
+});

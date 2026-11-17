@@ -2,7 +2,7 @@
 // 480×270 逻辑画布最外层一圈 8px 框体，框的形制随玩家血量陈旧化：
 // 颜色向血色插值、裂纹逐档增加、低血改心跳脉动、掉碎屑、四角渗血。
 // 时钟约定：所有动画读传进来的 now（调用方传 engine.now），暂停与顿帧会一起冻结。
-import { C, pxRect } from './Palette.js';
+import { C, pxRect, pxFrame, pxLine, pxPoly } from './Palette.js';
 import { Rng } from '../logic/rng.js';
 
 // 几何：8px 框身由五层叠出来，加起来必须正好等于 band
@@ -100,3 +100,135 @@ function toCanvas(edge, along, inward) {
   if (edge === 'left') return { x: inward, y: along };
   return { x: 479 - inward, y: along };
 }
+
+// —— 静态框体 ——————————————————————————————————————————————
+// 逻辑画布尺寸写死在这里：画框是屏幕级装饰，不跟世界坐标走。
+const W = 480;
+const H = 270;
+const INK = C.outline;
+
+// 框体五层：从外到内 1/2/1/3/1，加起来正好 8px
+function paintBands(g, stone, brass, brassDark) {
+  pxFrame(g, 0, 0, W, H, INK, FRAME.outer);
+  pxFrame(g, FRAME.outer, FRAME.outer, W - FRAME.outer * 2, H - FRAME.outer * 2, brassDark, FRAME.brassDark);
+  pxFrame(g, 3, 3, W - 6, H - 6, brass, FRAME.brass);
+  pxFrame(g, 4, 4, W - 8, H - 8, stone, FRAME.stone);
+  pxFrame(g, 7, 7, W - 14, H - 14, INK, FRAME.inner);
+}
+
+// 侧边凹槽：框身石面上每 32px 一道 3×2 的暗槽，读作"框是分段的"
+function paintNotches(g, stoneDark) {
+  for (let y = 24; y <= H - 24; y += FRAME.notchStep) {
+    pxRect(g, 4, y, 3, 2, stoneDark, 0.75);
+    pxRect(g, W - 7, y, 3, 2, stoneDark, 0.75);
+  }
+  for (let x = 24; x <= W - 24; x += FRAME.notchStep) {
+    pxRect(g, x, H - 6, 4, 2, stoneDark, 0.75);
+  }
+}
+
+// 上沿居中横梁：120×8 石面浮雕，三连菱形 + 两侧中线
+function paintBeam(g, stone, brass, brassDark) {
+  const x0 = (W - FRAME.beamW) / 2;
+  pxRect(g, x0, 0, FRAME.beamW, FRAME.beamH, brassDark);
+  pxFrame(g, x0, 0, FRAME.beamW, FRAME.beamH, INK, 1);
+  pxRect(g, x0 + 1, 1, FRAME.beamW - 2, FRAME.beamH - 2, stone);
+  for (const cx of [x0 + 25, W / 2, x0 + FRAME.beamW - 25]) {
+    pxPoly(g, diamond(cx, 4, 3), brass);
+    pxRect(g, cx - 1, 3, 2, 2, INK, 0.85);
+  }
+  pxRect(g, x0 + 8, 4, 12, 1, brass);
+  pxRect(g, x0 + FRAME.beamW - 20, 4, 12, 1, brass);
+}
+
+// 四角角花：14×14 黄铜底 + 内凹石面 + 4px 菱形宝石，向画面内凸出 6px
+function paintCorners(g, stone, brass, brassDark, gem) {
+  const s = FRAME.ornament;
+  const spots = [
+    [0, 0],
+    [W - s, 0],
+    [0, H - s],
+    [W - s, H - s],
+  ];
+  for (const [x, y] of spots) {
+    pxRect(g, x, y, s, s, brassDark);
+    pxFrame(g, x, y, s, s, INK, 1);
+    pxRect(g, x + 2, y + 2, s - 4, s - 4, stone);
+    pxFrame(g, x + 2, y + 2, s - 4, s - 4, brass, 1);
+    // 角上的小铆钉，让角花不至于是一块平板
+    pxRect(g, x + 2, y + 2, 2, 1, brass);
+    pxRect(g, x + s - 4, y + s - 3, 2, 1, brass);
+    const cx = x + s / 2;
+    const cy = y + s / 2;
+    pxPoly(g, diamond(cx, cy, 2), gem);
+    pxRect(g, cx, cy - 1, 1, 1, C.bone, 0.9);
+  }
+}
+
+function diamond(cx, cy, r) {
+  return [
+    { x: cx, y: cy - r },
+    { x: cx + r, y: cy },
+    { x: cx, y: cy + r },
+    { x: cx - r, y: cy },
+  ];
+}
+
+export default class BattleFrame {
+  constructor(scene, seed = 'frame') {
+    this.seed = String(seed);
+    this.ratio = 1;
+    this.tone = frameTone(1);
+    // 三层同步创建：静态框体 / 裂纹磨损 / 每帧动态（Task 4 用）
+    this.base = scene.add.graphics().setScrollFactor(0).setDepth(6000);
+    this.wear = scene.add.graphics().setScrollFactor(0).setDepth(6001);
+    this.dyn = scene.add.graphics().setScrollFactor(0).setDepth(6002);
+    this.drawBase(this.tone);
+    this.drawWear(this.tone);
+  }
+
+  // 血量比例入口：只有档位真的变了才重绘，避免每帧刷静态层
+  setRatio(ratio) {
+    const r = Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : 0;
+    const next = frameTone(r);
+    const changed = next.tier !== this.tone.tier;
+    this.ratio = r;
+    if (!changed) return;
+    this.tone = next;
+    this.base.clear();
+    this.wear.clear();
+    this.drawBase(next);
+    this.drawWear(next);
+  }
+
+  // 静态层：只填，不清。清屏由 setRatio 统一做，避免构造函数里多出一次 clear 调用
+  drawBase(tone) {
+    const stone = mixColor(C.stone, C.blood, tone.bloodMix * 0.6);
+    const brass = mixColor(C.brass, C.blood, tone.bloodMix * 0.45);
+    const brassDark = mixColor(C.brassDark, C.bloodDark, tone.bloodMix * 0.5);
+    const gem = mixColor(C.teal, C.blood, tone.bloodMix);
+    paintBands(this.base, stone, brass, brassDark);
+    paintNotches(this.base, C.void);
+    paintBeam(this.base, stone, brass, brassDark);
+    paintCorners(this.base, stone, brass, brassDark, gem);
+  }
+
+  // 磨损层：按档位重画裂纹，每条两遍（1px 暗底 + 1px 混色高光）
+  drawWear(tone) {
+    this.wear.clear();
+    const hi = mixColor(C.brassDark, C.blood, tone.bloodMix);
+    const cracks = frameCracks(this.seed, tone.crackCount);
+    for (const crack of cracks) {
+      const pts = crack.points;
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1];
+        const b = pts[i];
+        pxLine(this.wear, a.x, a.y, b.x, b.y, C.void, 1);
+        pxLine(this.wear, clampX(a.x + 1), clampY(a.y + 1), clampX(b.x + 1), clampY(b.y + 1), hi, 0.85);
+      }
+    }
+  }
+}
+
+function clampX(x) { return Math.max(0, Math.min(W - 1, x)); }
+function clampY(y) { return Math.max(0, Math.min(H - 1, y)); }
