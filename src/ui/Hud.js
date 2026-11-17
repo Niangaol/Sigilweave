@@ -64,7 +64,7 @@ export default class Hud {
     g.clear();
 
     // 生命图标与血条
-    pxHeart(g, 6, 15, hp / maxHp <= 0.3 && Math.floor(this.scene.time.now / 220) % 2 === 0 ? C.white : C.blood, 1);
+    pxHeart(g, 8, 15, hp / maxHp <= 0.3 && Math.floor(this.scene.time.now / 220) % 2 === 0 ? C.white : C.blood, 1);
     const ratio = Math.max(0, Math.min(1, hp / maxHp));
     if (ratio > 0) {
       pxRect(g, 15, 17, Math.max(1, Math.round(72 * ratio)), 4, C.blood, 1);

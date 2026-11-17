@@ -309,12 +309,17 @@ export default class BattleFrame {
       pxFrame(g, 8, 8, W - 16, H - 16, C.blood, 2, 0.15 + 0.4 * k);
     }
 
-    // 渗血：四角内侧竖向渗痕，长度随呼吸伸缩
+    // 渗血：四角竖向渗痕，长度随呼吸伸缩。上角止在 5px（顶栏文字 y13、心形 y15 之上），
+    // 下角直接渗在框体下沿上（y262 起），避开底部提示文字，读作血从角上木缝里漫出来。
     if (tone.seep > 0) {
       const len = Math.round((4 + 6 * (0.5 + 0.5 * Math.sin(now / 900))) * tone.seep);
       const seepColor = mixColor(C.bloodDark, C.blood, tone.seep);
       if (len > 0) {
-        for (const [x, y] of cornerStreaks()) pxRect(g, x, y, 2, len, seepColor, 0.85);
+        for (const s of cornerStreaks()) {
+          const l = Math.min(len, s.max);
+          if (l <= 0) continue;
+          pxRect(g, s.x, s.dir > 0 ? s.y : s.y - l, 2, l, seepColor, 0.85);
+        }
       }
     }
 
@@ -330,13 +335,13 @@ export default class BattleFrame {
   }
 }
 
-// 四角渗血起点（内缘内侧 1px）
+// 四角渗血起点（内缘内侧 1px）。dir=1 向下渗，dir=-1 向上渗；max 是该角允许的最大长度
 function cornerStreaks() {
   return [
-    [9, 8],
-    [W - 11, 8],
-    [9, H - 8],
-    [W - 11, H - 8],
+    { x: 15, y: 8, dir: 1, max: 5 },
+    { x: W - 17, y: 8, dir: 1, max: 5 },
+    { x: 15, y: H - 8, dir: 1, max: 7 },
+    { x: W - 17, y: H - 8, dir: 1, max: 7 },
   ];
 }
 
