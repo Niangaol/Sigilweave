@@ -34,6 +34,7 @@ import Background from '../ui/Background.js';
 import SigilBoard, { cellCenter } from '../ui/SigilBoard.js';
 import EffectsLayer from '../ui/EffectsLayer.js';
 import Hud from '../ui/Hud.js';
+import BattleFrame from '../ui/battle-frame.js';
 import PauseMenu from '../ui/PauseMenu.js';
 import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
@@ -48,6 +49,12 @@ import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
 import { STAGE_CARDS } from '../data/cinematics.js';
+
+// 画框工厂：竖屏不创建（480×760 的画布上 8px 框会卡在地图区中间）
+export function createBattleFrame(scene, { seed, stage }) {
+  if (isPortrait()) return undefined;
+  return new BattleFrame(scene, `${seed}:frame:${stage}`);
+}
 
 const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
 const FREQ_WINDOW_MS = 5000;
@@ -314,6 +321,7 @@ export default class BattleScene extends Phaser.Scene {
     }
 
     // UI 收进固定屏幕容器：世界由摄像机 zoom 放大，UI 靠容器补偿维持逻辑坐标。
+    this.frame = createBattleFrame(this, { seed: this.run.seed, stage: this.stage });
     this.mountUiLayer();
 
     if (!this.__cine) this.cameras.main.fadeIn(220, 0, 0, 0);
@@ -672,6 +680,12 @@ export default class BattleScene extends Phaser.Scene {
       elapsedMs: this.engine.now,
       chapter: this.chapter,
       stage: this.stage,
+    });
+    // 画框跟着同一颗心脏：暂停与顿帧时 dt 传 0，碎屑与脉动一起定格
+    this.frame?.update({
+      ratio: this.player.hp / Math.max(1, this.player.maxHp),
+      now: this.engine.now,
+      dt: this.phase === 'play' && !this.paused && !frozen ? dt : 0,
     });
   }
 

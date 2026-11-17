@@ -202,3 +202,35 @@ describe('BattleFrame 动态层', () => {
     expect(frame.ratio).toBe(0);
   });
 });
+
+import { afterEach, vi } from 'vitest';
+import { setPortrait } from '../src/ui/Palette.js';
+import { createBattleFrame } from '../src/scenes/BattleScene.js';
+
+// 沙箱里没有浏览器：用最小 Phaser 替身只为让场景模块能被 import（与 tests/battle-flow.test.js 同款）
+vi.mock('phaser', () => ({
+  default: { Scene: class { constructor(key) { this.key = key; } } },
+}));
+
+function frameScene() {
+  const made = [];
+  return {
+    made,
+    add: { graphics: () => { const g = fakeGraphics(); made.push(g); return g; } },
+  };
+}
+
+describe('画框接入战斗场景', () => {
+  afterEach(() => setPortrait(false));
+  it('横屏构造画框，种子带上局内 seed 与场次', () => {
+    setPortrait(false);
+    const frame = createBattleFrame(frameScene(), { seed: 'run-x', stage: 3 });
+    expect(frame).toBeDefined();
+    expect(frame.seed).toContain('run-x');
+    expect(frame.seed).toContain('3');
+  });
+  it('竖屏不构造画框', () => {
+    setPortrait(true);
+    expect(createBattleFrame(frameScene(), { seed: 'run-x', stage: 1 })).toBeUndefined();
+  });
+});
