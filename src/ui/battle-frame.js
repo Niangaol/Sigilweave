@@ -53,3 +53,50 @@ export function frameTone(ratio) {
   if (r > 0.3) return { ...TONE.worn };
   return { ...TONE.failing };
 }
+
+// 裂纹走位的四条边，按顺序轮转，6 条正好铺满两圈
+const EDGE_ORDER = Object.freeze(['top', 'bottom', 'left', 'right']);
+
+// 一条裂纹的骨架：从画布最外沿起笔，沿向内方向走 6~14px，
+// 中途在一个像素上横向岔一格（裂缝的"拐"，也让画面不像梳子）。
+// 返回 {edge, points:[{x,y}...]}，点与点之间都是 1px 的一步。
+export function frameCracks(seed, count) {
+  const n = Number.isFinite(count) ? Math.floor(count) : 0;
+  if (n <= 0) return [];
+
+  const head = new Rng(`frame-cracks:head:${seed}`);
+  const firstEdge = head.int(4);
+  const cracks = [];
+
+  for (let i = 0; i < n; i++) {
+    // 每条纹路独立取种子：档位从 3 条升到 6 条时，原有 3 条纹路位置不变
+    const rng = new Rng(`frame-cracks:${seed}:${i}`);
+    const edge = EDGE_ORDER[(firstEdge + i) % 4];
+    // 沿边起点：横向边（上/下）有 480 的余量，竖向边（左/右）只有 270，两边分开取
+    const horizontal = edge === 'top' || edge === 'bottom';
+    const along = 12 + rng.int(horizontal ? 456 : 246);
+    // 端点曼哈顿距离 = 向内步数 + 横向岔格 = (7..14-1) + 1 = 7..14
+    const span = 7 + rng.int(8);
+    const inwardSteps = span - 1;
+    const jogAt = 1 + rng.int(Math.max(1, inwardSteps - 1));
+    const jogDir = rng.int(2) === 0 ? 1 : -1;
+
+    const points = [];
+    for (let step = 0; step <= inwardSteps; step++) {
+      points.push(toCanvas(edge, along, step));
+      // 在 jogAt 这一步插入一个横向岔点，再回到原线上
+      if (step === jogAt) points.push(toCanvas(edge, along + jogDir, step));
+    }
+    cracks.push({ edge, points });
+  }
+
+  return cracks;
+}
+
+// 把 (沿边位置, 向内深度) 换成画布坐标
+function toCanvas(edge, along, inward) {
+  if (edge === 'top') return { x: along, y: inward };
+  if (edge === 'bottom') return { x: along, y: 269 - inward };
+  if (edge === 'left') return { x: inward, y: along };
+  return { x: 479 - inward, y: along };
+}

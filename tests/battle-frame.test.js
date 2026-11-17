@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FRAME, FRAME_INNER, mixColor, frameTone } from '../src/ui/battle-frame.js';
+import { FRAME, FRAME_INNER, mixColor, frameTone, frameCracks } from '../src/ui/battle-frame.js';
 
 describe('画框几何', () => {
   it('内开口与框厚自洽，正好覆盖 480×270', () => {
@@ -50,5 +50,41 @@ describe('血量档位', () => {
     expect(frameTone(NaN).tier).toBe('failing');
     expect(frameTone(-1).tier).toBe('failing');
     expect(frameTone(3).tier).toBe('intact');
+  });
+});
+
+describe('裂纹生成', () => {
+  it('同种子同结果，不同种子不同结果', () => {
+    const a = frameCracks('run-1:frame:1', 6);
+    const b = frameCracks('run-1:frame:1', 6);
+    const c = frameCracks('run-2:frame:1', 6);
+    expect(a).toEqual(b);
+    expect(JSON.stringify(a)).not.toBe(JSON.stringify(c));
+  });
+  it('条数准确，起点在画布最外沿，长度落在 6~14px', () => {
+    const cracks = frameCracks('s', 6);
+    expect(cracks).toHaveLength(6);
+    for (const crack of cracks) {
+      const start = crack.points[0];
+      const end = crack.points[crack.points.length - 1];
+      if (crack.edge === 'top') expect(start.y).toBe(0);
+      if (crack.edge === 'bottom') expect(start.y).toBe(269);
+      if (crack.edge === 'left') expect(start.x).toBe(0);
+      if (crack.edge === 'right') expect(start.x).toBe(479);
+      const len = Math.abs(end.x - start.x) + Math.abs(end.y - start.y);
+      expect(len).toBeGreaterThanOrEqual(6);
+      expect(len).toBeLessThanOrEqual(14);
+      for (const p of crack.points) {
+        expect(p.x).toBeGreaterThanOrEqual(0);
+        expect(p.x).toBeLessThanOrEqual(479);
+        expect(p.y).toBeGreaterThanOrEqual(0);
+        expect(p.y).toBeLessThanOrEqual(269);
+      }
+    }
+  });
+  it('count<=0 或非数值返回空数组且不抛错', () => {
+    expect(frameCracks('s', 0)).toEqual([]);
+    expect(frameCracks('s', -3)).toEqual([]);
+    expect(frameCracks('s', NaN)).toEqual([]);
   });
 });
