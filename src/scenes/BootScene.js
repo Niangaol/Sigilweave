@@ -114,6 +114,12 @@ export default class BootScene extends Phaser.Scene {
     this.scene.launch('GuideScene');
     this.scene.bringToTop?.('GuideScene');
     const params = new URLSearchParams(window.location.search);
+    // 评审直达：?review=1 跳过开场剧情与标题，直接进选套装界面，墨宝 G00 开场引导立即出现。
+    // 供领导/用户一键查看灵宠引导，无需手动跳剧情；不影响正常游玩路径。
+    if (params.get('review') === '1') {
+      this.scene.start('LoadoutScene');
+      return;
+    }
     // 调试/压测/调试直达保持原路径；正常路径先播全屏开场，再由开场交接标题
     if (cutscenesDisabled() || params.get('scene')) {
       playCutscene(this, { kind: 'boot', to: 'TitleScene', payload: { __cine: true } });
