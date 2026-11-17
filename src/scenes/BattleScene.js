@@ -1870,6 +1870,12 @@ export default class BattleScene extends Phaser.Scene {
     const response = finishEncounter(this.run.encounters);
     if (!response.ok) return;
     this.encounterPanel.hide(); this.input.keyboard.resetKeys();
+
+    // 新手引导 · 答题反应在面板隐藏后才弹出，避免气泡与「继续前进」按钮的点击命中冲突。
+    // QUIZ_FIRST_CORRECT / QUIZ_WRONG 均由 fireGuide 的 run.guideSeen 去重，整局各只出现一次。
+    const correct = response.result.correct === true;
+    fireGuide(this, this.run, correct ? 'QUIZ_FIRST_CORRECT' : 'QUIZ_WRONG', { act: this.chapter, stage: this.stage });
+
     // 标记事件点完成（小Boss门/NPC点），罗盘小地图不再显示
     const finishedId = response.result.encounterId;
     for (const point of this.eventPoints) if (point.id === finishedId) point.done = true;
