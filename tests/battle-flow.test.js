@@ -177,7 +177,7 @@ function makeScene(stage = 1, opts = {}) {
   scene.engine.now = opts.now ?? 120000;
   // 被测方法彼此调用（finishStage → swapStage / buildSummary），把原型方法绑到替身上，
   // 只顶掉渲染与实体重活，流程逻辑全部走真实实现。
-  for (const name of ['finishStage', 'swapStage', 'startBossClearTransition', 'defeatBoss', 'buildSummary', 'checkProgressEvents', 'update', 'updateSummons']) {
+  for (const name of ['finishStage', 'swapStage', 'startBossClearTransition', 'defeatBoss', 'buildSummary', 'checkProgressEvents', 'update', 'updateSummons', 'grantSkill', 'skillCdOf', 'saveProgress']) {
     scene[name] = BattleScene.prototype[name].bind(scene);
   }
   return scene;
@@ -824,5 +824,57 @@ describe('敌方召唤物与近战接入', () => {
     expect(targets).toHaveLength(4);
     expect(targets.slice(0, 2)).toEqual(ctx.enemies);
     expect(targets.slice(2)).toEqual(ctx.summons);
+  });
+});
+
+// 技能库只来自玩家在升级三选一里选中的那张卡：开局为空，选攻击得攻击、选防御得护盾。
+describe('道具技能库（随三选一选择变化）', () => {
+  it('新 run 的技能库为空，不预置任何起手技能', () => {
+    const run = createRun('skill-lib-seed');
+    expect(run.skillLibrary).toEqual([]);
+    expect(run.skillStage).toBe(1);
+  });
+
+  it('选中的卡决定技能功能：防御卡是 ward 护盾，攻击卡是 single，辅助卡不入库', () => {
+    const scene = makeScene(1);
+    expect(scene.run.skillLibrary ?? []).toHaveLength(0);
+
+    // 三选一里选了「圣光壁垒」→ 技能库第一格就是护盾技能
+    call(scene, 'grantSkill', 'holy_ward');
+    expect(scene.run.skillLibrary).toHaveLength(1);
+    expect(scene.run.skillLibrary[0]).toMatchObject({ defId: 'holy_ward', kind: 'ward' });
+
+    // 另一次三选一选了「奥术飞弹」→ 第二格是攻击技能，功能随所选卡变化
+    call(scene, 'grantSkill', 'arcane_bolt');
+    expect(scene.run.skillLibrary.map(s => s.defId)).toEqual(['holy_ward', 'arcane_bolt']);
+    expect(scene.run.skillLibrary[1].kind).toBe('single');
+
+    // 辅助卡没有主动法术，不占用技能格
+    call(scene, 'grantSkill', 'resonance_stone');
+    expect(scene.run.skillLibrary.map(s => s.defId)).toEqual(['holy_ward', 'arcane_bolt']);
+  });
+
+  it('重复选同名卡只刷新、不重复占格；超过三格顶掉最早一格', () => {
+    const scene = makeScene(1);
+    for (const id of ['arcane_bolt', 'frost_arrow', 'flame_burst']) call(scene, 'grantSkill', id);
+    expect(scene.run.skillLibrary.map(s => s.defId)).toEqual(['arcane_bolt', 'frost_arrow', 'flame_burst']);
+
+    call(scene, 'grantSkill', 'arcane_bolt');
+    expect(scene.run.skillLibrary).toHaveLength(3);
+    // 重复选同名卡只刷新冷却，不移动槽位
+    expect(scene.run.skillLibrary.map(s => s.defId)).toEqual(['arcane_bolt', 'frost_arrow', 'flame_burst']);
+
+    call(scene, 'grantSkill', 'starfall');
+    // 槽位满时新卡顶掉最早的一格（arcane_bolt）
+    expect(scene.run.skillLibrary.map(s => s.defId)).toEqual(['frost_arrow', 'flame_burst', 'starfall']);
+  });
+
+  it('换场后技能库清零，只留本场选到的技能', () => {
+    const scene = makeScene(1);
+    call(scene, 'grantSkill', 'holy_ward');
+    expect(scene.run.skillLibrary).toHaveLength(1);
+    call(scene, 'swapStage', 2);
+    expect(scene.run.skillLibrary).toEqual([]);
+    expect(scene.run.skillStage).toBe(2);
   });
 });

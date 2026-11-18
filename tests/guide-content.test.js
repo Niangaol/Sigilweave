@@ -12,6 +12,8 @@ const HIGHLIGHTS = new Set(Object.keys(GUIDE.highlights ?? {}).concat(['敌人']
 const TRIGGER_EVENTS = new Set([
   'sceneEnter', 'sceneEnterAfterCutscene', 'levelUpChoice', 'nearEventPoint', 'levelReached',
   'afterPaint', 'eliteFirstSeen', 'encounterResult', 'variantFirstSeen', 'enemyWindup', 'evolutionOffered', 'shieldGained',
+  // 断点存档与道具技能库新增的三种触发
+  'skillGranted', 'skillCast', 'saveResume',
 ]);
 
 describe('引导数据', () => {

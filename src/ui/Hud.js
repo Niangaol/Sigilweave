@@ -6,6 +6,9 @@ import { passiveHudText } from './passive-summary.js';
 
 // 幕是 1..5 的叙事单位，场是 1..7 的玩法单位。
 // 前三幕各一场，顶栏用星名（第3幕 · 天玑）；合并幕用当前场的地名（第4幕 · 沉钟书库 → 衡律法庭）。
+// 道具技能栏：三个 44×30 的硬边槽，放在底部、罗盘（右下）与提示（左下）之间的空档。
+const SKILL_BAR = Object.freeze({ left: 178, top: 216, slotW: 44, slotH: 28, gap: 6 });
+
 const ACT_CN = ['一', '二', '三', '四', '五'];
 function actLabel(chapter, stage) {
   const c = Number.isInteger(chapter) && chapter >= 1 && chapter <= 5 ? chapter : 1;
@@ -36,6 +39,19 @@ export default class Hud {
     // act 存的是「幕:场」缓存键，不是文案；换场要能靠 key 变化触发重绘
     this.cache = { hp: -1, shard: -1, freq: '', time: '', act: '', progression: '', passive: '' };
 
+    // 道具技能栏：屏幕底部中央三个槽，硬边黄铜框，按 1/2/3 释放，格子内画冷却遮罩。
+    this.skillG = scene.add.graphics().setDepth(1003).setScrollFactor(0);
+    this.skillKeyTexts = [];
+    this.skillNameTexts = [];
+    this.skillCdTexts = [];
+    for (let i = 0; i < 3; i++) {
+      const x = SKILL_BAR.left + i * (SKILL_BAR.slotW + SKILL_BAR.gap);
+      this.skillKeyTexts.push(addText(scene, x + 3, SKILL_BAR.top + 1, String(i + 1), 8, HEX.brassLight).setDepth(1004).setScrollFactor(0));
+      this.skillNameTexts.push(addText(scene, x + SKILL_BAR.slotW / 2, SKILL_BAR.top + 12, '', 7, HEX.parchment).setOrigin(0.5, 0).setDepth(1004).setScrollFactor(0));
+      this.skillCdTexts.push(addText(scene, x + SKILL_BAR.slotW / 2, SKILL_BAR.top + 20, '', 7, HEX.arcaneLight).setOrigin(0.5, 0).setDepth(1004).setScrollFactor(0));
+    }
+    this.cache.skills = '';
+
     this.drawStatic();
   }
 
@@ -60,7 +76,8 @@ export default class Hud {
   }
 
   update(data) {
-    const { hp, maxHp, shield = 0, shards, rate, buckets, elapsedMs, chapter = 1, stage = 1, lv = 1, exp = 0, expNeed = 10, passives = null } = data;
+    const { hp, maxHp, shield = 0, shards, rate, buckets, elapsedMs, chapter = 1, stage = 1, lv = 1, exp = 0, expNeed = 10, passives = null, skills = [], now = 0 } = data;
+    this.drawSkills(skills, now);
     const g = this.dyn;
     g.clear();
 
@@ -129,6 +146,52 @@ export default class Hud {
     if (this.cache.act !== actKey) {
       this.cache.act = actKey;
       this.actText.setText(actLabel(chapter, stage));
+    }
+  }
+
+  // 道具技能栏：每帧重画（冷却遮罩随时间变化），文字只在内容变化时更新。
+  drawSkills(skills, now) {
+    const g = this.skillG;
+    g.clear();
+    for (let i = 0; i < 3; i++) {
+      const s = skills[i];
+      const x = SKILL_BAR.left + i * (SKILL_BAR.slotW + SKILL_BAR.gap);
+      const y = SKILL_BAR.top;
+      const ready = s && now >= (s.cooldownUntil ?? 0);
+      const remain = s ? Math.max(0, (s.cooldownUntil ?? 0) - now) : 0;
+
+      // 槽底 + 硬边外框；空格用更暗的描边表示「本场还没捡到道具」
+      pxRect(g, x, y, SKILL_BAR.slotW, SKILL_BAR.slotH, s ? C.ink : C.nightDeep, 0.96);
+      pxFrame(g, x, y, SKILL_BAR.slotW, SKILL_BAR.slotH, s ? (ready ? C.brass : C.stoneLight) : C.stoneDark, 1, 1);
+      pxRect(g, x + 1, y + 1, SKILL_BAR.slotW - 2, 1, s ? (ready ? C.arcane : C.groove) : C.stoneDark, 0.8);
+      // 键位角标底
+      pxRect(g, x + 2, y + 2, 8, 9, C.brassDark, 0.9);
+
+      if (s) {
+        // 冷却：从顶向下压一条暗色遮罩，剩多久压多高；就绪时无遮罩并点亮边缘
+        if (!ready && s.cdMs > 0) {
+          const ratio = Math.min(1, remain / s.cdMs);
+          const fillH = Math.round((SKILL_BAR.slotH - 2) * ratio);
+          pxRect(g, x + 1, y + 1, SKILL_BAR.slotW - 2, fillH, C.void, 0.72);
+        } else {
+          pxRect(g, x + 1, y + 1, SKILL_BAR.slotW - 2, SKILL_BAR.slotH - 2, C.arcane, 0.06);
+        }
+      }
+
+      const keyStr = String(i + 1);
+      const nameStr = s ? (s.name.length > 4 ? s.name.slice(0, 3) + '…' : s.name) : '—';
+      const cdStr = !s ? '' : (ready ? '就绪' : (remain / 1000).toFixed(1) + 's');
+      const cacheKey = keyStr + '|' + nameStr + '|' + cdStr + '|' + (ready ? 'r' : 'c');
+      if (!this.skillSlotCache) this.skillSlotCache = ['', '', ''];
+      if (this.skillSlotCache[i] !== cacheKey) {
+        this.skillSlotCache[i] = cacheKey;
+        this.skillKeyTexts[i].setText(keyStr);
+        this.skillNameTexts[i].setText(nameStr);
+        this.skillCdTexts[i].setText(cdStr);
+        if (typeof this.skillCdTexts[i].setColor === 'function') {
+          this.skillCdTexts[i].setColor(ready ? HEX.teal : HEX.mute);
+        }
+      }
     }
   }
 }

@@ -61,6 +61,7 @@ import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
 import { STAGE_CARDS } from '../data/cinematics.js';
 import { fireGuide, hideGuide } from '../logic/guide.js';
+import { saveRun, clearRun } from '../logic/save.js';
 
 // 画框工厂：竖屏不创建（480×760 的画布上 8px 框会卡在地图区中间）
 export function createBattleFrame(scene, { seed, stage }) {
@@ -79,6 +80,9 @@ const FREQ_WINDOW_MS = 5000;
 // 击杀经验折算：1 杀 1 点。这个常量保留成可调项——如果实机觉得升级三选一太频繁，
 // 把它调到 2/3 即可整体降速，不需要改任何结算代码。
 const KILL_EXP_PER_POINT = 1;
+// 道具技能：按 1/2/3 主动释放，冷却 = 基础值 × 卡牌 cdMul。每场重置技能库。
+const SKILL_CD_BASE = 5200;
+const SKILL_SLOT_MAX = 3;
 
 // 卡片显示名：符印带变体后缀（寒霜箭·谐），进化再挂一层路线名（寒霜箭·谐·冰河箭）。
 const cardDisplayName = card => {
@@ -126,6 +130,20 @@ export default class BattleScene extends Phaser.Scene {
     this.timeExpTimer = 0;
     this.run.encounters ??= createEncounterState(this.run.seed);
     this.run.bossResolutions ??= {};
+    // —— 道具技能库（本场有效，随断点存档一起持久化）——
+    // 技能库只来自玩家在升级三选一中实际选中的法术卡：选哪张，哪张就成为 1/2/3 技能。
+    // 开局不预置任何技能；换场清空，读档回到同一场时保留已经选到的技能。
+    this.run.skillLibrary ??= [];
+    // skillStage 记录技能库归属的场：进新场时清空，读档回到同一场时保留。
+    if (this.run.skillStage !== this.stage) {
+      this.run.skillLibrary = [];
+      this.run.skillStage = this.stage;
+    }
+    this.skillCooldowns = [0, 0, 0];
+    this.skillSaveAccum = 0;
+    // 引擎时间每次进场从 0 重新起算，存档里的 cooldownUntil 是旧时间轴上的值，需清零。
+    for (const entry of this.run.skillLibrary) entry.cooldownUntil = 0;
+    this.__resume = !!data.__resume;
     // 局外成长档：只读，宝箱/罗盘抽到被动时按此档的等级加成。
     this.metaSave = loadMeta();
     this.playerSlowUntil = 0;
@@ -293,8 +311,9 @@ export default class BattleScene extends Phaser.Scene {
     this.keys = this.input.keyboard.addKeys({
       up: 'W', down: 'S', left: 'A', right: 'D',
       space: 'SPACE', esc: 'ESC', restart: 'R', title: 'T', mute: 'M', edit: 'E',
+      skill1: 'ONE', skill2: 'TWO', skill3: 'THREE',
     });
-    this.input.keyboard.addCapture(['W', 'A', 'S', 'D', 'SPACE', 'ESC', 'R', 'T', 'M', 'UP', 'DOWN', 'LEFT', 'RIGHT']);
+    this.input.keyboard.addCapture(['W', 'A', 'S', 'D', 'SPACE', 'ESC', 'R', 'T', 'M', 'ONE', 'TWO', 'THREE', 'UP', 'DOWN', 'LEFT', 'RIGHT']);
     this.input.keyboard.resetKeys();
     // 压测入口只在显式 ?stress=1 下启用，不改变正常玩法
     if (params.get('stress') === '1') this.time.delayedCall(900, () => this.startStress());
@@ -384,6 +403,15 @@ export default class BattleScene extends Phaser.Scene {
         fireGuide(this, this.run, stageGuideId, { act: this.chapter, stage: this.stage });
       }
     });
+    // 进场即落盘一次（首次进入也有存档）；读档续玩时墨宝专门打招呼。
+    this.saveProgress();
+    if (this.__resume) {
+      this.time.delayedCall(guideDelay + 200, () => {
+        if (this.scene.isActive() && !this.transitionLeft) {
+          fireGuide(this, this.run, 'SAVE_RESUME', { act: this.chapter, stage: this.stage });
+        }
+      });
+    }
   }
 
   mountUiLayer() {
@@ -672,6 +700,13 @@ export default class BattleScene extends Phaser.Scene {
     if (this.editOpen) this.tickEditBoardMotion(time, delta);
 
     if (this.phase === 'play' && !this.paused && !frozen) {
+      // 道具技能：按 1/2/3 释放（用 Key 对象的 JustDown，不受升级弹窗的事件解绑影响）
+      if (Phaser.Input.Keyboard.JustDown(this.keys.skill1)) this.castSkill(0);
+      if (Phaser.Input.Keyboard.JustDown(this.keys.skill2)) this.castSkill(1);
+      if (Phaser.Input.Keyboard.JustDown(this.keys.skill3)) this.castSkill(2);
+      // 断点存档：每 4 秒补写一次，覆盖血量/成长/技能冷却等连续变化。
+      this.skillSaveAccum += dt;
+      if (this.skillSaveAccum >= 4000) { this.skillSaveAccum = 0; this.saveProgress(); }
       this.engine.advance(dt);
       this.tickPendingCasts();
       this.updatePlayer(dt);
@@ -763,6 +798,9 @@ export default class BattleScene extends Phaser.Scene {
       stage: this.stage,
       // 顶栏常驻计数：人物被动 / 罗盘增益各拿到了几种（重复拿到只算一种，次数在暂停菜单里）
       passives: this.passiveCounts,
+      // 道具技能库：三格技能槽 + 当前冷却，Hud 每帧按 now 重画遮罩
+      skills: this.run.skillLibrary ?? [],
+      now: this.engine.now,
     });
     // 画框跟着同一颗心脏：暂停与顿帧时 dt 传 0，碎屑与脉动一起定格
     this.frame?.update({
@@ -1099,6 +1137,79 @@ export default class BattleScene extends Phaser.Scene {
       // 专属连携的同对冷却表挂在 run 上，跨帧保留
       linkageCd: (this.run.linkageCd ??= {}),
     };
+  }
+
+  // ---------- 道具技能库（按 1/2/3 主动释放，王者式冷却，每场重置） ----------
+  // 只有升级三选一里玩家选中的法术卡才会登记进本场技能库：选哪张就是哪个技能。
+  // 辅助卡不入技能库（没有主动法术）；技能库随断点存档持久化，换场清空。
+  grantSkill(defId) {
+    if (!Object.hasOwn(SIGIL_DEFS, defId)) return;
+    const def = SIGIL_DEFS[defId];
+    const lib = this.run.skillLibrary ?? (this.run.skillLibrary = []);
+    const existing = lib.find(s => s.defId === defId);
+    if (existing) { existing.cdMs = this.skillCdOf(def); return; }
+    const entry = { defId, name: def.name, kind: def.kind, cdMs: this.skillCdOf(def), cooldownUntil: 0 };
+    if (lib.length < SKILL_SLOT_MAX) lib.push(entry);
+    else { lib.shift(); lib.push(entry); } // 槽位已满：顶掉最早的一格
+    const slot = lib.indexOf(entry) + 1;
+    this.effects.text(240, 116, '技能入库 · ' + def.name + '（按 ' + slot + '）', HEX.teal, true);
+    fireGuide(this, this.run, 'SKILL_GAIN', { name: def.name, slot });
+    this.saveProgress();
+  }
+
+  skillCdOf(def) {
+    return Math.round(SKILL_CD_BASE * (Number.isFinite(def.cdMul) ? def.cdMul : 1));
+  }
+
+  // 技能不占用法阵格，但复制命中管线需要一个承载格：取已解锁、未静默、带符印的格子。
+  skillHostCell() {
+    const cells = this.grid?.cells ?? [];
+    for (const cell of cells) {
+      if (cell.unlocked && !cell.mutedOutput && cell.slot?.kind === 'sigil') return cell.id;
+    }
+    return Number.isInteger(this.startCell) ? this.startCell : (cells.find(c => c.unlocked)?.id ?? 4);
+  }
+
+  // 自动锁定屏幕内离玩家最近的敌人；没有目标时朝面向方向给一个落点。
+  pickSkillAim() {
+    const visible = visibleFilter(this.viewRect());
+    let best = null, bestD = Infinity;
+    for (const e of this.enemies) {
+      if (!e.alive || !visible(e)) continue;
+      const d = Math.hypot(e.x - this.player.x, e.y - this.player.y);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    if (best) return { x: best.x, y: best.y };
+    const facing = Number.isFinite(this.player.facing) ? this.player.facing : 0;
+    return { x: this.player.x + Math.cos(facing) * 60, y: this.player.y + Math.sin(facing) * 60 };
+  }
+
+  castSkill(index) {
+    if (this.phase !== 'play' || this.paused || this.hitstopLeft > 0 || !this.player.alive) return;
+    const entry = this.run.skillLibrary?.[index];
+    if (!entry) return;
+    if (this.engine.now < (entry.cooldownUntil ?? 0)) {
+      this.effects.text(240, 116, '技能冷却中', HEX.mute, true);
+      return;
+    }
+    const def = SIGIL_DEFS[entry.defId];
+    if (!def) return;
+    const origin = this.player.staffTip();
+    const aim = this.pickSkillAim();
+    const angle = Math.atan2(aim.y - origin.y, aim.x - origin.x);
+    entry.cooldownUntil = this.engine.now + entry.cdMs;
+    sfx.trigger();
+    this.effects.spellCast(entry.defId, origin.x, origin.y, angle);
+    // 复用法术命中管线：伤害/命中数字/连锁/经验/碎片全部照常结算。
+    const result = this.applySigil(this.skillHostCell(), entry.defId, aim, angle);
+    if (def.kind === 'ward') this.effects.spellWard(entry.defId, def.radius ?? 40);
+    else if (!result.empty) this.effects.spellImpact(entry.defId, aim.x, aim.y, def.radius ?? 14, angle);
+    fireGuide(this, this.run, 'SKILL_CAST', { name: entry.name });
+    this.saveProgress();
+  }
+
+  saveProgress() {
+    saveRun(this.run);
   }
 
   applySigil(cellId, defId, aimPoint, impactAngle = null) {
@@ -1847,6 +1958,9 @@ export default class BattleScene extends Phaser.Scene {
     else {
       const key = cardKeyOf(card);
       this.run.hand[key] = (this.run.hand[key] ?? 0) + 1;
+      // 三选一里玩家选中的这张卡就是本场技能：选攻击就是攻击技能，选防御（圣光壁垒/圣环）就是护盾技能。
+      // 辅助卡与进化卡没有主动法术（进化作用于已有法术），grantSkill 内部会安全忽略，不占技能格。
+      this.grantSkill(card.defId);
     }
     if (this.levelupHandler) { this.input.off('pointerdown', this.levelupHandler); this.levelupHandler = null; }
     for (const key of ['ONE', 'TWO', 'THREE']) this.input.keyboard?.off('keydown-' + key);
@@ -1931,10 +2045,12 @@ export default class BattleScene extends Phaser.Scene {
       const clearedStage = this.stage;
       this.chapter = Math.min(5, this.chapter + 1);
       this.stage = firstStageOf(this.chapter);
-      this.run.chapter = this.chapter;
-      this.run.stage = this.stage;
-      this.stageOutcome = 'none';
-      // 通幕卡按「刚打完的那一幕」出卡：stage 显式传刚清空的场（合并幕=后半场），
+    this.run.chapter = this.chapter;
+    this.run.stage = this.stage;
+    this.stageOutcome = 'none';
+    // 进入新的一幕/新场：落盘当前游标，供「继续冒险」从此处读档。
+    this.saveProgress();
+    // 通幕卡按「刚打完的那一幕」出卡：stage 显式传刚清空的场（合并幕=后半场），
       // payload.run 已指向下一幕第一场，供幕间工作台使用。
       playCutscene(this, {
         kind: 'clear', act: clearedChapter, stage: clearedStage, report, to: 'IntermissionScene',
@@ -1949,6 +2065,8 @@ export default class BattleScene extends Phaser.Scene {
         blocked: out.blocked + report.blocked,
         peakRate: Math.max(out.peakRate, report.peakRate),
       }), { elapsedMs: 0, kills: 0, triggers: 0, combos: 0, blocked: 0, peakRate: 0 });
+      // 通关：本局已结束，清除断点存档，避免标题页还提示续玩一个已通关的局。
+      clearRun();
       // 终局：三道契约环碎裂 → 结局演出（StoryScene ending）→ 胜利结算。
       // ?cine=0 / ?stress=1 时不播结局直达面板，保持调试契约（playCutscene 兜底会把结局照播）。
       const victoryPayload = { ...this.buildSummary(), ...totals, victory: true, bossResolutions: structuredClone(this.run.bossResolutions), __cine: true };
@@ -1974,6 +2092,11 @@ export default class BattleScene extends Phaser.Scene {
     this.chapter = chapterOf(next);
     this.run.chapter = this.chapter;
     this.stageOutcome = 'none';
+    // 换场即换关：技能库清零，冷却复位，下一场只看本场发放了什么道具。
+    this.run.skillLibrary = [];
+    this.run.skillStage = next;
+    this.skillCooldowns = [0, 0, 0];
+    this.saveProgress();
     const world = WORLD_SIZES[next] ?? WORLD_SIZES[1];
     this.world = { w: world.w, h: world.h };
     this.worldBounds = { left: 24, top: 40, right: world.w - 24, bottom: world.h - 24 };
@@ -2238,7 +2361,8 @@ export default class BattleScene extends Phaser.Scene {
     const receipt = resolveBossOnce(this.run, this.stage, bossId, method, tier);
     if (!receipt.ok) return;
     this.shardCount += receipt.reward; this.kills++;
-    // Boss 战利品：问答定义给出法术卡进手牌 + 随机一个罗盘本体增益
+    // Boss 战利品：问答定义给出法术卡进手牌 + 随机一个罗盘本体增益。
+    // 这张卡只进手牌，不自动进技能库——技能库严格来自升级三选一玩家自己选的卡。
     const spellDefId = stageSpellCard(this.stage);
     const spellKey = cardKeyOf({ kind: 'sigil', defId: spellDefId, variant: rollVariant(this.combatRng, spellDefId) });
     this.run.hand[spellKey] = (this.run.hand[spellKey] ?? 0) + 1;
@@ -2549,6 +2673,8 @@ export default class BattleScene extends Phaser.Scene {
   die() {
     if (this.phase !== 'play') return;
     this.phase = 'dying';
+    // 死亡：本局结束，清除断点存档；再战从第一幕重来。
+    clearRun();
     this.paused = true;
     this.engine.paused = true;
     // 玩家死亡：清空敌方弹幕与召唤物（炮台/符文不再继续打）

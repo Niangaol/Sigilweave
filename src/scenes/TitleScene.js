@@ -3,6 +3,8 @@
 import Phaser from 'phaser';
 import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, applyPixelZoom, FONT_DISPLAY, getRenderScale } from '../ui/Palette.js';
 import { playCutscene } from '../ui/transition.js';
+import { describeSave, loadRun } from '../logic/save.js';
+import { chapterOf } from '../logic/acts.js';
 import { loadMeta, resetMeta } from '../logic/meta.js';
 import { loadSettings, applySettings, SETTING_ROWS } from '../logic/settings.js';
 import { setSoundEnabled } from '../audio/Sfx.js';
@@ -17,6 +19,9 @@ let jumpConsumed = false;
 
 // 面板统一占位：480×270 画布上留出标题与状态条，44..234 是内容区。
 const PANEL = Object.freeze({ x: 20, y: 44, w: 440, h: 190 });
+
+// 断点续玩横条：挤在状态条（232）与页脚之间，有存档时才画。
+const CONTINUE_GEOM = Object.freeze({ y: 244, h: 13 });
 
 export default class TitleScene extends Phaser.Scene {
   constructor() {
@@ -90,7 +95,9 @@ export default class TitleScene extends Phaser.Scene {
     this.buildMenu();
     this.status = addText(this, this.menu.cx, 232, statusLine(this.meta), 8, HEX.brassLight)
       .setOrigin(0.5, 0).setDepth(10);
-    this.footer = addText(this, this.menu.cx, 248, '↑↓ 选择　Enter 确认　·　鼠标可点', 7, HEX.mute)
+    // 有断点存档时，状态条下面多一条「继续冒险」横条，页脚顺势下移 10px 让位。
+    const hasSave = this.buildContinue();
+    this.footer = addText(this, this.menu.cx, hasSave ? 258 : 248, '↑↓ 选择　Enter 确认　·　鼠标可点', 7, HEX.mute)
       .setOrigin(0.5, 0).setDepth(10);
 
     // 子面板：一层图形 + 一组文字，打开时重建
@@ -103,6 +110,42 @@ export default class TitleScene extends Phaser.Scene {
     this.drawRing(0);
     this.refreshMenu();
     this.publishDebug();
+  }
+
+  // ---------- 断点续玩 ----------
+
+  // 检测到本局存档时，在状态条与页脚之间加一条青绿横条：按 C 或直接点它，回到上次那一场。
+  buildContinue() {
+    this.saveInfo = describeSave();
+    if (!this.saveInfo) return false;
+    const { x, w, cx } = this.menu;
+    const y = CONTINUE_GEOM.y;
+    const h = CONTINUE_GEOM.h;
+    this.continueG = this.add.graphics().setDepth(8);
+    pxRect(this.continueG, x, y, w, h, C.ink, 0.92);
+    pxFrame(this.continueG, x, y, w, h, C.teal, 1, 0.9);
+    pxRect(this.continueG, x + 1, y + 1, w - 2, 1, C.teal, 0.25);
+    this.continueText = addText(this, cx, y + 3, this.continueLabel(), 8, HEX.teal)
+      .setOrigin(0.5, 0).setDepth(10);
+    return true;
+  }
+
+  continueLabel() {
+    // 幕号以 stage 为准重算：老档里 run.chapter 可能落后于 stage。
+    const chapter = chapterOf(this.saveInfo.stage);
+    return '按 C 继续冒险 · 第 ' + chapter + ' 幕 · 第 ' + this.saveInfo.stage + ' 场';
+  }
+
+  continueGame() {
+    if (this.started || this.panel) return;
+    const run = loadRun();
+    if (!run) return;
+    this.started = true;
+    // 读档直达战斗场：跳过选套（套装已固化在 run.draft 里）。
+    playCutscene(this, {
+      kind: 'act', act: chapterOf(run.stage), to: 'BattleScene',
+      payload: { run, __cine: true, __resume: true },
+    });
   }
 
   // ---------- 菜单 ----------
@@ -150,6 +193,8 @@ export default class TitleScene extends Phaser.Scene {
     if (this.status) this.status.setVisible(!this.panel);
     // 面板自带页脚提示，标题页这条就收起来，免得两行字隔着半透明底打架
     if (this.footer) this.footer.setVisible(!this.panel);
+    if (this.continueG) this.continueG.setVisible(!this.panel);
+    if (this.continueText) this.continueText.setVisible(!this.panel);
   }
 
   moveSelection(delta) {
@@ -414,6 +459,8 @@ export default class TitleScene extends Phaser.Scene {
     // H 直接看说明、B 直接进祭坛：老习惯保留，但不再是唯一入口
     on('keydown-H', () => { if (!this.started) { if (this.panel === 'help') this.closePanel(); else this.openPanel('help'); } });
     on('keydown-B', () => { if (!this.panel) this.openMeta(); });
+    // C：断点续玩（只在有存档时有效，且不抢面板的按键）
+    on('keydown-C', () => { if (!this.panel) this.continueGame(); });
 
     const logical = (pointer) => ({ x: pointer.x / getRenderScale(), y: pointer.y / getRenderScale() });
     const pointerMove = (pointer) => {
@@ -439,7 +486,9 @@ export default class TitleScene extends Phaser.Scene {
         return;
       }
       const idx = hitMenuRow(x, y, TITLE_MENU.length);
-      if (idx >= 0) { this.menuIndex = idx; this.refreshMenu(); this.activate(idx); }
+      if (idx >= 0) { this.menuIndex = idx; this.refreshMenu(); this.activate(idx); return; }
+      // 续玩横条整条可点：落在它的矩形里就走续玩，不落到菜单
+      if (this.saveInfo && y >= CONTINUE_GEOM.y && y <= CONTINUE_GEOM.y + CONTINUE_GEOM.h) this.continueGame();
     };
     this.input.on('pointermove', pointerMove);
     this.input.on('pointerdown', pointerDown);
@@ -455,6 +504,7 @@ export default class TitleScene extends Phaser.Scene {
     window.__SIGILWEAVE_TITLE__ = {
       index: this.menuIndex, panel: this.panel, page: this.helpPage,
       pages: HELP_PAGES.length, items: TITLE_MENU.map((m) => m.id),
+      save: this.saveInfo ? { ...this.saveInfo } : null,
     };
     window.__SIGILWEAVE_TITLE_HELP__ = this.panel === 'help';
   }
