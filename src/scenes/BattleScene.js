@@ -58,6 +58,7 @@ import { CARD_HINTS } from '../data/card-hints.js';
 import { punchFor, shouldPunch, strikePunchFor } from '../ui/spell-punch.js';
 import { shakeCamera } from '../ui/camera-shake.js';
 import { bossFrameOffset, clampFollowOffset, leashIntoView, playerVisible, DEFAULT_DEADZONE_H } from '../ui/boss-framing.js';
+import { followBaseY, viewRect as viewRectOf, updateBossCamera as updateBossCameraOf, resumeFollow as resumeFollowOf } from '../ui/battle-camera.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -79,9 +80,6 @@ const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
 // 镜头取景：横屏把跟随中心上抬一点，人物略低于屏幕中心，多露上方战场与来袭方向。
 // 死区高 40，半高 20 会吃掉一半偏移，所以这里给 50 → 实际净上抬约 30px。
 // 竖屏沿用 190 的专用偏移（人物落在地图区中上部，下方留给触控台），不再叠加。
-const CAMERA_LIFT = 50;
-const PORTRAIT_FOLLOW_Y = 190;
-const followBaseY = () => (isPortrait() ? PORTRAIT_FOLLOW_Y : CAMERA_LIFT);
 const FREQ_WINDOW_MS = 5000;
 // 击杀经验折算：1 杀 1 点。这个常量保留成可调项——如果实机觉得升级三选一太频繁，
 // 把它调到 2/3 即可整体降速，不需要改任何结算代码。
@@ -1285,51 +1283,11 @@ export default class BattleScene extends Phaser.Scene {
 
   // 当前镜头能看到的世界矩形。这是「屏幕内」的唯一判定来源：
   // worldView 已含 zoom、竖屏镜头偏移与跟随死区，比按玩家坐标硬算 480×270 更准。
-  viewRect() {
-    const v = this.cameras?.main?.worldView;
-    if (v && Number.isFinite(v.x) && Number.isFinite(v.y) && v.width > 0 && v.height > 0) {
-      return { x: v.x, y: v.y, w: v.width, h: v.height };
-    }
-    return { x: this.player.x - 240, y: this.player.y - 135, w: 480, h: 270 };
-  }
+  viewRect() { return viewRectOf(this); }
 
   // Boss 战取景：每帧按 Boss 头顶需要多少抬头量，再夹在玩家安全线以内。
   // 不这么做的话，跟随偏移会把玩家顶到画面下沿外（见 ui/boss-framing.js 的注释）。
-  updateBossCamera() {
-    const cam = this.cameras?.main;
-    const base = followBaseY();
-    const view = this.viewRect();
-    const boss = this.boss && this.boss.alive ? this.boss : null;
-    let offset = base;
-    if (boss) {
-      const displayH = boss.sprite?.displayHeight ?? 0;
-      const bossTop = boss.y + 21 - displayH;   // BOSS_FEET = 21
-      offset = bossFrameOffset({
-        viewH: view.h,
-        deadzoneH: DEFAULT_DEADZONE_H,
-        baseOffset: base,
-        playerY: this.player.y,
-        bossTop,
-        hudBottom: 40,
-      }).offset;
-    }
-    this.followOffsetY = offset;
-    // 只在真的变了才写相机，避免每帧触发 Phaser 内部的脏标记
-    if (this.appliedFollowOffset !== offset) {
-      this.appliedFollowOffset = offset;
-      cam?.setFollowOffset?.(0, offset);
-    }
-    // 兜底：偏移/死区再怎么算，玩家掉出画面就立刻把镜头拉回来
-    if (!playerVisible(this.player, view, 6)) {
-      this.playerOffViewMs = (this.playerOffViewMs ?? 0) + 16;
-      if (this.playerOffViewMs > 120) {
-        this.playerOffViewMs = 0;
-        cam?.centerOn?.(this.player.x, this.player.y - offset);
-      }
-    } else {
-      this.playerOffViewMs = 0;
-    }
-  }
+  updateBossCamera() { return updateBossCameraOf(this); }
 
   combatState() {
     return {
@@ -2605,18 +2563,7 @@ export default class BattleScene extends Phaser.Scene {
     if (tier === 'mini') { this.bossCamOffset = 0; this.resumeFollow(); }
   }
 
-  resumeFollow(offsetY = 0) {
-    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
-    this.cameras.main.setDeadzone(60, DEFAULT_DEADZONE_H);
-    // 基准取景 + Boss 战临时上抬，但整体夹在「玩家安全线」以内：
-    // 横屏 50 + 80 = 130 的旧值会把玩家推到 270 高视口的 y≈265，肉眼已经掉出画面。
-    const base = followBaseY();
-    const view = this.viewRect();
-    const total = clampFollowOffset(base + offsetY, view.h, DEFAULT_DEADZONE_H);
-    this.followOffsetY = total;
-    this.appliedFollowOffset = total;
-    this.cameras.main.setFollowOffset(0, total);
-  }
+  resumeFollow(offsetY = 0) { return resumeFollowOf(this, offsetY); }
 
   startBossClearTransition() {
     if (this.phase === 'bossDefeated' || this.phase === 'intermission') return;

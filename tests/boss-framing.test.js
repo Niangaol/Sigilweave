@@ -57,11 +57,13 @@ describe('Boss 取景偏移', () => {
   });
 
   it('场景里确实用上了：resumeFollow 夹线、每帧取景、Boss 拴绳', () => {
-    const src = readFileSync(resolve(root, 'src/scenes/BattleScene.js'), 'utf8');
+    // 波 1 起取景实现迁到 ui/battle-camera.js：检查面合并两个文件（只扩大、不放松）。
+    const src = readFileSync(resolve(root, 'src/scenes/BattleScene.js'), 'utf8')
+      + readFileSync(resolve(root, 'src/ui/battle-camera.js'), 'utf8');
     expect(src).toContain('clampFollowOffset(base + offsetY, view.h, DEFAULT_DEADZONE_H)');
     expect(src).toContain('this.updateBossCamera();');
     expect(src).toContain('leashIntoView(this.boss, feetView)');
-    expect(src).toContain('playerVisible(this.player, view, 6)');
+    expect(src).toContain('playerVisible(scene.player, view, 6)');
     // 旧的 110 间距会让 104px 立绘顶进 HUD
     expect(src).not.toContain('this.player.y - 110');
   });
