@@ -62,6 +62,7 @@ import { followBaseY, viewRect as viewRectOf, updateBossCamera as updateBossCame
 import { drawHostileShot } from '../ui/hostile-draw.js';
 import { computeFrequency } from '../ui/battle-frequency.js';
 import { readTuning as readTuningOf, pickStartCells as pickStartCellsOf, sampleStartCell as sampleStartCellOf } from './battle-setup.js';
+import GridEditor from '../ui/grid-editor.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -89,15 +90,6 @@ const KILL_EXP_PER_POINT = 1;
 // 道具技能：按 1/2/3 主动释放，冷却 = 基础值 × 卡牌 cdMul。每场重置技能库。
 const SKILL_CD_BASE = 5200;
 const SKILL_SLOT_MAX = 3;
-
-// 卡片显示名：符印带变体后缀（寒霜箭·谐），进化再挂一层路线名（寒霜箭·谐·冰河箭）。
-const cardDisplayName = card => {
-  if (!card) return '';
-  if (card.kind === 'auxiliary') return AUX_DEFS[card.defId]?.name ?? card.defId;
-  const base = variantOf(card.defId, card.variant).name;
-  const route = card.evo ? evolutionOf(card.defId, card.evo) : null;
-  return route ? base + '·' + route.name : base;
-};
 
 export default class BattleScene extends Phaser.Scene {
   constructor() {
@@ -208,6 +200,7 @@ export default class BattleScene extends Phaser.Scene {
     this.effects = new EffectsLayer(this);
     this.hud = new Hud(this);
     // 暂停菜单的每一项都挂真实动作，鼠标点击与键盘快捷键走同一条路径
+    this.editor = new GridEditor(this);
     this.pauseMenu = new PauseMenu(this, {
       resume: () => this.closePause(),
       restart: () => { if (this.menuOpen || this.editOpen) playCutscene(this, { kind: 'retry', to: 'BattleScene', payload: { run: this.run, __cine: true }, act: this.chapter, stage: this.stage }); },
@@ -1524,398 +1517,26 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   // ---------- 暂停编辑法阵（保留冷却；战斗实时不可改，暂停可改） ----------
-  openGridEdit() {
-    if (this.editOpen) return;
-    this.editOpen = true;
-    this.editSelected = null;
-    this.editAuxPending = null;
-    this.editFocus = null;
-    this.editNote = '1 点右侧手牌 → 2 点左侧空符位 → 3 点完成；点已放置的卡可收回。';
-    this.pauseMenu.hide();
-    this.editHandPage = 0;
-    this.editDraft = draftFromGrid(this.grid, { act: this.chapter });
-    this.editHand = { ...this.run.hand };
-    this.editUI = this.add.container(0, 0).setDepth(3500).setScrollFactor(0);
-    this.uiRoot?.add(this.editUI);
-    this.editPointer = (pointer) => {
-      // 指针给的是游戏像素（= 逻辑坐标 × 倍率），命中区是逻辑坐标，必须先折算
-      const scale = getRenderScale();
-      const lx = pointer.x / scale, ly = pointer.y / scale;
-      const hit = this.editRects?.find(r => lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h);
-      if (hit) hit.action();
-    };
-    this.input.on('pointerdown', this.editPointer);
-    // 悬停高亮独立成层（与幕间同一套交互语言）：移上去亮框 + 手型光标
-    // 屏幕固定元素必须挂 uiRoot（场景根上的 scrollFactor-0 会被镜头位移甩出屏幕）
-    this.editHoverG = this.add.graphics().setDepth(5001).setScrollFactor(0);
-    this.uiRoot?.add(this.editHoverG);
-    // 法阵盘动态层：在静态 UI 之上、悬停层之下，约 30fps 重绘
-    this.editAnimG = this.add.graphics().setDepth(5000).setScrollFactor(0);
-    this.uiRoot?.add(this.editAnimG);
-    this.editAnimAcc = 0;
-    this.editAnimFrames = 0;
-    this.editHoverMove = (pointer) => {
-      if (!this.editOpen) return;
-      const scale = getRenderScale();
-      const lx = pointer.x / scale, ly = pointer.y / scale;
-      const hit = this.editRects?.find(r => lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h);
-      const hg = this.editHoverG;
-      hg.clear();
-      if (hit) {
-        pxRect(hg, hit.x, hit.y, hit.w, hit.h, C.stone, 0.35);
-        pxFrame(hg, hit.x, hit.y, hit.w, hit.h, C.brassLight, 1, 0.85);
-        this.game.canvas.style.cursor = 'pointer';
-      } else if (this.game.canvas.style.cursor !== '') {
-        this.game.canvas.style.cursor = '';
-      }
-    };
-    this.input.on('pointermove', this.editHoverMove);
-    this.drawGridEdit();
-  }
+  openGridEdit() { return this.editor.open(); }
 
-  editNames() { return { ...SIGIL_DEFS, ...AUX_DEFS, ...RUNE_DEFS }; }
 
-  // 暂停改阵期间约 30fps 重绘动态层；编辑关闭时根本不进这里
-  tickEditBoardMotion(time, delta) {
-    if (!this.editAnimG || !this.editDraft) return;
-    this.editAnimAcc = (this.editAnimAcc ?? 0) + delta;
-    if (this.editAnimAcc < 33) return;
-    this.editAnimAcc = 0;
-    this.editAnimFrames = (this.editAnimFrames ?? 0) + 1;
-    const draft = this.editDraft;
-    kitBoardMotion(this.editAnimG, {
-      panel: { x: 10, y: 42, w: 224, h: 210 },
-      cells: { x0: 14, y0: 56, cw: 51, ch: 26, gapX: 3, gapY: 3 },
-      t: time,
-      focusId: this.editFocus,
-      selecting: !!this.editSelected,
-      unlocked: draft.unlocked ?? [],
-      slots: Object.entries(draft.slots ?? {}).map(([id, slot]) => ({ id: +id, slot })),
-    });
-  }
+  editNames() { return this.editor.names(); }
 
-  editHint(defId) { return CARD_HINTS[defId] ?? ''; }
+  tickEditBoardMotion(time, delta) { return this.editor.tick(time, delta); }
 
-  drawGridEdit() {
-    if (this.editUI) { this.editUI.destroy(true); this.editUI = null; }
-    this.editHoverG?.clear();
-    const ui = this.add.container(0, 0).setDepth(3500).setScrollFactor(0);
-    this.uiRoot?.add(ui);
-    // 容器内按插入序渲染：editUI 每次重建都会压住悬停层，必须重新带到最顶
-    this.uiRoot?.bringToTop(this.editAnimG);
-    this.uiRoot?.bringToTop(this.editHoverG);
-    this.editUI = ui;
-    this.editRects = [];
-    this.editAnimG?.clear();
-    const g = this.add.graphics();
-    ui.add(g);
-    const text = (x, y, s, size = 8, color = HEX.parchment, extra = {}) => {
-      const t = addText(this, x, y, s, size, color, extra);
-      ui.add(t);
-      return t;
-    };
-    const names = this.editNames();
-    const draft = this.editDraft;
-    // 编辑中的共鸣要按「尚未提交的草稿」算，不能读已应用的盘面
-    const draftGrid = {
-      ...this.grid,
-      cells: this.grid.cells.map((c, i) => ({ ...c, slot: draft.slots?.[i] ?? null })),
-    };
+  editHint(defId) { return this.editor.hint(defId); }
 
-    // 背景：与幕间同一套双层外框 + 硬边竖纹
-    pxRect(g, 0, 0, 480, 270, C.void);
-    for (let x = 0; x < 480; x += 24) pxRect(g, x, 0, 12, 270, C.ink, 0.22);
-    pxFrame(g, 6, 6, 468, 258, C.brassDark, 2, 1);
-    pxFrame(g, 9, 9, 462, 252, C.brass, 1, 0.18);
+  drawGridEdit() { return this.editor.draw(); }
 
-    kitHeader(g, text, {
-      x: 10, y: 10, w: 460,
-      title: '法阵编辑',
-      subtitle: '暂停中 · 冷却保留',
-      rightLabel: '碎片', rightValue: this.shardCount, rightColor: HEX.teal,
-    });
 
-    const unlocked = draft.unlocked ?? [];
-    const emptyCount = unlocked.filter(id => !draft.slots?.[id]).length;
-    kitSteps(g, text, 10, 27, 460, {
-      active: this.editAuxPending !== null ? 2 : this.editSelected ? 1 : 0,
-      right: unlocked.length + ' 格 · ' + emptyCount + ' 空位',
-      rightColor: HEX.brass,
-    });
+  editCellClick(id) { return this.editor.cellClick(id); }
 
-    // 左：4×4 法阵
-    kitPanel(g, 10, 42, 224, 210);
-    kitBoard(g, {
-      panel: { x: 10, y: 42, w: 224, h: 210 },
-      cells: { x0: 14, y0: 56, cw: 51, ch: 26, gapX: 3, gapY: 3 },
-    });
-    // 小标题两侧的刻线与菱形，让「符位 · 4×4」像一块铭牌
-    pxDiamond(g, 13, 49, 2, C.brass, 0.8, true);
-    pxLine(g, 78, 49, 222, 49, C.brassDark, 0.5, 1);
-    pxDiamond(g, 225, 49, 2, C.brass, 0.7, false);
-    text(18, 45, '符位 · 4×4', 7, HEX.brass);
-    const auxNeighbors = this.editAuxPending !== null
-      ? new Set(neighborsOf(this.editAuxPending, ORTHO_DIRS).map(n => n.id))
-      : null;
-    for (let id = 0; id < 16; id++) {
-      const rect = { x: 14 + (id % 4) * 54, y: 56 + Math.floor(id / 4) * 29, w: 51, h: 26 };
-      const slot = draft.slots?.[id];
-      kitCell(g, text, id, rect, {
-        unlocked: unlocked.includes(id),
-        slot,
-        focus: this.editFocus,
-        auxSrc: this.editAuxPending === id ? id : null,
-        auxValid: !!auxNeighbors?.has(id) && slot?.kind === 'sigil',
-        resonant: slot?.kind === 'sigil' && resonanceMultiplier(draftGrid, id) > 1,
-        selecting: !!this.editSelected,
-        target: draft.auxTargets?.[id],
-        runes: (draft.runes?.[id] ?? []).filter(Boolean).length,
-        exits: (draft.exits?.[id] ?? ['up', 'down', 'left', 'right']).length,
-        exitList: draft.exits?.[id] ?? ['up', 'down', 'left', 'right'],
-      });
-      this.editRects.push({ ...rect, action: () => this.editCellClick(id) });
-    }
 
-    // 左下：待放置卡 / 当前符位详情 / 操作指引三选一
-    const selCard = cardOf(this.editSelected);
-    const selDef = selCard?.defId ?? null;
-    const selLabel = selCard ? cardDisplayName(selCard) : '';
-    if (selCard) {
-      const visual = cardVisual(selCard);
-      kitDetail(g, text, { x: 10, y: 174, w: 224, h: 74 }, {
-        title: '待放置 · 点左侧空符位', accent: C.brassLight, icon: visual.glyph,
-        lines: [
-          { text: selLabel + ' ×' + (this.editHand[this.editSelected] ?? 0), color: HEX.arcaneLight, size: 8 },
-          { text: this.editHint(selDef), color: HEX.mute, size: 7, max: 28 },
-          { text: '放置后点「完成」才会生效', color: HEX.teal, size: 7 },
-        ],
-      });
-    } else if (this.editFocus !== null) {
-      const id = this.editFocus;
-      const slot = draft.slots?.[id];
-      const cell = this.grid.cells[id];
-      const visual = slot ? cardVisual(slot) : null;
-      const runeText = (draft.runes?.[id] ?? []).filter(Boolean).map(r => names[r]?.name ?? r).join(' / ') || '无';
-      const exitText = (draft.exits?.[id] ?? ['up', 'down', 'left', 'right'])
-        .map(d => ({ up: '上', down: '下', left: '左', right: '右' })[d]).join('') || '无';
-      const tgt = draft.auxTargets?.[id];
-      const faction = slot?.kind === 'sigil' ? factionOf(slot.defId) : null;
-      const resonance = faction ? resonanceMultiplier(draftGrid, id) : 1;
-      const reaction = faction ? reactionAt(draftGrid, id) : null;
-      kitDetail(g, text, { x: 10, y: 174, w: 224, h: 74 }, {
-        title: '符位详情 · ' + (id + 1) + ' 号',
-        accent: slot?.kind === 'auxiliary' ? C.teal : C.arcane,
-        icon: visual?.glyph ?? null,
-        lines: [
-          { text: slot ? cardDisplayName(slot) : (unlocked.includes(id) ? '空符位' : '未解封'), color: HEX.parchment, size: 8 },
-          { text: '间隔 ' + (cell.effIntervalMs / 1000).toFixed(2) + 's / 冷却 ' + (cell.effCooldownMs / 1000).toFixed(2) + 's', color: HEX.mute, size: 7 },
-          ...(faction ? [{ text: '派系 ' + FACTIONS[faction].name + ' · 共鸣 +' + Math.round((resonance - 1) * 100) + '%' + (reaction ? ' · 反应' + reaction.name : ''), color: resonance > 1 || reaction ? HEX.teal : HEX.mute, size: 7, max: 30 }] : []),
-          { text: '铭文 ' + runeText + ' · 出口 ' + exitText + (tgt !== undefined ? ' · 目标 ' + (tgt + 1) + '号' : ''), color: HEX.mute, size: 7, max: 28 },
-        ],
-      });
-    } else {
-      kitDetail(g, text, { x: 10, y: 174, w: 224, h: 74 }, {
-        title: '操作指引',
-        lines: [
-          { text: '① 点右侧手牌选一张', color: HEX.arcaneLight, size: 8 },
-          { text: '② 点左侧空符位放下', color: HEX.arcaneLight, size: 8 },
-          { text: '③ 点已放置的卡可收回', color: HEX.arcaneLight, size: 8 },
-        ],
-      });
-    }
+  syncAuxPending() { return this.editor.syncAuxPending(); }
 
-    // 右：手牌
-    const hand = Object.entries(this.editHand).filter(([, count]) => count > 0);
-    const lastPage = Math.max(0, Math.ceil(hand.length / 5) - 1);
-    this.editHandPage = Math.min(this.editHandPage, lastPage);
-    kitPanel(g, 240, 42, 230, 120);
-    text(245, 45, this.editSelected ? '已选 · 点空符位放置' : '手牌 · 点选一张', 7, this.editSelected ? HEX.teal : HEX.brass);
-    text(465, 45, hand.reduce((a, [, c]) => a + c, 0) + ' 张', 7, HEX.mute).setOrigin(1, 0);
-    let row = 0;
-    for (const [key, count] of hand.slice(this.editHandPage * 5, this.editHandPage * 5 + 5)) {
-      const handCard = cardOf(key);
-      const defId = handCard?.defId;
-      const rect = { x: 244, y: 57 + row * 17, w: 216, h: 15 };
-      const isSel = this.editSelected === key;
-      kitHandRow(g, text, rect, {
-        defId, kind: handCard?.kind, count, label: cardDisplayName(handCard),
-        hint: this.editHint(defId),
-        selected: isSel,
-      });
-      this.editRects.push({ ...rect, action: () => {
-        this.editSelected = isSel ? null : key;
-        this.editAuxPending = null;
-        this.editNote = this.editSelected
-          ? '已选 ' + cardDisplayName(handCard) + '：点左侧空符位放置'
-          : '已取消选择';
-        this.drawGridEdit();
-      } });
-      row++;
-    }
-    if (!row) text(248, 62, '暂时没有手牌，先打完一波再说。', 7, HEX.mute);
-    if (lastPage > 0) {
-      const p = { x: 244, y: 144, w: 216, h: 14 };
-      pxRect(g, p.x, p.y, p.w, p.h, C.nightDeep, 0.9);
-      pxFrame(g, p.x, p.y, p.w, p.h, C.stoneLight, 1, 0.7);
-      text(352, p.y + 3, '◀ ' + (this.editHandPage + 1) + ' / ' + (lastPage + 1) + ' ▶', 7, HEX.teal).setOrigin(0.5, 0);
-      this.editRects.push({ x: p.x, y: p.y, w: p.w / 2, h: p.h, action: () => {
-        this.editHandPage = (this.editHandPage - 1 + lastPage + 1) % (lastPage + 1); this.drawGridEdit();
-      } });
-      this.editRects.push({ x: p.x + p.w / 2, y: p.y, w: p.w / 2, h: p.h, action: () => {
-        this.editHandPage = (this.editHandPage + 1) % (lastPage + 1); this.drawGridEdit();
-      } });
-    }
 
-    // 右下：卡片详情 / 操作提示
-    kitDetail(g, text, { x: 240, y: 166, w: 230, h: 52 }, {
-      title: this.editSelected ? '待放置卡' : '操作提示',
-      accent: this.editSelected ? C.brassLight : C.stoneLight,
-      lines: this.editSelected
-        ? [
-            { text: (names[selDef]?.name ?? selDef) + ' ×' + (this.editHand[this.editSelected] ?? 0), color: HEX.arcaneLight, size: 8 },
-            { text: this.editHint(selDef), color: HEX.mute, size: 7, max: 30 },
-            { text: '点空符位放下；点已放的卡替换', color: HEX.teal, size: 7 },
-          ]
-        : [
-            { text: '先点手牌，再点符位。', color: HEX.arcaneLight, size: 8 },
-            { text: '辅助卡放下后还要点相邻输出格。', color: HEX.mute, size: 7, max: 30 },
-            { text: '改阵不会重置冷却。', color: HEX.mute, size: 7 },
-          ],
-    });
+  closeGridEdit() { return this.editor.close(); }
 
-    // 校验状态 + 完成按钮 + 底部提示
-    const errors = validateDraft(this.editDraft);
-    const errText = errors.length ? explainBuildErrors(errors, this.editDraft) : '校验通过 · 可完成';
-    text(244, 222, clipText(errText, 32), 7, errors.length ? HEX.blood : HEX.teal);
-    const doneRect = { x: 240, y: 234, w: 230, h: 18 };
-    kitAction(g, text, doneRect, '完成 · 返回暂停', { primary: errors.length === 0 });
-    this.editRects.push({ ...doneRect, done: true, action: () => this.closeGridEdit() });
-    text(10, 256, clipText(this.editNote || 'E / Esc 关闭 · 改阵在点完成后生效', 44), 7, HEX.arcaneLight);
-  }
-
-  editCellClick(id) {
-    this.editFocus = id;
-    const draft = this.editDraft;
-    const names = this.editNames();
-    const selKey = this.editSelected;
-    if (!draft.unlocked?.includes(id)) {
-      this.editNote = (id + 1) + ' 号尚未解封，不能放置';
-      this.drawGridEdit();
-      return;
-    }
-    // 选牌优先于绑定：等待目标期间如果玩家选了一张牌，他要能先改牌面（比如把符印补回去），
-    // 否则「目标失效 → 进入绑定模式 → 却放不了牌」会把局面卡死。
-    if (selKey) {
-      const card = cardOf(selKey);
-      if (!card) { this.editNote = '这张卡的数据不合法，已取消选择'; this.editSelected = null; this.drawGridEdit(); return; }
-      const kind = card.kind, defId = card.defId;
-      const old = draft.slots?.[id];
-      // 收回原卡到手的副本
-      if (old) { const k = cardKeyOf(old); this.editHand[k] = (this.editHand[k] ?? 0) + 1; }
-      this.editHand[selKey]--;
-      if (this.editHand[selKey] <= 0) delete this.editHand[selKey];
-      draft.slots ??= {};
-      // 这张法术若已进化，新放置的格子直接带上进化路线
-      const evolved = card.kind === 'sigil' ? this.run.evolutions?.[card.defId] : null;
-      draft.slots[id] = evolved ? { ...card, evo: evolved } : card;
-      // 指向该格的辅助目标随之失效
-      for (const [src, tgt] of Object.entries(draft.auxTargets ?? {})) if (src === String(id) || (tgt === id && kind !== 'sigil')) delete draft.auxTargets[src];
-      this.editSelected = null;
-      this.editNote = '已放置 ' + cardDisplayName(card);
-      if (kind === 'auxiliary' && AUX_TARGETED.has(defId) && auxTargetCandidates(this.editDraft, id).length) {
-        this.editAuxPending = id;
-        this.editNote = '点相邻输出格绑定目标';
-      } else if (kind === 'auxiliary' && AUX_TARGETED.has(defId)) {
-        this.editNote = (id + 1) + ' 号「' + (names[defId]?.name ?? defId) + '」相邻没有符印可指向，请收回或换个位置';
-        this.syncAuxPending();
-      } else {
-        this.syncAuxPending();
-      }
-      this.drawGridEdit(); return;
-    }
-    // 绑定模式：辅助等待目标。这里必须当场校验，
-    // 否则随便点一格也会被记成目标，等到点「完成」才报 aux_target_invalid。
-    if (this.editAuxPending !== null) {
-      const src = this.editAuxPending;
-      // 再点一次自己 = 取消绑定，避免「相邻根本没有符印」时被挂在绑定模式里出不来
-      if (id === src) {
-        this.editAuxPending = null;
-        this.editNote = '已取消绑定。这张辅助没目标就不能完成，建议收回或换个位置。';
-        this.drawGridEdit(); return;
-      }
-      const adjacent = neighborsOf(src, ORTHO_DIRS).some(n => n.id === id);
-      const slot = draft.slots?.[id];
-      if (!adjacent || slot?.kind !== 'sigil') {
-        this.editNote = (src + 1) + ' 号的作用目标必须是「相邻且装着符印」的格子';
-        this.drawGridEdit(); return;
-      }
-      draft.auxTargets ??= {};
-      draft.auxTargets[src] = id;
-      this.editAuxPending = null;
-      this.editNote = '目标已绑定：' + (id + 1) + ' 号符印';
-      this.drawGridEdit(); return;
-    }
-    // 无选择：收回该格卡牌
-    const old = draft.slots?.[id];
-    if (!old) { this.editNote = (id + 1) + ' 号是空格'; this.drawGridEdit(); return; }
-    const k = cardKeyOf(old);
-    this.editHand[k] = (this.editHand[k] ?? 0) + 1;
-    delete draft.slots[id];
-    for (const [src, tgt] of Object.entries(draft.auxTargets ?? {})) if (tgt === id || src === String(id)) delete draft.auxTargets[src];
-    this.editNote = '已收回 ' + cardDisplayName(old);
-    this.syncAuxPending();
-    this.drawGridEdit();
-  }
-
-  // 改卡/收卡会连带把别的指向型辅助的目标弄失效（例如把它作用的那格符印换掉）。
-  // 这种情况不能等玩家点「完成」才报错——直接切进那一格的绑定模式，把人带过去。
-  syncAuxPending() {
-    const missing = missingAuxTargets(this.editDraft);
-    const names = this.editNames();
-    if (!missing.length) { this.editAuxPending = null; return false; }
-    // 优先保留玩家原本在绑的那一格
-    const id = missing.includes(this.editAuxPending) ? this.editAuxPending : missing[0];
-    const slot = this.editDraft.slots?.[id];
-    this.editSelected = null;
-    const cardName = names[slot?.defId]?.name ?? slot?.defId ?? '辅助';
-    if (!auxTargetCandidates(this.editDraft, id).length) {
-      // 没有可指向的邻居：进绑定模式等于把玩家挂死，只提示并保留目标失效状态
-      this.editAuxPending = null;
-      this.editNote = (id + 1) + ' 号「' + cardName + '」没有可指向的相邻符印，请收回或换个位置';
-      return true;
-    }
-    this.editAuxPending = id;
-    this.editNote = (id + 1) + ' 号「' + cardName + '」的目标失效了：点一个相邻符印重新绑定';
-    return true;
-  }
-
-  closeGridEdit() {
-    const errors = validateDraft(this.editDraft);
-    if (errors.length) {
-      // 指向型辅助缺目标是最常见的一种：与其甩错误码，不如把玩家送到那一格去绑
-      if (!this.syncAuxPending()) this.editNote = '未通过校验：' + explainBuildErrors(errors, this.editDraft);
-      this.drawGridEdit();
-      return;
-    }
-    const preserve = { cells: this.grid.cells.map(c => ({ id: c.id, cooldownUntil: c.cooldownUntil })) };
-    const result = applyDraft(this.grid, this.editDraft, { phase: 'intermission', preserveFrom: preserve });
-    if (!result.ok) { this.editNote = '校验失败'; this.drawGridEdit(); return; }
-    this.run.draft = result.snapshot;
-    this.run.hand = { ...this.editHand };
-    // 罗盘乘算在改阵后重放
-    rebuildDerived(this.grid, ACTS[this.chapter - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
-    this.engine.setCombos(buildComboCatalog(['duo', 'line3', 'elbow3', 'ring4']).filter(inst => inst.order.every(id => this.grid.cells[id].unlocked && this.grid.cells[id].slot?.kind === 'sigil'
-      && slotComboEligible(this.grid.cells[id].slot) && !this.grid.cells[id].mutedOutput)));
-    this.editOpen = false;
-    if (this.editPointer) { this.input.off('pointerdown', this.editPointer); this.editPointer = null; }
-    if (this.editHoverMove) { this.input.off('pointermove', this.editHoverMove); this.editHoverMove = null; }
-    this.editHoverG?.destroy(true); this.editHoverG = null;
-    this.editAnimG?.destroy(true); this.editAnimG = null;
-    this.editAnimAcc = 0;
-    this.game.canvas.style.cursor = '';
-    this.editUI?.destroy(true); this.editUI = null;
-    this.openPause('menu');
-  }
 
   // Boss 进场演出：压降 + 震屏 + 名字条 + 时停无敌（答错进入实战前播放）
   // Boss 进场演出：压降 + 震屏 + 名字条 + 时停无敌（答错进入实战前播放）
