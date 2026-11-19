@@ -76,58 +76,8 @@ export function stepWeave(brain, ctx) {
 
 // 邪教徒：环绕保持约 70px；每 2.2s 停稳进入抬手（只计时不锁定），
 // 抬手结束的那一帧朝玩家当前位置打 3 发扇形慢弹（§4）。
-export function stepCultist(brain, ctx) {
-  const { self, player, dt, bounds, opts } = ctx;
-  const tune = tuneOf(ctx, CULTIST_RULE);
-  const ranged = rangedSpecOf(brain) ?? RANGED_RULES.cultist;
+export function stepCultist(brain, ctx) { return orbitRangedStep(brain, ctx, CULTIST_RULE, RANGED_RULES.cultist, 0.85, 1.15, 2.4); }
 
-  if (brain.mode === 'windup') {
-    brain.windupLeft -= dt;
-    brain.x = self.x;
-    brain.y = self.y;
-    if (brain.windupLeft > 0) return makeResult(brain, [], false, true);
-    const shots = makeVolley(brain, ctx, ranged);
-    brain.mode = 'walk';
-    brain.windupLeft = 0;
-    brain.attackIn = tune.attackMs;
-    const summon = finishCast(brain, ctx, ranged, shots);
-    return makeResult(brain, shots, false, false, null, false, null, summon);
-  }
-
-  const dx = player.x - self.x;
-  const dy = player.y - self.y;
-  const dist = Math.hypot(dx, dy);
-  const nx = dist > 1e-6 ? dx / dist : 0;
-  const ny = dist > 1e-6 ? dy / dist : 1;
-  let vx = 0;
-  let vy = 0;
-
-  if (dist < tune.retreatDist) {
-    // 贴身：沿反方向退开
-    vx = -nx * self.speed * 1.1;
-    vy = -ny * self.speed * 1.1;
-  } else {
-    const radial = Math.max(-self.speed, Math.min(self.speed, (dist - tune.holdDist) * 2.4));
-    const tangential = self.speed * 0.85 * (brain.orbitDir < 0 ? -1 : 1);
-    vx = -ny * tangential + nx * radial;
-    vy = nx * tangential + ny * radial;
-    const mag = Math.hypot(vx, vy);
-    const cap = self.speed * 1.15;
-    if (mag > cap && mag > 0) { vx = (vx / mag) * cap; vy = (vy / mag) * cap; }
-  }
-
-  brain.x = self.x + vx * (dt / 1000);
-  brain.y = self.y + vy * (dt / 1000);
-  clampToBounds(brain, bounds);
-
-  brain.attackIn -= dt;
-  if (brain.attackIn <= 0) return beginCast(brain, ctx, tune, ranged.windupMs);
-  return makeResult(brain, [], false, false);
-}
-
-// 亡灵骑士：步行追人；每 2.6s 预警 600ms 锁定玩家当前点，接着 3.2 倍速度直线冲锋，
-// 冲过目标点或 1.2s 后停下，恢复步行。
-// 冲锋/突进共用骨架：两段式移动（前摇锁向 → 冲刺 → 收势），差异只在默认参数表。
 function chargeStep(brain, ctx, fallbackRule) {
   const { self, player, dt, bounds } = ctx;
   const tune = tuneOf(ctx, fallbackRule);
@@ -445,7 +395,7 @@ export function stepSlam(brain, ctx) {
 // 天平裁决者：保持 130px 环绕，3.6s 一次抬手，然后打一发慢速重弹（伤害 ×1.6）；
 // 每第 2 轮在玩家脚下放一个裁决符文（§4/§5）。
 // 环绕+远程骨架：保持距离绕圈、预警、抬手、放弹；差异只在默认参数与两个速度系数。
-function orbitRangedStep(brain, ctx, fallbackRule, fallbackRanged, tangentialMul, capMul) {
+function orbitRangedStep(brain, ctx, fallbackRule, fallbackRanged, tangentialMul, capMul, radialMul = 2.2) {
   const { self, player, dt, bounds } = ctx;
   const tune = tuneOf(ctx, fallbackRule);
   const ranged = rangedSpecOf(brain) ?? fallbackRanged;
@@ -474,7 +424,7 @@ function orbitRangedStep(brain, ctx, fallbackRule, fallbackRanged, tangentialMul
     vx = -nx * self.speed * 1.1;
     vy = -ny * self.speed * 1.1;
   } else {
-    const radial = Math.max(-self.speed, Math.min(self.speed, (dist - tune.holdDist) * 2.2));
+    const radial = Math.max(-self.speed, Math.min(self.speed, (dist - tune.holdDist) * radialMul));
     const tangential = self.speed * tangentialMul * (brain.orbitDir < 0 ? -1 : 1);
     vx = -ny * tangential + nx * radial;
     vy = nx * tangential + ny * radial;
