@@ -55,7 +55,7 @@ import ExpMote from '../entities/ExpMote.js';
 import { C, HEX, addText, pxRect, pxFrame, pxLine, pxDiamond, pxRing, applyPixelZoom, getRenderScale, uiLayerOffset, isPortrait, isTouchUI, CONSOLE_TOP, CANVAS_H_PORTRAIT } from '../ui/Palette.js';
 import { kitPanel, kitBoard, kitBoardMotion, kitHeader, kitSteps, kitCell, kitHandRow, kitDetail, kitAction, clipText } from '../ui/editor-ui.js';
 import { CARD_HINTS } from '../data/card-hints.js';
-import { punchFor, shouldPunch, strikePunchFor } from '../ui/spell-punch.js';
+import { spellPunch as spellPunchOf, spellStrikeSequence as spellStrikeSequenceOf, spellLinkFx as spellLinkFxOf, reactionFx as reactionFxOf } from '../ui/spell-hit-fx.js';
 import { shakeCamera } from '../ui/camera-shake.js';
 import { bossFrameOffset, clampFollowOffset, leashIntoView, playerVisible, DEFAULT_DEADZONE_H } from '../ui/boss-framing.js';
 import { followBaseY, viewRect as viewRectOf, updateBossCamera as updateBossCameraOf, resumeFollow as resumeFollowOf } from '../ui/battle-camera.js';
@@ -1539,60 +1539,23 @@ export default class BattleScene extends Phaser.Scene {
   // 命中重量：按法术分级震屏，重击额外给短顿帧。同法术 gapMs 内只吃一次，
   // 否则一刀扫 3 只会把震屏叠成连续抖动，反而糊。
   spellPunch(defId, x = 0, y = 0, radius = 90, angle = 0) {
-    // 演出级（陨星裁决 / 地裂之颚）：走多段演出 + 高一级的震屏/顿帧，不再叠加普通 punch
-    const strike = strikePunchFor(defId);
-    if (strike) {
-      this.spellStrikeSequence(defId, x, y, radius, angle);
-      return;
-    }
-    if (!shouldPunch(defId, this.engine.now, this.lastPunchAt)) return;
-    const spec = punchFor(defId);
-    this.lastPunchAt = this.engine.now;
-    // 普通法术只给顿帧，不震屏（震屏留给 Boss 事件与演出级落点）
-    if (spec.stopMs > 0) this.hitstopLeft = Math.max(this.hitstopLeft, spec.stopMs);
+    return spellPunchOf(this, defId, x, y, radius, angle);
   }
 
   // 高级法术演出：多段特效层 + 暗角收缩 + （陨星）一帧白闪 + 强震屏 + 顿帧
   spellStrikeSequence(defId, x, y, radius, angle) {
-    const spec = strikePunchFor(defId);
-    if (!spec) return;
-    this.effects.spellStrike(defId, x, y, radius, angle);
-    this.effects.vignette(defId === 'meteor_judgment' ? 1 : 0.8, 520);
-    if (defId === 'meteor_judgment') this.cameras.main.flash(80, 255, 246, 224);
-    this.lastPunchAt = this.engine.now;
-    shakeCamera(this, 'strike', spec.ms, spec.amp);
-    if (spec.stopMs > 0) this.hitstopLeft = Math.max(this.hitstopLeft, spec.stopMs);
+    return spellStrikeSequenceOf(this, defId, x, y, radius, angle);
   }
 
   // 法术的「连接关系」表现：连锁逐跳电弧、贯穿光柱、回声对侧、噬魂/汲取的丝线
   spellLinkFx(defId, p, result) {
-    const targets = result.targets ?? [];
-    if (!targets.length) return;
-    if (defId === 'chain_lightning') {
-      let prev = { x: this.player.x, y: this.player.y };
-      targets.forEach((t, i) => { this.effects.spellLink(defId, prev, t, i); prev = t; });
-    } else if (defId === 'pierce_lance') {
-      this.effects.spellLink(defId, this.player, targets[targets.length - 1], 0);
-    } else if (defId === 'echo_sigil') {
-      for (const t of targets) this.effects.spellLink(defId, this.player, t, 0);
-    } else if (defId === 'soul_lance' || defId === 'mana_siphon') {
-      for (const t of targets) this.effects.spellLink(defId, t, this.player, 0);
-    }
+    return spellLinkFxOf(this, defId, p, result);
   }
 
   // 派系反应的表现层：落点飘反应名，补跳目标点各自补一次元素色冲击，
   // 净化回血在玩家头顶补一个绿色短词。数值全部已经在 effects.js 里结算完，这里只画。
   reactionFx(p, result) {
-    const reaction = result?.reaction;
-    if (!reaction) return;
-    const color = parseInt(String(reaction.color ?? REACTIONS[reaction.id]?.color ?? '#b8a0ff').slice(1), 16);
-    if (reaction.id === 'purify' && reaction.healed > 0) {
-      this.effects.labelPopup(this.player.x, this.player.y - 24, `+${reaction.healed}`, C.teal, 8);
-    }
-    for (const target of reaction.extraTargets ?? []) {
-      this.effects.hitSpark(target.x, target.y, target.x - p.tx, target.y - p.ty, color, 0.5);
-    }
-    this.effects.labelPopup(p.tx, p.ty - 30, reaction.name, color, 9);
+    return reactionFxOf(this, p, result);
   }
 
   // ---------- 暂停编辑法阵（保留冷却；战斗实时不可改，暂停可改） ----------
