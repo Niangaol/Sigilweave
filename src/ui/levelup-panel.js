@@ -53,16 +53,16 @@ export default class LevelupPanel {
     const g = this.scene.add.graphics();
     pxRect(g, 60, 70, 360, 130, C.ink, 0.97); pxFrame(g, 60, 70, 360, 130, C.brass, 1, 1);
     this.scene.levelupUI.add(g);
-    this.scene.levelupUI.add(addText(this, 240, 80, '升 级 ！ 选 择 一 张 法 术 （ 入 手 牌 ）', 10, HEX.brassLight).setOrigin(0.5, 0));
+    this.scene.levelupUI.add(addText(this.scene, 240, 80, '升 级 ！ 选 择 一 张 法 术 （ 入 手 牌 ）', 10, HEX.brassLight).setOrigin(0.5, 0));
     picks.forEach((card, i) => {
       const x = 78 + i * 118;
       const bg = this.scene.add.graphics();
       pxRect(bg, x, 102, 108, 66, C.stoneDark); pxFrame(bg, x, 102, 108, 66, this.scene.combatRng.next() < 0.5 ? C.brass : C.teal, 1, 1);
       this.scene.levelupUI.add(bg);
-      this.scene.levelupUI.add(addText(this, x + 54, 108, cardLabel(card), 9,
+      this.scene.levelupUI.add(addText(this.scene, x + 54, 108, cardLabel(card), 9,
         card.kind === 'evolution' ? HEX.brassLight : card.kind === 'auxiliary' ? HEX.teal : HEX.parchment).setOrigin(0.5, 0));
-      this.scene.levelupUI.add(addText(this, x + 54, 126, cardSub(card), 7, card.variant === 'harmon' ? HEX.teal : HEX.mute).setOrigin(0.5, 0));
-      this.scene.levelupUI.add(addText(this, x + 54, 156, '点击或按 ' + (i + 1), 7, HEX.brass).setOrigin(0.5, 0));
+      this.scene.levelupUI.add(addText(this.scene, x + 54, 126, cardSub(card), 7, card.variant === 'harmon' ? HEX.teal : HEX.mute).setOrigin(0.5, 0));
+      this.scene.levelupUI.add(addText(this.scene, x + 54, 156, '点击或按 ' + (i + 1), 7, HEX.brass).setOrigin(0.5, 0));
     });
     this.scene.levelupRects = picks.map((card, i) => ({ card, x: 78 + i * 118, y: 102, w: 108, h: 66 }));
     this.scene.levelupHandler = (pointer) => {
@@ -77,7 +77,7 @@ export default class LevelupPanel {
       return key;
     });
     this.scene.input.on('pointerdown', this.scene.levelupHandler);
-    this.scene.levelupUI.add(addText(this, 240, 182, '点击卡片或按 1/2/3 选择；卡片进手牌，暂停菜单→编辑法阵 可放置', 7, HEX.mute).setOrigin(0.5, 0));
+    this.scene.levelupUI.add(addText(this.scene, 240, 182, '点击卡片或按 1/2/3 选择；卡片进手牌，暂停菜单→编辑法阵 可放置', 7, HEX.mute).setOrigin(0.5, 0));
   }
 
   // 进化候选：只从「已拥有且未升级」的法术里挑一条路线，避免三选一里出现用不上的进化。

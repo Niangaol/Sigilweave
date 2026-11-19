@@ -118,7 +118,7 @@ export default class GridEditor {
     const g = this.scene.add.graphics();
     ui.add(g);
     const text = (x, y, s, size = 8, color = HEX.parchment, extra = {}) => {
-      const t = addText(this, x, y, s, size, color, extra);
+      const t = addText(this.scene, x, y, s, size, color, extra);
       ui.add(t);
       return t;
     };

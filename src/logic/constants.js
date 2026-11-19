@@ -42,11 +42,8 @@ export const COMBO_WINDOW_FACTOR = 1.4;
 
 // 方位索敌：16 条相对条带覆盖整张世界地图。
 // 内 2×2 = 屏幕范围（480×270 逻辑画布的一半），外 12 条 = 屏幕外，因此屏幕外的敌人同样会被锁定。
-export const SECTOR_SCREEN_HALF_W = 240;
-export const SECTOR_SCREEN_HALF_H = 135;
+export { SECTOR_SCREEN_HALF_W, SECTOR_SCREEN_HALF_H, SECTOR_FAR_X, SECTOR_FAR_Y } from '../data/sector-constants.js';
 // 外区参考点距玩家的距离（用于空区补射方向，取一屏多一点）
-export const SECTOR_FAR_X = 480;
-export const SECTOR_FAR_Y = 270;
 
 // 大地图：每「场」一张固定世界（像素），屏幕逻辑分辨率仍 480×270，摄像机跟随。
 // 五幕七场把世界整体放大一档：前三场各加宽加高，合并幕的两段同尺寸便于幕内原地换场，

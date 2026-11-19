@@ -22,7 +22,6 @@ const RULES = {
     'src/data/encounters.js -> src/logic/acts.js',
     'src/data/map-events.js -> src/logic/acts.js',
     'src/data/meta.js -> src/logic/acts.js',
-    'src/data/roster.js -> src/logic/constants.js',
   ],
   // entities → ui 白名单（表现层原语 + 各 view 模块；新增非白名单边即失败）
   entitiesToUi: [

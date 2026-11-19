@@ -1,7 +1,7 @@
 // 共振法阵 · P1 内容表
 // 只放表现层需要的数据：符印名称/像素图案/伤害、魔物、第一幕解锁形状、难度曲线。
 // 冷却、间隔、传导、联组规则全部在 src/logic/* 内，禁止在这里重复实现。
-import { SECTOR_SCREEN_HALF_W, SECTOR_SCREEN_HALF_H, SECTOR_FAR_X, SECTOR_FAR_Y } from '../logic/constants.js';
+import { SECTOR_SCREEN_HALF_W, SECTOR_SCREEN_HALF_H, SECTOR_FAR_X, SECTOR_FAR_Y } from './sector-constants.js';
 import { SIGIL_DEFS, AUX_DEFS } from './cards.js';
 
 // ---------- 玩家 ----------
