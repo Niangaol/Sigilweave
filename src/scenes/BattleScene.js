@@ -59,6 +59,7 @@ import { spellPunch as spellPunchOf, spellStrikeSequence as spellStrikeSequenceO
 import { shakeCamera } from '../ui/camera-shake.js';
 import { bossFrameOffset, clampFollowOffset, leashIntoView, playerVisible, DEFAULT_DEADZONE_H } from '../ui/boss-framing.js';
 import { followBaseY, viewRect as viewRectOf, updateBossCamera as updateBossCameraOf, resumeFollow as resumeFollowOf } from '../ui/battle-camera.js';
+import { drawHostileShot } from '../ui/hostile-draw.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -2931,31 +2932,3 @@ export default class BattleScene extends Phaser.Scene {
   }
 }
 
-// 敌方弹丸按形状绘制：bolt 3×3 方点 / orb 5×5 菱形 / homing 4×4 方点 + 反向尾迹。
-// 放在模块级而不是场景方法：updateHostileShots 的裸 ctx 测试（只给 graphics 替身）
-// 也能照常走绘制路径，不必为渲染细节在测试里伪造方法。全部硬边几何，零渐变零随机。
-function drawHostileShot(g, shot) {
-  const x = Math.round(shot.x);
-  const y = Math.round(shot.y);
-  if (shot.kind === 'orb') {
-    pxDiamond(g, x, y, 2, C.blood, 1, true);
-    pxDiamond(g, x, y, 1, C.arcaneLight, 0.9, true);
-    return;
-  }
-  if (shot.kind === 'homing') {
-    const speed = Math.hypot(shot.vx, shot.vy);
-    if (speed > 1e-6) {
-      const ux = shot.vx / speed;
-      const uy = shot.vy / speed;
-      for (let i = 1; i <= 3; i++) {
-        const d = i * 4;
-        pxRect(g, Math.round(x - ux * d) - 1, Math.round(y - uy * d) - 1, 2, 2, C.bloodDark, 0.55 - i * 0.13);
-      }
-    }
-    pxRect(g, x - 2, y - 2, 4, 4, C.blood, 1);
-    pxRect(g, x - 1, y - 1, 2, 2, C.arcaneLight, 1);
-    return;
-  }
-  pxRect(g, x - 1, y - 1, 3, 3, C.blood, 1);
-  pxRect(g, x, y, 1, 1, C.arcaneLight, 0.9);
-}
