@@ -258,3 +258,31 @@
 - 新增脚本：`scripts/check-architecture.mjs`；CI 加一行。
 - 文档：本设计、`docs/superpowers/plans/2026-11-19-architecture-refactor.md`（实施计划）、`docs/技术架构.md`、README。
 - 代码指标：`BattleScene` ≤ 1100 行、`enemy-ai.js` ≤ 300 行（barrel + 汇总）、`Enemy.js` ≤ 500 行、`journey-static.js` 与 `story-art.js` 净减、全仓净减约 2000~3000 行。
+
+## 8. 执行结果与偏差（2026-11-19 收尾）
+
+> 22 个 commit，波 0～5 逐波验证；四道闸门（全量测试 / 构建 / check-docs / check-architecture）每波全绿后才提交。最终：**97 文件 / 2766 项全绿**，构建 660ms，架构 135 文件 R1-R5 全绿，文档 41 项通过。
+
+### 8.1 已完成
+
+| 项 | 原状 | 现状 |
+| --- | --- | --- |
+| BattleScene | 3051 行 / 105 方法 | **1001 行**（−67%），迁出 17 个模块 |
+| Enemy | 930 行（484 行绘制） | **393 行**，绘制在 `ui/enemy-view.js` |
+| enemy-ai | 2006 行 | **10 行 barrel** + `logic/enemy/`（rng/motion/attack/behaviors/index） |
+| 法术表现表 | 4 张同键表 | **1 张 `SPELL_DEFS`**（旧导出名派生） |
+| 敌人骨架 | 26 个独立状态机 | 拆分 5 模块 + **2 类骨架合并**（`chargeStep` 覆盖 knight/lunge；`orbitRangedStep` 覆盖 judge/eclipse） |
+| 测试 | 92 文件 / 1982 项 | **97 / 2766**（新增 740 项绘制 op golden、26 条轨迹、7 场 RNG 序列） |
+| 架构护栏 | 无 | `scripts/check-architecture.mjs` R1-R5，接入 CI |
+
+### 8.2 三项偏差（如实记录，均有实测证据）
+
+1. **UI 四套布景“道具去重”被证伪**：设计假设“枯树 4 份 / 塔 2 份 / 墓碑 4 份”是代码重复。实测扫描 12 个 UI 文件后，**跨文件逐字相同的函数为 0**，同文件内完全重复的函数也为 0。`journey.deadTree` 用 `R()+pxLine`，`story.deadTree` 用 `Math.round+thinLine`；连 `mix`（journey 先夹 t、story 不夹）与 `makeRng`（Background 与 cinematic 对 seed=0 处理不同）都有行为差异。强合并会改画面 → op golden 必红。**本轮不做，留到未来统一画风时再谈。**
+2. **26→6 骨架只完成 2 类**：`charge`（knight/lunge 逐字相同，差 2 行）与 `orbitRanged`（judge/eclipse 差 3 个数值）已合并。其余配对相似度 0.4~0.67，差异是真实行为差异（mode 名、返回值、`approach` vs `holdBand`、`dash` vs `charge` 语义），强合并会牺牲可读性并放大回归风险。
+3. **TitleScene / IntermissionScene characterization 未补**：两者渲染层依赖大量 Phaser Text/Container API，fake 成本高；当前由既有 `title-menu` 模型测试 + `ui-draw-golden` 的布景覆盖。记录为后续项。
+
+### 8.3 最终指标
+
+- `src` 38,412 → 38,764 行（+352：新增模块骨架与委托、注释；净删靠 BattleScene/Enemy/enemy-ai 的 4,700 行被新模块抵消）
+- 净删 4,462 / 新增 9,888（含 773 项 golden 与 2 份设计/计划文档）
+- 工作区干净，仅 `报名材料-共振法阵/` 未跟踪；**未 push**
