@@ -56,7 +56,8 @@ describe('震屏预算', () => {
   it('场景里只有 shakeCamera 一处直接调相机震屏', () => {
     // 波 1 起演出级震屏（strike）迁到 ui/spell-hit-fx.js：检查面合并两个文件（只扩大、不放松）。
     const scene = readFileSync(resolve(root, 'src/scenes/BattleScene.js'), 'utf8')
-      + readFileSync(resolve(root, 'src/ui/spell-hit-fx.js'), 'utf8');
+      + readFileSync(resolve(root, 'src/ui/spell-hit-fx.js'), 'utf8')
+      + readFileSync(resolve(root, 'src/scenes/battle-encounters.js'), 'utf8');
     const gate = readFileSync(resolve(root, 'src/ui/camera-shake.js'), 'utf8');
     expect((scene.match(/cameras\??\.main\??\.shake\?\.?\(/g) ?? []).length).toBe(0);
     expect((gate.match(/\.shake\(/g) ?? []).length).toBe(1);   // 只有 shakeCamera 内部那一行

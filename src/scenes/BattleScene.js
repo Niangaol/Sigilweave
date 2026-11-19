@@ -64,6 +64,7 @@ import { computeFrequency } from '../ui/battle-frequency.js';
 import { readTuning as readTuningOf, pickStartCells as pickStartCellsOf, sampleStartCell as sampleStartCellOf } from './battle-setup.js';
 import GridEditor from '../ui/grid-editor.js';
 import LevelupPanel from '../ui/levelup-panel.js';
+import { playBossIntro as playBossIntroOf, checkProgressEvents as checkProgressEventsOf, updateEventPointVisuals as updateEventPointVisualsOf, beginEncounter as beginEncounterOf, selectEncounterAnswer as selectEncounterAnswerOf, confirmEncounterAnswer as confirmEncounterAnswerOf, continueEncounter as continueEncounterOf } from './battle-encounters.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -1541,27 +1542,7 @@ export default class BattleScene extends Phaser.Scene {
 
 
   // Boss 进场演出：压降 + 震屏 + 名字条 + 时停无敌（答错进入实战前播放）
-  // Boss 进场演出：压降 + 震屏 + 名字条 + 时停无敌（答错进入实战前播放）
-  playBossIntro(bossId) {
-    const def = getEncounterById(bossId);
-    const mini = def?.tier === 'mini';
-    const dur = mini ? 900 : 1600;
-    this.phase = 'intro'; this.paused = true; this.engine.paused = true;
-    // 大立绘需要更多上方取景：镜头整体上移，玩家被推到画面下半区，Boss 完整落在 HUD 下方。
-    this.bossCamOffset = mini ? 50 : 80;
-    this.resumeFollow(this.bossCamOffset);
-    this.introDur = dur; this.introLeft = dur;
-    if (this.boss) {
-      this.introToY = this.boss.y;
-      this.introFromY = Math.max(60, this.boss.y - 140);
-      this.boss.y = this.introFromY;
-    }
-    sfx.bossRoar();
-    shakeCamera(this, 'major', mini ? 150 : 320, 0.005);
-    this.effects.text(240, 92, (def ? def.name + ' · ' + def.title : '未知的威胁'), 12, HEX.brassLight, true);
-    this.effects.text(240, 112, mini ? '小 Boss 拦路' : '大 Boss 降临', 9, HEX.blood, true);
-    this.effects.text(240, 128, mini ? '它挡住了去路' : '它的眼神锁定了你', 8, HEX.mute, true);
-  }
+  playBossIntro(bossId) { return playBossIntroOf(this, bossId); }
 
   // 升级三选一：时停抽卡，卡片进手牌（配合暂停改阵自行放置）
   queueLevelPicks(count) { return this.levelupPanel.queue(count); }
@@ -1843,135 +1824,18 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   // 进度事件：地图事件点走近触发 + 大Boss等级触发（取代旧的纯计时遭遇）
-  checkProgressEvents() {
-    // 新手引导：大 Boss 前置提示（各幕 G04/G08/G11）——等级逼近门槛时先给一句，不剧透答案
-    const bossLv = MAJOR_BOSS_LEVEL[this.stage];
-    const guideId = this.stage === 1 ? 'G04' : this.stage === 2 ? 'G08' : this.stage === 3 ? 'G11' : null;
-    if (guideId && !this.run.majorBossStages[this.stage]
-      && this.run.progression.level >= bossLv - 1
-      && this.phase === 'play' && !this.paused) {
-      fireGuide(this, this.run, guideId, { act: this.chapter, stage: this.stage });
-    }
-    // 1) 大Boss：等级达标（时间保底经验推着等级走，磨蹭也会触发）
-    if (!this.bossStarted && !this.run.majorBossStages[this.stage] && shouldTriggerMajorBoss(this.stage, this.run.progression.level)) {
-      const def = getEncounterForStage(this.stage, 'boss');
-      if (def) { this.beginEncounter(def); return; }
-    }
-    // 2) 地图事件点：NPC 问答 / 小Boss 门
-    for (const point of this.eventPoints) {
-      if (point.done) continue;
-      if (Math.hypot(this.player.x - point.x, this.player.y - point.y) <= point.radius) {
-        const def = getEncounterById(point.id);
-        if (def) { this.beginEncounter(def); return; }
-      }
-    }
-  }
+  checkProgressEvents() { return checkProgressEventsOf(this); }
 
   // 绘制事件点图标与接近提示（每帧轻量）
-  updateEventPointVisuals() {
-    for (const point of this.eventPoints) {
-      if (point.done) { if (point.icon) { point.icon.destroy(); point.icon = null; } if (point.label) { point.label.destroy(); point.label = null; } continue; }
-      const d = Math.hypot(this.player.x - point.x, this.player.y - point.y);
-      if (!point.icon) {
-        point.icon = this.add.graphics().setDepth(Math.floor(point.y));
-        const g = point.icon;
-        const col = point.type === 'npc' ? C.teal : C.blood;
-        pxRect(g, point.x - 5, point.y - 9, 10, 12, C.nightDeep, 1);
-        pxFrame(g, point.x - 5, point.y - 9, 10, 12, col, 1);
-        pxRect(g, point.x - 2, point.y + 3, 4, 2, C.stoneDark, 1);
-        if (point.type === 'miniboss') pxDiamond(g, point.x, point.y - 3, 2, C.blood, 1, true);
-        else pxRect(g, point.x - 1, point.y - 7, 2, 4, C.teal, 1);
-      }
-      const near = d < 130;
-      if (near && !point.label) {
-        // 新手引导 G03：首次靠近发光事件点（此时游戏原生提示标签也刚出现）
-        fireGuide(this, this.run, 'G03', { highlight: 'eventPoint' });
-      }
-      if (near && !point.label) point.label = addText(this, point.x, point.y - 24, point.name + '（' + point.hint + '）', 7, point.type === 'npc' ? HEX.teal : HEX.blood, { wordWrap: { width: 160 } }).setOrigin(0.5, 1).setDepth(300);
-      if (!near && point.label) { point.label.destroy(); point.label = null; }
-    }
-  }
+  updateEventPointVisuals() { return updateEventPointVisualsOf(this); }
 
-  beginEncounter(definition) {
-    if (this.phase !== 'play') return;
-    const opened = openEncounter(this.run.encounters, definition, { seed: this.run.seed + ':' + definition.id });
-    if (!opened.ok) return;
-    // 大Boss一旦触发过（无论答对处决/答错开战）就不再重复触发，防止等级条件恒真导致无限开问答
-    if (definition.type === 'boss' && definition.tier !== 'mini') this.run.majorBossStages[this.stage] = true;
-    // 冻结镜头跟随：问答面板挂世界坐标，镜头再动面板就会漂移、点击全偏
-    this.cameras.main.stopFollow();
-    this.phase = 'encounter'; this.paused = true; this.engine.paused = true;
-    this.menuOpen = false; this.spaceHeld = false; this.focusPaused = false;
-    this.pauseMenu.hide(); this.hint.setVisible(false); this.pauseHint.setVisible(false);
-    this.board.setDetailVisible(false); this.input.keyboard.resetKeys();
-    if (definition.type === 'boss') {
-      this.bossStarted = true;
-      this.boss = new Boss(this, definition, this.stage, this.enemySeq++);
-      // 阶段基线归零：否则上一只 Boss 的 phase 会让新 Boss 登场同帧误判一次「转阶段」。
-      // model.phase 在 createBossModel 时还是 undefined，由 stepBoss 首次调用补成 0，
-      // 所以这里必须写 0（而不是 model.phase）：写 undefined 会让新 Boss 第一帧
-      // updateEnemies 之后被误判成一次转阶段，G18 引导也会在开战瞬间就弹。
-      this.lastBossPhase = this.boss.model.phase ?? 0;
-      this.boss.x = this.player.x;
-      // 新 Boss 立绘 72/104px：下限按实际显示高度算，保证整只 Boss 落在 HUD 下方。
-      const bossMinY = 42 + (this.boss.sprite?.displayHeight ?? 0) - 21 + 4;
-      // 92 而不是 110：大立绘 104px 时，110 的间距会把 Boss 头顶顶到 HUD 里
-      this.boss.y = Math.max(bossMinY, this.player.y - 92);
-      this.enemies.push(this.boss);
-    }
-    this.encounterPanel.show(this.run.encounters.active);
-    sfx.quiz();
-  }
+  beginEncounter(definition) { return beginEncounterOf(this, definition); }
 
-  selectEncounterAnswer(choiceId) {
-    if (this.phase !== 'encounter') return;
-    const response = selectChoice(this.run.encounters, choiceId);
-    window.__LAST_SELECT__ = { choiceId, ok: response.ok, message: response.message };
-    this.encounterPanel.show(this.run.encounters.active, response.ok ? '' : response.message);
-  }
+  selectEncounterAnswer(choiceId) { return selectEncounterAnswerOf(this, choiceId); }
 
-  confirmEncounterAnswer() {
-    if (this.phase !== 'encounter') return;
-    const response = confirmChoice(this.run.encounters);
-    if (!response.ok) { this.encounterPanel.show(this.run.encounters.active, response.message); return; }
-    const result = response.result;
-    this.shardCount += result.reward.shards ?? 0;
-    this.player.hp = Math.min(this.player.maxHp, this.player.hp + (result.reward.heal ?? 0));
-    if (result.correct) sfx.correct(); else sfx.wrong();
-    if (!result.correct && result.penalty.slowMs) this.playerSlowUntil = this.engine.now + result.penalty.slowMs;
-    if (result.action === 'bossDefeated') this.defeatBoss('quiz', result.bossId, this.run.encounters.active?.tier === 'mini' ? 'mini' : 'major');
-    this.encounterPanel.show(this.run.encounters.active);
-  }
+  confirmEncounterAnswer() { return confirmEncounterAnswerOf(this); }
 
-  continueEncounter() {
-    if (this.phase !== 'encounter') return;
-    const response = finishEncounter(this.run.encounters);
-    if (!response.ok) return;
-    this.encounterPanel.hide(); this.input.keyboard.resetKeys();
-
-    // 新手引导 · 答题反应在面板隐藏后才弹出，避免气泡与「继续前进」按钮的点击命中冲突。
-    // QUIZ_FIRST_CORRECT / QUIZ_WRONG 均由 fireGuide 的 run.guideSeen 去重，整局各只出现一次。
-    const correct = response.result.correct === true;
-    fireGuide(this, this.run, correct ? 'QUIZ_FIRST_CORRECT' : 'QUIZ_WRONG', { act: this.chapter, stage: this.stage });
-
-    // 标记事件点完成（小Boss门/NPC点），罗盘小地图不再显示
-    const finishedId = response.result.encounterId;
-    for (const point of this.eventPoints) if (point.id === finishedId) point.done = true;
-    this.run.completedEvents[finishedId] = true;
-    if (this.bossDefeated) { this.startBossClearTransition(); return; }
-    if (response.result.action === 'bossBattle') {
-      for (const enemy of this.enemies) if (!enemy.isBoss) enemy.destroy();
-      this.enemies = this.enemies.filter(enemy => enemy.isBoss);
-      this.releaseProjectiles();
-      this.playBossIntro(this.run.encounters.history.at(-1)?.bossId);
-      return;
-    }
-    this.phase = 'play'; this.paused = false; this.engine.paused = false;
-    this.resumeFollow();
-    this.player.invulnUntil = this.engine.now + 800;
-    // 若浏览器在读题阶段失焦，关闭对话也不能悄悄恢复战斗。
-    if (!document.hasFocus()) { this.focusPaused = true; this.openPause('focus'); }
-  }
+  continueEncounter() { return continueEncounterOf(this); }
 
   defeatBoss(method, bossId, tier = 'major') {
     const receipt = resolveBossOnce(this.run, this.stage, bossId, method, tier);
