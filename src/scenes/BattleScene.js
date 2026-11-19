@@ -61,7 +61,7 @@ import { bossFrameOffset, clampFollowOffset, leashIntoView, playerVisible, DEFAU
 import { followBaseY, viewRect as viewRectOf, updateBossCamera as updateBossCameraOf, resumeFollow as resumeFollowOf } from '../ui/battle-camera.js';
 import { drawHostileShot } from '../ui/hostile-draw.js';
 import { computeFrequency } from '../ui/battle-frequency.js';
-import { readTuning as readTuningOf, pickStartCells as pickStartCellsOf, sampleStartCell as sampleStartCellOf } from './battle-setup.js';
+import { readTuning as readTuningOf, pickStartCells as pickStartCellsOf, sampleStartCell as sampleStartCellOf, updateStartSample as updateStartSampleOf, updateHint as updateHintOf } from './battle-setup.js';
 import GridEditor from '../ui/grid-editor.js';
 import LevelupPanel from '../ui/levelup-panel.js';
 import { playBossIntro as playBossIntroOf, checkProgressEvents as checkProgressEventsOf, updateEventPointVisuals as updateEventPointVisualsOf, beginEncounter as beginEncounterOf, selectEncounterAnswer as selectEncounterAnswerOf, confirmEncounterAnswer as confirmEncounterAnswerOf, continueEncounter as continueEncounterOf } from './battle-encounters.js';
@@ -73,6 +73,9 @@ import { applySigil as applySigilOf, onEnemyHit as onEnemyHitOf, triggerDeathBur
 import { finishStage as finishStageOf, swapStage as swapStageOf, defeatBoss as defeatBossOf, startBossClearTransition as startBossClearTransitionOf, checkDeath as checkDeathOf, die as dieOf, buildSummary as buildSummaryOf } from './battle-stage-flow.js';
 import { fireProjectile as fireProjectileOf, spawnShard as spawnShardOf, spawnExpMote as spawnExpMoteOf, collectExpMote as collectExpMoteOf, updateExpMotes as updateExpMotesOf, flushExpMotes as flushExpMotesOf, releaseProjectiles as releaseProjectilesOf, updateProjectiles as updateProjectilesOf, spawnChest as spawnChestOf, updateChests as updateChestsOf } from './battle-pickups.js';
 import { onEngineEvent as onEngineEventOf, onSignalDissipate as onSignalDissipateOf } from './battle-events.js';
+import { applyEnemyControl as applyEnemyControlOf, applyPlayerControl as applyPlayerControlOf } from './battle-control.js';
+import { startStress as startStressOf } from './battle-stress.js';
+import { onShutdown as onShutdownOf } from './battle-teardown.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -708,70 +711,14 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   // 敌人招式命中后的玩家硬控：查表 → 应用 → 飘字。返回控制名（没有配置时 null）。
-  applyEnemyControl(enemy, path, now) {
-    if (!this.player?.alive) return null;
-    const defId = enemy?.defId ?? enemy?.def?.id ?? null;
-    const cfg = controlFor(defId, path)
-      ?? (path === 'contact' ? DEFAULT_CONTACT_CONTROL : null)
-      ?? (path === 'shot' ? DEFAULT_SHOT_CONTROL : null);
-    if (!cfg) return null;
-    return this.applyPlayerControl(cfg, enemy?.x ?? this.player.x, enemy?.y ?? this.player.y, now);
-  }
+  applyEnemyControl(enemy, path, now) { return applyEnemyControlOf(this, enemy, path, now); }
 
-  applyPlayerControl(cfg, sx, sy, now) {
-    const p = this.player;
-    const def = CONTROL_DEFS[cfg.kind];
-    if (cfg.kind === 'knock') {
-      // 冲刺期间（now <= dashUntil）位置归 updateDash 的时间轴独占：这里照常写 p.x/p.y 也会被
-      // 下一帧的插值覆盖掉，玩家看不出被撞开，反而像「击退失效」。所以冲刺中只挂僵直不位移，
-      // 僵直照常生效（冲刺无敌只免伤不免控，见 spec）。位移留给冲刺结束后那一小段后摇补上。
-      const dashing = now <= (p.dashUntil ?? 0);
-      if (!dashing) {
-        const dx = p.x - sx;
-        const dy = p.y - sy;
-        const len = Math.hypot(dx, dy) || 1;
-        const force = cfg.force ?? 40;
-        const b = this.worldBounds;
-        p.x = Math.min(Math.max(p.x + (dx / len) * force, b.left + p.radius), b.right - p.radius);
-        p.y = Math.min(Math.max(p.y + (dy / len) * force, b.top + p.radius), b.bottom - p.radius);
-      }
-      p.applyKnockStun(cfg.ms ?? 200, now);
-      this.effects?.impact?.(p.x, p.y, def?.color ?? C.bone, true);
-    } else {
-      p.applyControl(cfg.kind, cfg.ms ?? 400, now);
-      if (cfg.kind === 'slow') p.slowFactor = cfg.factor ?? 0.6;
-    }
-    if (def) this.effects?.labelPopup?.(p.x, p.y - 24, def.name, def.color, 12);
-    // 新手引导 G17：第一次被硬控时教「右键冲刺能挣开」。眩晕（stun）故意不教——
-    // 冲刺解不掉眩晕，给了提示只会让玩家白按一次 1.2s 冷却。
-    if (cfg.kind !== 'stun') fireGuide(this, this.run, 'G17');
-    return def?.name ?? null;
-  }
+  applyPlayerControl(cfg, sx, sy, now) { return applyPlayerControlOf(this, cfg, sx, sy, now); }
 
-  updateStartSample(dt) {
-    // 不必每帧变：每 2 秒按归一化位置采样一次；引擎只在脉流重生时读取
-    this.sampleTimer -= dt;
-    if (this.sampleTimer > 0) return;
-    this.sampleTimer = 2000;
-    const next = this.sampleStartCell();
-    if (next !== this.engine.startCells[0]) {
-      this.engine.startCells[0] = next;
-      this.startCell = next;
-      this.board.setStart(next);
-    }
-  }
+  updateStartSample(dt) { return updateStartSampleOf(this, dt); }
 
-  updateHint() {
-    if (this.engine.now < this.hintUntil) return;
-    const a = Math.max(0, 1 - (this.engine.now - this.hintUntil) / 1200);
-    this.hint.setAlpha(a);
-    if (a <= 0.01) this.hint.setVisible(false);
-  }
+  updateHint() { return updateHintOf(this); }
 
-  // 刷怪：幸存者式波次，密度直接取自 roster.difficultyAt(now, act)。
-  // 割草爽感的三个来源：①同屏上限高（30→64，按幕再放大）②间隔短（0.7s→0.52s）
-  // ③一次抽 1~2 只同刷。落点由纯逻辑 pickWavePoints 一次抽出，同波之间也保证间距。
-  // 上限按 scripts/density-sim.mjs 的清怪速度定标：刷怪快过清怪只会得到一堵墙，不是割草。
   updateSpawner(dt) { return updateSpawnerOf(this, dt); }
 
   // 编队波（spec §5.2）：rollFormation 按幕抽模板与怪种，抽不到就整轮降级
@@ -1048,90 +995,7 @@ export default class BattleScene extends Phaser.Scene {
 
   buildSummary() { return buildSummaryOf(this); }
 
-  startStress() {
-    if (this.phase !== 'play') return;
-    this.stressRunning = true;
-    const simulationBegin = this.engine.now;
-    this.player.invulnUntil = Number.MAX_SAFE_INTEGER;
-    const spawnWave = () => {
-      if (this.phase !== 'play') return;
-      for (let i = 0; i < 25 && this.enemies.length < 150; i++) this.spawnEnemy({ hp: 10, speed: 30, damage: 8, maxAlive: 999 });
-      while (this.shards.length < 200) this.spawnShard(this.player.x - 220 + this.combatRng.next() * 440, this.player.y - 105 + this.combatRng.next() * 210);
-      while (this.projectiles.length < 300) {
-        const def = cardVisual({ kind: 'sigil', defId: 'arcane_bolt' });
-        const o = this.player.staffTip();
-        if (!this.fireProjectile(o.x, o.y, this.player.x - 220 + this.combatRng.next() * 440, this.player.y - 105 + this.combatRng.next() * 210, def, null)) break;
-      }
-    };
-    for (let i = 0; i < 6; i++) spawnWave();
-    const topUp = this.time.addEvent({ delay: 250, loop: true, callback: spawnWave });
-    this.stressTopUp = topUp;
-    const deltas = [];
-    const begin = performance.now();
-    const windowMs = Math.min(180000, Math.max(20000, Number(this.debugParams?.get('stressMs')) || 20000));
-    let last = begin;
-    const tick = (t) => {
-      deltas.push(t - last); last = t;
-      if (t - begin < windowMs) { requestAnimationFrame(tick); return; }
-      topUp.remove();
-      const sorted = [...deltas].slice(2).sort((a, b) => a - b);
-      const pick = (q) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] ?? 0;
-      window.__STRESS__ = {
-        frames: sorted.length,
-        simulatedMs: +(this.engine.now - simulationBegin).toFixed(2),
-        phase: this.phase,
-        p50: +pick(0.5).toFixed(2), p95: +pick(0.95).toFixed(2), p99: +pick(0.99).toFixed(2),
-        max: +(sorted[sorted.length - 1] ?? 0).toFixed(2),
-        enemies: this.enemies.length, projectiles: this.projectiles.length, shards: this.shards.length,
-        objects: this.children.list.length,
-        pools: { projectile: this.projectilePool.stats(), shard: this.shardPool.stats(), expMote: this.expMotePool.stats() },
-        errors: [],
-      };
-    };
-    requestAnimationFrame(tick);
-  }
+  startStress() { return startStressOf(this); }
 
-  onShutdown() {
-    hideGuide(this);
-    this.game.events.off(Phaser.Core.Events.BLUR, this.handleBlur);
-    this.game.events.off(Phaser.Core.Events.FOCUS, this.handleFocus);
-    this.input.keyboard.off('keydown-ESC', this.onEsc);
-    this.input.keyboard.off('keydown-R', this.onRestart);
-    this.input.keyboard.off('keydown-T', this.onTitle);
-    this.input.keyboard.off('keydown-M', this.onMute);
-    this.input.keyboard.off('keydown-E', this.onEdit);
-    if (this.editPointer) this.input.off('pointerdown', this.editPointer);
-    this.editPointer = null;
-    if (this.dashPointer) this.input.off('pointerdown', this.dashPointer);
-    this.dashPointer = null;
-    this.editUI?.destroy(true);
-    this.editUI = null;
-    this.editOpen = false;
-    this.touch?.destroy();
-    this.touch = null;
-    window.removeEventListener('pointerdown', this.panelPointerHandler);
-    this.time.removeAllEvents();
-    this.background?.destroy();
-    this.background = null;
-    this.encounterPanel.destroy();
-    this.hostileG.destroy();
-    this.summonG?.destroy();
-    this.summonAirG?.destroy();
-    this.summonG = null;
-    this.summonAirG = null;
-    this.hostileShots = [];
-    this.summons = [];
-    for (const e of this.enemies) e.destroy();
-    for (const p of this.projectiles) p.destroy();
-    for (const s of this.shards) s.destroy();
-    for (const m of this.expMotes) m.destroy();
-    for (const p of this.projectilePool?.free ?? []) p.destroy();
-    for (const s of this.shardPool?.free ?? []) s.destroy();
-    for (const m of this.expMotePool?.free ?? []) m.destroy();
-    this.enemies = [];
-    this.projectiles = [];
-    this.shards = [];
-    if (window.__SIGILWEAVE_BATTLE__ === this) window.__SIGILWEAVE_BATTLE__ = null;
-  }
+  onShutdown() { return onShutdownOf(this); }
 }
-

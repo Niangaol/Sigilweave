@@ -50,3 +50,29 @@ export function sampleStartCell(scene) {
   }
   return best === null ? ACT1_CELLS[0] : best;
 }
+
+export function updateStartSample(scene, dt) {
+  // 不必每帧变：每 2 秒按归一化位置采样一次；引擎只在脉流重生时读取
+  scene.sampleTimer -= dt;
+  if (scene.sampleTimer > 0) return;
+  scene.sampleTimer = 2000;
+  const next = scene.sampleStartCell();
+  if (next !== scene.engine.startCells[0]) {
+    scene.engine.startCells[0] = next;
+    scene.startCell = next;
+    scene.board.setStart(next);
+  }
+}
+
+
+export function updateHint(scene) {
+  if (scene.engine.now < scene.hintUntil) return;
+  const a = Math.max(0, 1 - (scene.engine.now - scene.hintUntil) / 1200);
+  scene.hint.setAlpha(a);
+  if (a <= 0.01) scene.hint.setVisible(false);
+}
+
+// 刷怪：幸存者式波次，密度直接取自 roster.difficultyAt(now, act)。
+// 割草爽感的三个来源：①同屏上限高（30→64，按幕再放大）②间隔短（0.7s→0.52s）
+// ③一次抽 1~2 只同刷。落点由纯逻辑 pickWavePoints 一次抽出，同波之间也保证间距。
+// 上限按 scripts/density-sim.mjs 的清怪速度定标：刷怪快过清怪只会得到一堵墙，不是割草。
