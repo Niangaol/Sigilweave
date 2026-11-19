@@ -57,7 +57,8 @@ describe('震屏预算', () => {
     // 波 1 起演出级震屏（strike）迁到 ui/spell-hit-fx.js：检查面合并两个文件（只扩大、不放松）。
     const scene = readFileSync(resolve(root, 'src/scenes/BattleScene.js'), 'utf8')
       + readFileSync(resolve(root, 'src/ui/spell-hit-fx.js'), 'utf8')
-      + readFileSync(resolve(root, 'src/scenes/battle-encounters.js'), 'utf8');
+      + readFileSync(resolve(root, 'src/scenes/battle-encounters.js'), 'utf8')
+      + readFileSync(resolve(root, 'src/scenes/battle-enemies.js'), 'utf8');
     const gate = readFileSync(resolve(root, 'src/ui/camera-shake.js'), 'utf8');
     expect((scene.match(/cameras\??\.main\??\.shake\?\.?\(/g) ?? []).length).toBe(0);
     expect((gate.match(/\.shake\(/g) ?? []).length).toBe(1);   // 只有 shakeCamera 内部那一行
@@ -81,7 +82,8 @@ describe('震屏预算', () => {
 
   it('普通命中、挥砍、弹幕炸开、破盾、连斩都不再震屏', () => {
     const src = readFileSync(resolve(root, 'src/scenes/BattleScene.js'), 'utf8')
-      + readFileSync(resolve(root, 'src/ui/spell-hit-fx.js'), 'utf8');
+      + readFileSync(resolve(root, 'src/ui/spell-hit-fx.js'), 'utf8')
+      + readFileSync(resolve(root, 'src/scenes/battle-enemies.js'), 'utf8');
     // 普通法术分支：震屏行已删，只剩顿帧
     expect(src).toMatch(/普通法术只给顿帧，不震屏/);
     expect(src).toMatch(/连斩 20\/40\/60 只走文字与音效，不再震屏/);
