@@ -66,7 +66,7 @@ NODE_OPTIONS="--require ./scripts/sandbox-noexec.cjs" npx vitest run --pool=thre
 
 ## 测试基线
 
-**86 个文件 / 1774 项，全绿。**
+**97 个文件 / 2766 项，全绿。**
 
 ```bash
 NODE_OPTIONS="--require ./scripts/sandbox-noexec.cjs" npx vitest run --pool=threads
