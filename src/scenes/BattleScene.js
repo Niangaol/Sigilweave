@@ -72,6 +72,7 @@ import { refreshFormationAuras as refreshFormationAurasOf, updateEnemies as upda
 import { applySigil as applySigilOf, onEnemyHit as onEnemyHitOf, triggerDeathBursts as triggerDeathBurstsOf, collectDefeated as collectDefeatedOf, resolveProjectile as resolveProjectileOf, queueOrCommit as queueOrCommitOf, commitSigil as commitSigilOf, tickPendingCasts as tickPendingCastsOf } from './battle-hit-pipeline.js';
 import { finishStage as finishStageOf, swapStage as swapStageOf, defeatBoss as defeatBossOf, startBossClearTransition as startBossClearTransitionOf, checkDeath as checkDeathOf, die as dieOf, buildSummary as buildSummaryOf } from './battle-stage-flow.js';
 import { fireProjectile as fireProjectileOf, spawnShard as spawnShardOf, spawnExpMote as spawnExpMoteOf, collectExpMote as collectExpMoteOf, updateExpMotes as updateExpMotesOf, flushExpMotes as flushExpMotesOf, releaseProjectiles as releaseProjectilesOf, updateProjectiles as updateProjectilesOf, spawnChest as spawnChestOf, updateChests as updateChestsOf } from './battle-pickups.js';
+import { onEngineEvent as onEngineEventOf, onSignalDissipate as onSignalDissipateOf } from './battle-events.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -466,139 +467,10 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   // ---------- 引擎事件 -> 表现 ----------
-  onEngineEvent(type, data) {
-    switch (type) {
-      case 'signal:trigger': {
-        const cellId = data.cellId;
-        const cell = this.grid.cells[cellId];
-        this.board.flashTrigger(cellId);
-        sfx.trigger();
-        // 静默：本格触发时压制正交邻格，邻格被迫走完整冷却
-        if (cell.runes.includes('silence')) for (const nb of this.grid.cells) {
-          if (manhattan(cellId, nb.id) === 1 && nb.unlocked) nb.cooldownUntil = Math.max(nb.cooldownUntil, this.engine.now + nb.effCooldownMs);
-        }
-        if (!cell.slot || cell.slot.kind !== 'sigil' || cell.mutedOutput) {
-          if (cell.slot?.kind === 'auxiliary') this.effects.dissipate(cellCenter(cellId).x, cellCenter(cellId).y, C.teal);
-          break;
-        }
-        const def = this.sigilOf(cellId);
-        const kind = SIGIL_DEFS[def.id]?.kind;
-        // 所有法术特效统一从法杖尖端起手（世界坐标）；罗盘格子只负责闪灯提示
-        const origin = this.player.staffTip();
-        const owner = { x: this.player.x, y: this.player.y };
-        // 索敌只在摄像机视口内进行：屏外的怪不锁、不打，等它走进屏幕后下一次触发再出手。
-        const view = this.viewRect();
-        const result = resolveTarget(cellId, owner, this.enemies, { view });
-        // 罗盘格闪光用该法术主色：一眼能认出「刚才那一格打的是什么」
-        this.board.flashTrigger(cellId, def.color);
-        // 每个法术自己的起手爆发（spell-fx 按 defId 分派）
-        const castAngle = Math.atan2(result.aim.y - origin.y, result.aim.x - origin.x);
-        this.effects.spellCast(def.id, origin.x, origin.y, castAngle);
-        if (kind === 'ward') {
-          // 护盾是自身增益，不依赖敌方目标：始终能放，光迹收在玩家身上
-          this.effects.directionTrace(origin, owner, this.sectorRect(cellId), def.color, false);
-          this.applySigil(cellId, def.id);
-          this.effects.spellWard(def.id, SIGIL_DEFS[def.id].radius ?? 40);
-        } else if (kind === 'nova') {
-          // 新星以自身为圆心，不需要锁敌：光迹收到自己身上，落点就是玩家位置（castMs 走前摇）
-          this.effects.directionTrace(origin, owner, this.sectorRect(cellId), def.color, false);
-          this.queueOrCommit(cellId, def.id, { x: owner.x, y: owner.y }, castAngle);
-          this.effects.burst(owner.x, owner.y, def.color, 4);
-        } else {
-          // 割草齐射：单次触发对扇区内最近的 N 个敌人各打一发（各类型 N 见 sector.VOLLEY_LIMITS）。
-          // 屏幕内一个可选目标都没有时「停火等待」：不放弹丸、不朝屏外画光迹，等怪进屏再打。
-          const volley = resolveVolley(cellId, owner, this.enemies, { maxTargets: volleyLimit(kind), view });
-          if (!volley.targets.length) {
-            this.effects.hold(origin.x, origin.y, def.color);
-            break;
-          }
-          this.effects.directionTrace(origin, volley.aims[0], this.sectorRect(cellId), def.color, false);
-          let fired = 0;
-          for (let i = 0; i < volley.targets.length; i++) {
-            const projectile = this.fireProjectile(origin.x, origin.y, volley.aims[i].x, volley.aims[i].y, def, volley.targets[i]);
-            if (projectile) {
-              projectile.cellId = cellId;
-              fired++;
-            }
-          }
-          if (fired > 0) this.effects.burst(origin.x, origin.y, def.color, 3); // 起手微粒（法术本体已由 spell-fx 负责）
-        }
-        break;
-      }
-      case 'combo:break': {
-        const labels = { cooldown: '冷却受阻', fallback: '保底改道', dissipate: '脉流消散' };
-        const shapes = (data.shapes ?? []).map(s => COMBO_NAMES[s] ?? s).join('、');
-        this.effects.text(402, 168, '联组断 · ' + (labels[data.reason] ?? data.reason) + (shapes ? '（' + shapes + '）' : ''), HEX.blood, true);
-        this.comboBreakCount = (this.comboBreakCount ?? 0) + 1;
-        sfx.comboBreak();
-        break;
-      }
-      case 'signal:blocked': {
-        sfx.blocked();
-        // 冷却未就绪：格子上闪黄铜色冷却角标
-        this.board.flashBlocked(data.cellId);
-        break;
-      }
-      case 'signal:reroute': {
-        // 改道短折线，青绿色属于「运行层」
-        this.effects.reroute(cellCenter(data.blocked), cellCenter(data.to));
-        break;
-      }
-      case 'signal:dissipate': {
-        const id = data.cellId === null || data.cellId === undefined ? this.startCell : data.cellId;
-        this.board.flashDissipate(id);
-        const pos = cellCenter(id);
-        this.effects.dissipate(pos.x, pos.y, C.groove);
-        sfx.dissipate();
-        this.onSignalDissipate(data);
-        break;
-      }
-      case 'signal:fallback': {
-        this.effects.fallback(cellCenter(data.from), cellCenter(data.to));
-        break;
-      }
-      case 'combo:fire': {
-        const centers = data.order.map((id) => cellCenter(id));
-        for (const id of data.order) this.board.flashCombo(id);
-        this.effects.combo(centers, COMBO_NAMES[data.defId] || data.defId);
-        sfx.combo();
-        const bonusResult = resolveComboBonus({ grid: this.grid, order: data.order, defId: data.defId, bonus: data.bonus, state: this.combatState(), enemies: this.enemies });
-        const lastCell = data.order?.[data.order.length - 1];
-        const bonusVisual = Number.isInteger(lastCell) && this.grid.cells[lastCell]?.slot ? this.sigilOf(lastCell) : null;
-        for (const enemy of bonusResult.targets ?? []) this.onEnemyHit(enemy, null, null, bonusVisual, true);
-        // 专属连携：在联组中心飘一个短词，命中目标再补一次元素色冲击
-        if (bonusResult.linkage) {
-          const center = centers?.[Math.floor((centers.length - 1) / 2)] ?? this.player;
-          const pair = bonusResult.linkage;
-          const color = HEX.brassLight;
-          this.effects.labelPopup(center.x, center.y - 26, '连携 · ' + pair.name, color, 9);
-          for (const enemy of pair.targets ?? []) {
-            if (Number.isFinite(enemy?.x)) this.effects.hitSpark(enemy.x, enemy.y, 0, -1, C.brassLight, 0.55);
-          }
-        }
-        this.triggerDeathBursts();
-        this.collectDefeated();
-        break;
-      }
-      default:
-        break;
-    }
-  }
+  onEngineEvent(type, data) { return onEngineEventOf(this, type, data); }
 
-  // 消散后脉流会重生：此刻按玩家当前位置重新采样起点（引擎只在重生时读取 startCells）
-  onSignalDissipate(data) {
-    const sig = this.engine.signals.get(data.signalId);
-    const index = sig ? sig.startIndex : 0;
-    const next = this.sampleStartCell();
-    this.engine.startCells[index] = next;
-    if (index === 0) {
-      this.startCell = next;
-      this.board.setStart(next);
-      this.effects.text(240, 178, '脉流从新方位重生', HEX.arcaneLight, true);
-    }
-  }
+  onSignalDissipate(data) { return onSignalDissipateOf(this, data); }
 
-  // ---------- 输入与暂停状态机 ----------
   readMoveAxis() {
     let dx = 0;
     let dy = 0;
