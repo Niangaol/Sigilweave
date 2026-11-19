@@ -99,8 +99,10 @@ describe('卡池出口都按幕过滤', () => {
     const hit = many.some(ids => ids.some(id => TIERS.ultimate.includes(id)));
     expect(hit).toBe(true);
     expect(cardsForAct(CARD_POOL, 4).filter(c => c.kind === 'sigil').some(c => TIERS.ultimate.includes(c.defId))).toBe(true);
-    const battle = readFileSync(resolve(root, 'src/scenes/BattleScene.js'), 'utf8');
-    expect(battle).toContain('cardsForAct(CARD_POOL, this.chapter)');
+    // 波 2 起升级三选一迁到 ui/levelup-panel.js：检查面合并两个文件（只扩大、不放松）。
+    const battle = readFileSync(resolve(root, 'src/scenes/BattleScene.js'), 'utf8')
+      + readFileSync(resolve(root, 'src/ui/levelup-panel.js'), 'utf8');
+    expect(battle).toContain('cardsForAct(CARD_POOL, this.scene.chapter)');
     const intermission = readFileSync(resolve(root, 'src/scenes/IntermissionScene.js'), 'utf8');
     expect(intermission).toContain('act: chapter');
   });
