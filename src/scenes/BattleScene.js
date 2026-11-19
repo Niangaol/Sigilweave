@@ -60,6 +60,7 @@ import { shakeCamera } from '../ui/camera-shake.js';
 import { bossFrameOffset, clampFollowOffset, leashIntoView, playerVisible, DEFAULT_DEADZONE_H } from '../ui/boss-framing.js';
 import { followBaseY, viewRect as viewRectOf, updateBossCamera as updateBossCameraOf, resumeFollow as resumeFollowOf } from '../ui/battle-camera.js';
 import { drawHostileShot } from '../ui/hostile-draw.js';
+import { computeFrequency } from '../ui/battle-frequency.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -81,7 +82,6 @@ const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
 // 镜头取景：横屏把跟随中心上抬一点，人物略低于屏幕中心，多露上方战场与来袭方向。
 // 死区高 40，半高 20 会吃掉一半偏移，所以这里给 50 → 实际净上抬约 30px。
 // 竖屏沿用 190 的专用偏移（人物落在地图区中上部，下方留给触控台），不再叠加。
-const FREQ_WINDOW_MS = 5000;
 // 击杀经验折算：1 杀 1 点。这个常量保留成可调项——如果实机觉得升级三选一太频繁，
 // 把它调到 2/3 即可整体降速，不需要改任何结算代码。
 const KILL_EXP_PER_POINT = 1;
@@ -2340,19 +2340,14 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   updateFrequency() {
-    const times = this.engine.stats.triggerTimes;
-    const now = this.engine.now;
-    const floor = now - FREQ_WINDOW_MS;
-    while (this.freqStart < times.length && times[this.freqStart] < floor) this.freqStart++;
-    const buckets = [0, 0, 0, 0, 0];
-    for (let i = this.freqStart; i < times.length; i++) {
-      const b = Math.floor((times[i] - floor) / 1000);
-      if (b >= 0 && b < 5) buckets[b]++;
-    }
-    const count = times.length - this.freqStart;
-    this.freqBuckets = buckets;
-    this.recentRate = count / (FREQ_WINDOW_MS / 1000);
-    if (this.recentRate > this.peakRate) this.peakRate = this.recentRate;
+    const r = computeFrequency(this.engine.stats.triggerTimes, this.engine.now, {
+      freqStart: this.freqStart,
+      peakRate: this.peakRate,
+    });
+    this.freqStart = r.freqStart;
+    this.freqBuckets = r.buckets;
+    this.recentRate = r.recentRate;
+    this.peakRate = r.peakRate;
   }
 
   // 进度事件：地图事件点走近触发 + 大Boss等级触发（取代旧的纯计时遭遇）
