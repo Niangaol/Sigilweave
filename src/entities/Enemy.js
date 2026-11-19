@@ -682,12 +682,6 @@ export default class Enemy {
       && p.range > 0 && p.arc > 0) {
       return { angle: p.angle, range: p.range, arc: p.arc };
     }
-    const tune = brain?.tune;
-    if (brain?.attackKind === 'melee' && tune && Number.isFinite(tune.meleeRange) && Number.isFinite(tune.meleeArc)) {
-      const target = this.playerState();
-      const angle = Math.atan2(target.y - this.y, target.x - this.x);
-      return { angle, range: tune.meleeRange, arc: tune.meleeArc };
-    }
     return null;
   }
 

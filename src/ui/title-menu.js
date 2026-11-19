@@ -215,10 +215,6 @@ export const HELP_PAGES = Object.freeze([
   }),
 ]);
 
-export function helpPageCount() {
-  return HELP_PAGES.length;
-}
-
 // 页码夹紧 + 循环翻页：非法输入一律回第一页，别让面板空白。
 export function clampPage(index) {
   const n = HELP_PAGES.length;

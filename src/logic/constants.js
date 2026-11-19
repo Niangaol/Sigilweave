@@ -15,7 +15,6 @@ export const DIRS = {
 };
 export const ORTHO_DIRS = ['up', 'down', 'left', 'right'];
 export const DIAG_DIRS = ['upleft', 'upright', 'downleft', 'downright'];
-export const ALL_DIRS = [...ORTHO_DIRS, ...DIAG_DIRS];
 
 // 位置化冷却（毫秒）：角 0.8s / 边 1.1s / 中心 2.2s
 export const POSITION_COOLDOWN = { corner: 800, edge: 1100, center: 2200 };

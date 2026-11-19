@@ -71,14 +71,6 @@ export function fireGuide(scene, run, id, ctx = {}) {
   return true;
 }
 
-export function fireStuck(scene, runId, when) {
-  if (!guideEnabled()) return false;
-  const hint = getStuckHint(when);
-  if (!hint || !scene?.game?.events) return false;
-  scene.game.events.emit(GUIDE_EVENT, { id: 'STUCK_' + when, card: { id: 'STUCK_' + when, lines: hint.lines, pet: { emotion: 'curious' } }, runId, force: true });
-  return true;
-}
-
 export function hideGuide(scene) {
   scene?.game?.events?.emit(GUIDE_HIDE_EVENT);
 }

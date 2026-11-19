@@ -390,21 +390,6 @@ function lockAim(brain, ctx) {
   brain.aim = { x: ctx.player.x, y: ctx.player.y };
 }
 
-// 造一发敌方弹：唯一入口，保证坐标/速度/伤害都有限且伤害 ≥1
-function pushShot(self, dir, spec) {
-  const d = dir && Number.isFinite(dir.x) && Number.isFinite(dir.y) ? dir : { x: 0, y: 1 };
-  const speed = Math.max(0, finiteOr(spec?.speed, 0));
-  const offset = Math.max(0, finiteOr(spec?.offset, 6));
-  return {
-    x: self.x + d.x * offset,
-    y: self.y + d.y * offset,
-    vx: d.x * speed,
-    vy: d.y * speed,
-    damage: Math.max(1, Math.round(finiteOr(spec?.damage, 8))),
-    lifeMs: Math.max(1, finiteOr(spec?.lifeMs, 2000)),
-  };
-}
-
 // 进入预警（锁定玩家快照、计一次 windup）
 // 注意：只给「冲锋/突进」这类需要固定移动方向的 behavior 用；
 // 远程抬手一律走 beginCast（不记录玩家位置，发射帧再算方向）。
@@ -418,11 +403,6 @@ function beginWindup(brain, ctx, tune) {
 }
 
 // ---------- 攻击事件层：近战（§3）/ 弹幕（§4）/ 召唤（§5） ----------
-function meleeSpecOf(brain) {
-  const profile = brain && AI_PROFILE[brain.defId];
-  return profile && profile.melee ? profile.melee : null;
-}
-
 function rangedSpecOf(brain) {
   const profile = brain && AI_PROFILE[brain.defId];
   return profile && profile.ranged ? profile.ranged : null;

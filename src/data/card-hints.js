@@ -37,10 +37,6 @@ export const CARD_HINTS = Object.freeze({
   silence: '触发时压制正交邻格冷却',
 });
 
-export function hintOf(defId) {
-  return CARD_HINTS[defId] ?? '';
-}
-
 // 变体说明：抽卡与构筑界面用一句话讲清锐/谐的取舍（base 不额外标注）。
 export const VARIANT_HINTS = Object.freeze({
   base: '标准形态 · 不参与联组',

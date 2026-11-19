@@ -101,10 +101,6 @@ export const EVOLUTIONS = Object.freeze({
   ],
 });
 
-export function evolutionRoutes(defId) {
-  return EVOLUTIONS[defId] ?? null;
-}
-
 export function evolutionOf(defId, evoId) {
   if (typeof evoId !== 'string') return null;
   return EVOLUTIONS[defId]?.find(route => route.id === evoId) ?? null;

@@ -24,12 +24,6 @@ export function manhattan(a, b) {
   return Math.abs(pa.r - pb.r) + Math.abs(pa.c - pb.c);
 }
 
-export function chebyshev(a, b) {
-  const pa = toRC(a);
-  const pb = toRC(b);
-  return Math.max(Math.abs(pa.r - pb.r), Math.abs(pa.c - pb.c));
-}
-
 // 结构位置类型：只由方格坐标决定，与是否解封无关
 export function positionType(id) {
   const { r, c } = toRC(id);
@@ -145,7 +139,3 @@ export function exitTargets(grid, cellId) {
   return out;
 }
 
-export function hasRun(grid, cellId, runeId) {
-  const cell = grid.cells[cellId];
-  return cell.runes.includes(runeId);
-}

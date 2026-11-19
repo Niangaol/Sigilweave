@@ -1,0 +1,884 @@
+{
+  "stage1": {
+    "calls": 60,
+    "enemies": [
+      {
+        "defId": "bat",
+        "variant": null
+      },
+      {
+        "defId": "rune_spider",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "bat",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "bat",
+        "variant": null
+      },
+      {
+        "defId": "rune_spider",
+        "variant": "swift"
+      },
+      {
+        "defId": "rune_spider",
+        "variant": null
+      },
+      {
+        "defId": "stone_gargoyle",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "rune_spider",
+        "variant": null
+      },
+      {
+        "defId": "bat",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "bat",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "rune_spider",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "rune_spider",
+        "variant": null
+      },
+      {
+        "defId": "rune_spider",
+        "variant": null
+      },
+      {
+        "defId": "stone_gargoyle",
+        "variant": null
+      },
+      {
+        "defId": "rune_spider",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "bat",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "bat",
+        "variant": null
+      }
+    ],
+    "hash": "fa0096b749dfc44a83c34f3c916947dcd285bde8e42af6aeea927c8ad024d7ba"
+  },
+  "stage2": {
+    "calls": 59,
+    "enemies": [
+      {
+        "defId": "stone_gargoyle",
+        "variant": "swift"
+      },
+      {
+        "defId": "crystal_dryad",
+        "variant": null
+      },
+      {
+        "defId": "stone_gargoyle",
+        "variant": null
+      },
+      {
+        "defId": "bat",
+        "variant": null
+      },
+      {
+        "defId": "crystal_dryad",
+        "variant": "heavy"
+      },
+      {
+        "defId": "stone_gargoyle",
+        "variant": "heavy"
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "corpse",
+        "variant": null
+      },
+      {
+        "defId": "bat",
+        "variant": null
+      },
+      {
+        "defId": "crystal_dryad",
+        "variant": null
+      },
+      {
+        "defId": "stone_gargoyle",
+        "variant": null
+      },
+      {
+        "defId": "stitch_abomination",
+        "variant": null
+      },
+      {
+        "defId": "clockwork_doll",
+        "variant": null
+      },
+      {
+        "defId": "corpse",
+        "variant": null
+      },
+      {
+        "defId": "rune_spider",
+        "variant": null
+      },
+      {
+        "defId": "stone_gargoyle",
+        "variant": "elite"
+      },
+      {
+        "defId": "corpse",
+        "variant": null
+      },
+      {
+        "defId": "bat",
+        "variant": null
+      },
+      {
+        "defId": "bat",
+        "variant": null
+      },
+      {
+        "defId": "corpse",
+        "variant": "swift"
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "crystal_dryad",
+        "variant": "heavy"
+      },
+      {
+        "defId": "corpse",
+        "variant": "heavy"
+      },
+      {
+        "defId": "corpse",
+        "variant": "elite"
+      },
+      {
+        "defId": "crystal_dryad",
+        "variant": null
+      },
+      {
+        "defId": "corpse",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "clockwork_doll",
+        "variant": null
+      },
+      {
+        "defId": "crystal_dryad",
+        "variant": "swift"
+      },
+      {
+        "defId": "stone_gargoyle",
+        "variant": null
+      }
+    ],
+    "hash": "65367f668136420beb63f5ca9745be447dae3b23186496979098c5ae54e0d25d"
+  },
+  "stage3": {
+    "calls": 57,
+    "enemies": [
+      {
+        "defId": "bat",
+        "variant": "swift"
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "void_elemental",
+        "variant": null
+      },
+      {
+        "defId": "wraith",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "cultist",
+        "variant": null
+      },
+      {
+        "defId": "wraith",
+        "variant": "heavy"
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "void_elemental",
+        "variant": "heavy"
+      },
+      {
+        "defId": "brass_warden",
+        "variant": null
+      },
+      {
+        "defId": "void_elemental",
+        "variant": "heavy"
+      },
+      {
+        "defId": "cultist",
+        "variant": null
+      },
+      {
+        "defId": "corpse",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "crystal_dryad",
+        "variant": "heavy"
+      },
+      {
+        "defId": "skeleton",
+        "variant": "swift"
+      },
+      {
+        "defId": "void_elemental",
+        "variant": null
+      },
+      {
+        "defId": "void_elemental",
+        "variant": null
+      },
+      {
+        "defId": "brass_warden",
+        "variant": null
+      },
+      {
+        "defId": "crystal_dryad",
+        "variant": "heavy"
+      },
+      {
+        "defId": "rune_spider",
+        "variant": "heavy"
+      },
+      {
+        "defId": "brass_warden",
+        "variant": null
+      },
+      {
+        "defId": "rune_spider",
+        "variant": null
+      },
+      {
+        "defId": "void_elemental",
+        "variant": "heavy"
+      },
+      {
+        "defId": "wraith",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": "elite"
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "skeleton",
+        "variant": null
+      },
+      {
+        "defId": "rune_spider",
+        "variant": null
+      }
+    ],
+    "hash": "62a80c11b2fa1ee633e7b813c7c74fd516be5bfc2c4f6a3b36aca4a2e06a7f5f"
+  },
+  "stage4": {
+    "calls": 49,
+    "enemies": [
+      {
+        "defId": "oath_bishop",
+        "variant": null
+      },
+      {
+        "defId": "scale_arbiter",
+        "variant": null
+      },
+      {
+        "defId": "cultist",
+        "variant": null
+      },
+      {
+        "defId": "oath_bishop",
+        "variant": null
+      },
+      {
+        "defId": "scale_arbiter",
+        "variant": null
+      },
+      {
+        "defId": "cultist",
+        "variant": "heavy"
+      },
+      {
+        "defId": "oath_bishop",
+        "variant": null
+      },
+      {
+        "defId": "verdict_wraith",
+        "variant": null
+      },
+      {
+        "defId": "shackle_guard",
+        "variant": null
+      },
+      {
+        "defId": "brass_warden",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "index_hound",
+        "variant": null
+      },
+      {
+        "defId": "scale_arbiter",
+        "variant": null
+      },
+      {
+        "defId": "page_golem",
+        "variant": null
+      },
+      {
+        "defId": "ink_wisp",
+        "variant": null
+      },
+      {
+        "defId": "ink_wisp",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "clockwork_doll",
+        "variant": null
+      },
+      {
+        "defId": "scale_arbiter",
+        "variant": null
+      },
+      {
+        "defId": "page_golem",
+        "variant": null
+      },
+      {
+        "defId": "clockwork_doll",
+        "variant": "heavy"
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "page_golem",
+        "variant": null
+      },
+      {
+        "defId": "cultist",
+        "variant": "swift"
+      },
+      {
+        "defId": "verdict_wraith",
+        "variant": null
+      },
+      {
+        "defId": "brass_warden",
+        "variant": null
+      },
+      {
+        "defId": "ink_wisp",
+        "variant": null
+      },
+      {
+        "defId": "index_hound",
+        "variant": null
+      },
+      {
+        "defId": "shackle_guard",
+        "variant": null
+      }
+    ],
+    "hash": "485d0f4489d604d132759520e850691ba9e5b1f98a4661b0d743828373fb79ca"
+  },
+  "stage5": {
+    "calls": 55,
+    "enemies": [
+      {
+        "defId": "verdict_wraith",
+        "variant": null
+      },
+      {
+        "defId": "page_golem",
+        "variant": "heavy"
+      },
+      {
+        "defId": "clockwork_doll",
+        "variant": null
+      },
+      {
+        "defId": "verdict_wraith",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "index_hound",
+        "variant": null
+      },
+      {
+        "defId": "verdict_wraith",
+        "variant": "heavy"
+      },
+      {
+        "defId": "scale_arbiter",
+        "variant": null
+      },
+      {
+        "defId": "ink_wisp",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "verdict_wraith",
+        "variant": null
+      },
+      {
+        "defId": "verdict_wraith",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": "heavy"
+      },
+      {
+        "defId": "shackle_guard",
+        "variant": "heavy"
+      },
+      {
+        "defId": "clockwork_doll",
+        "variant": "swift"
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "brass_warden",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": "swift"
+      },
+      {
+        "defId": "ink_wisp",
+        "variant": null
+      },
+      {
+        "defId": "clockwork_doll",
+        "variant": "elite"
+      },
+      {
+        "defId": "ink_wisp",
+        "variant": "heavy"
+      },
+      {
+        "defId": "shackle_guard",
+        "variant": "heavy"
+      },
+      {
+        "defId": "verdict_wraith",
+        "variant": "swift"
+      },
+      {
+        "defId": "ink_wisp",
+        "variant": null
+      },
+      {
+        "defId": "index_hound",
+        "variant": null
+      },
+      {
+        "defId": "clockwork_doll",
+        "variant": null
+      },
+      {
+        "defId": "cultist",
+        "variant": null
+      },
+      {
+        "defId": "page_golem",
+        "variant": null
+      },
+      {
+        "defId": "brass_warden",
+        "variant": null
+      },
+      {
+        "defId": "page_golem",
+        "variant": null
+      }
+    ],
+    "hash": "6c228b75f1899d79dedfa17cec617b88ed30878e43e43ae9e65e1c8214c1672b"
+  },
+  "stage6": {
+    "calls": 54,
+    "enemies": [
+      {
+        "defId": "anvil_tyrant",
+        "variant": null
+      },
+      {
+        "defId": "ember_imp",
+        "variant": null
+      },
+      {
+        "defId": "brass_warden",
+        "variant": null
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "slag_beast",
+        "variant": null
+      },
+      {
+        "defId": "dawn_shade",
+        "variant": null
+      },
+      {
+        "defId": "eclipse_priest",
+        "variant": null
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "anvil_tyrant",
+        "variant": null
+      },
+      {
+        "defId": "brass_warden",
+        "variant": null
+      },
+      {
+        "defId": "ember_imp",
+        "variant": null
+      },
+      {
+        "defId": "ember_imp",
+        "variant": null
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": "swift"
+      },
+      {
+        "defId": "dawn_shade",
+        "variant": "swift"
+      },
+      {
+        "defId": "ember_imp",
+        "variant": null
+      },
+      {
+        "defId": "void_elemental",
+        "variant": null
+      },
+      {
+        "defId": "slag_beast",
+        "variant": null
+      },
+      {
+        "defId": "brass_warden",
+        "variant": null
+      },
+      {
+        "defId": "corpse",
+        "variant": null
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "stone_gargoyle",
+        "variant": "heavy"
+      },
+      {
+        "defId": "dawn_shade",
+        "variant": "heavy"
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": "heavy"
+      },
+      {
+        "defId": "ember_imp",
+        "variant": "heavy"
+      },
+      {
+        "defId": "void_elemental",
+        "variant": null
+      }
+    ],
+    "hash": "ae3a145264dc82c13416b7d6c46c811112c10507166cd2775759dbc85d7044d3"
+  },
+  "stage7": {
+    "calls": 54,
+    "enemies": [
+      {
+        "defId": "eclipse_priest",
+        "variant": null
+      },
+      {
+        "defId": "oath_bishop",
+        "variant": null
+      },
+      {
+        "defId": "anvil_tyrant",
+        "variant": null
+      },
+      {
+        "defId": "dawn_shade",
+        "variant": null
+      },
+      {
+        "defId": "stone_gargoyle",
+        "variant": null
+      },
+      {
+        "defId": "void_elemental",
+        "variant": "heavy"
+      },
+      {
+        "defId": "stone_gargoyle",
+        "variant": "heavy"
+      },
+      {
+        "defId": "ember_imp",
+        "variant": null
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "corpse",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "dawn_shade",
+        "variant": "heavy"
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "slag_beast",
+        "variant": "swift"
+      },
+      {
+        "defId": "dawn_shade",
+        "variant": "elite"
+      },
+      {
+        "defId": "ember_imp",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "anvil_tyrant",
+        "variant": null
+      },
+      {
+        "defId": "eclipse_priest",
+        "variant": null
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "dawn_shade",
+        "variant": null
+      },
+      {
+        "defId": "void_elemental",
+        "variant": null
+      },
+      {
+        "defId": "ember_imp",
+        "variant": null
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "knight",
+        "variant": "heavy"
+      },
+      {
+        "defId": "knight",
+        "variant": null
+      },
+      {
+        "defId": "slag_beast",
+        "variant": "swift"
+      },
+      {
+        "defId": "stardust_knight",
+        "variant": null
+      },
+      {
+        "defId": "oath_bishop",
+        "variant": null
+      },
+      {
+        "defId": "ember_imp",
+        "variant": null
+      }
+    ],
+    "hash": "93af49dddb2b2127ad5656178dfbf57283204166719c623e1a165648504b48fd"
+  }
+}
