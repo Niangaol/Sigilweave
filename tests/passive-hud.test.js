@@ -138,13 +138,14 @@ describe('局内被动清单 · 进化文案', () => {
 
 describe('局内被动清单 · 接入点（源码扫描）', () => {
   // 波 3 起 Boss 战利品的被动入账迁到 battle-stage-flow.js：检查面合并（只扩大、不放松）。
-  const scene = read('src/scenes/BattleScene.js') + read('src/scenes/battle-stage-flow.js');
+  const scene = read('src/scenes/BattleScene.js') + read('src/scenes/battle-stage-flow.js')
+    + read('src/scenes/battle-pickups.js');
   const hud = read('src/ui/Hud.js');
   const pause = read('src/ui/PauseMenu.js');
 
   it('宝箱与 Boss 战利品两条路都写 passiveLog，重复 id 走 stacks 而不是新增行', () => {
     expect((scene.match(/passiveLog/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect((scene.match(/appendPassive\(this\.run\.passiveLog, 'chest'/g) ?? []).length).toBe(1);
+    expect((scene.match(/appendPassive\(scene\.run\.passiveLog, 'chest'/g) ?? []).length).toBe(1);
     expect((scene.match(/appendPassive\(scene\.run\.passiveLog, 'compass'/g) ?? []).length).toBe(1);
     // create 里初始化一次，两条获取路径各刷新一次
     expect((scene.match(/(this|scene)\.passiveCounts = countPassives\((this|scene)\.run\.passiveLog\)/g) ?? []).length).toBeGreaterThanOrEqual(3);

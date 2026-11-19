@@ -71,6 +71,7 @@ import { updateSpawner as updateSpawnerOf, spawnFormation as spawnFormationOf, s
 import { refreshFormationAuras as refreshFormationAurasOf, updateEnemies as updateEnemiesOf, onEnemyKilled as onEnemyKilledOf, bumpKillStreak as bumpKillStreakOf, updateShards as updateShardsOf, onEnemyMelee as onEnemyMeleeOf } from './battle-enemies.js';
 import { applySigil as applySigilOf, onEnemyHit as onEnemyHitOf, triggerDeathBursts as triggerDeathBurstsOf, collectDefeated as collectDefeatedOf, resolveProjectile as resolveProjectileOf, queueOrCommit as queueOrCommitOf, commitSigil as commitSigilOf, tickPendingCasts as tickPendingCastsOf } from './battle-hit-pipeline.js';
 import { finishStage as finishStageOf, swapStage as swapStageOf, defeatBoss as defeatBossOf, startBossClearTransition as startBossClearTransitionOf, checkDeath as checkDeathOf, die as dieOf, buildSummary as buildSummaryOf } from './battle-stage-flow.js';
+import { fireProjectile as fireProjectileOf, spawnShard as spawnShardOf, spawnExpMote as spawnExpMoteOf, collectExpMote as collectExpMoteOf, updateExpMotes as updateExpMotesOf, flushExpMotes as flushExpMotesOf, releaseProjectiles as releaseProjectilesOf, updateProjectiles as updateProjectilesOf, spawnChest as spawnChestOf, updateChests as updateChestsOf } from './battle-pickups.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -928,86 +929,22 @@ export default class BattleScene extends Phaser.Scene {
 
   updateEnemies(dt) { return updateEnemiesOf(this, dt); }
 
-  fireProjectile(x, y, tx, ty, def, target) {
-    const projectile = this.projectilePool.acquire(x, y, tx, ty, def, target);
-    if (!projectile) return null;
-    this.projectiles.push(projectile);
-    return projectile;
-  }
+  fireProjectile(x, y, tx, ty, def, target) { return fireProjectileOf(this, x, y, tx, ty, def, target); }
 
-  spawnShard(x, y) {
-    const shard = this.shardPool.acquire(x, y);
-    if (!shard) return null;
-    this.shards.push(shard);
-    return shard;
-  }
+  spawnShard(x, y) { return spawnShardOf(this, x, y); }
 
-  // ---------- 经验粒子：击杀爆散 → 炸散 → 追玩家 → 碰到才入账 ----------
-  spawnExpMote(x, y, value = 1, mul = 1) {
-    const mote = this.expMotePool.acquire(x, y, value, mul);
-    if (!mote) {
-      // 池满兜底：经验绝不凭空消失，直接入账
-      const gained = grantExp(this.run.progression, value, mul);
-      if (!this.stressRunning && gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
-      return null;
-    }
-    this.expMotes.push(mote);
-    return mote;
-  }
+  spawnExpMote(x, y, value = 1, mul = 1) { return spawnExpMoteOf(this, x, y, value, mul); }
 
-  collectExpMote(mote) {
-    const gained = grantExp(this.run.progression, mote.value, mote.mul);
-    if (!this.stressRunning && gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
-    this.effects.expPop(mote.x, mote.y);
-    sfx.exp();
-  }
+  collectExpMote(mote) { return collectExpMoteOf(this, mote); }
 
-  updateExpMotes(dt) {
-    for (let i = this.expMotes.length - 1; i >= 0; i--) {
-      const mote = this.expMotes[i];
-      if (!mote.update(dt, this.player)) continue;
-      this.collectExpMote(mote);
-      mote.deactivate();
-      this.expMotePool.release(mote);
-      this.expMotes.splice(i, 1);
-    }
-  }
+  updateExpMotes(dt) { return updateExpMotesOf(this, dt); }
 
-  // 通幕/收尾时把还在飞的粒子一次结算掉，避免经验在过场里蒸发
-  flushExpMotes() {
-    if (!this.expMotes.length) return;
-    for (const mote of this.expMotes) {
-      const gained = grantExp(this.run.progression, mote.value, mote.mul);
-      if (!this.stressRunning && gained.ok && gained.levelsGained > 0) this.queueLevelPicks(gained.levelsGained);
-      mote.deactivate();
-      this.expMotePool.release(mote);
-    }
-    this.expMotes.length = 0;
-  }
+  flushExpMotes() { return flushExpMotesOf(this); }
 
-  releaseProjectiles() {
-    for (const p of this.projectiles) { p.deactivate(); this.projectilePool.release(p); }
-    this.projectiles = [];
-  }
+  releaseProjectiles() { return releaseProjectilesOf(this); }
 
-  updateProjectiles(dt) {
-    const onScreen = visibleFilter(this.viewRect());
-    for (let i = this.projectiles.length - 1; i >= 0; i--) {
-      const p = this.projectiles[i];
-      // 目标走出屏幕就停止追踪：落点停在它最后所在的屏幕内位置，不在屏外结算命中
-      if (p.targetEnemy && !onScreen(p.targetEnemy)) p.targetEnemy = null;
-      const arrived = p.update(dt);
-      if (arrived) {
-        this.resolveProjectile(p);
-        p.deactivate();
-        this.projectilePool.release(p);
-        this.projectiles.splice(i, 1);
-      }
-    }
-  }
+  updateProjectiles(dt) { return updateProjectilesOf(this, dt); }
 
-  // 当前镜头能看到的世界矩形。这是「屏幕内」的唯一判定来源：
-  // worldView 已含 zoom、竖屏镜头偏移与跟随死区，比按玩家坐标硬算 480×270 更准。
   viewRect() { return viewRectOf(this); }
 
   // Boss 战取景：每帧按 Boss 头顶需要多少抬头量，再夹在玩家安全线以内。
@@ -1157,61 +1094,10 @@ export default class BattleScene extends Phaser.Scene {
   pickLevelupCard(card) { return this.levelupPanel.pick(card); }
 
 
-  spawnChest(x, y) {
-    this.chests.push({ x, y, g: null, opened: false });
-  }
+  spawnChest(x, y) { return spawnChestOf(this, x, y); }
 
-  // 局内被动清单的合并逻辑在 ui/passive-summary.js 的 appendPassive 纯函数里：
-  // 同来源同 id 只留一行，stacks 记「这局拿到几次」（暂停菜单显示成 Lv），
-  // level 记局外残响等级（抽到时只增不减），desc 留着给以后的详情页用。
+  updateChests(dt) { return updateChestsOf(this, dt); }
 
-  updateChests(dt) {
-    for (let i = this.chests.length - 1; i >= 0; i--) {
-      const chest = this.chests[i];
-      if (!chest.g) {
-        chest.g = this.add.graphics().setDepth(Math.floor(chest.y));
-        pxRect(chest.g, chest.x - 4, chest.y - 3, 9, 7, C.brassDark, 1);
-        pxFrame(chest.g, chest.x - 4, chest.y - 3, 9, 7, C.brass, 1, 1);
-        pxRect(chest.g, chest.x - 1, chest.y - 1, 2, 2, C.brassLight, 1);
-      }
-      if (Math.hypot(this.player.x - chest.x, this.player.y - chest.y) < 16) {
-        const buff = rollBuffWeighted(CHARACTER_BUFFS, () => this.combatRng.next(), this.run.kitAffinity);
-        if (buff) {
-          const adapter = {
-            maxHp: this.player.maxHp,
-            hp: this.player.hp,
-            speed: PLAYER.speed * (this.player.speedMult ?? 1),
-            pickupRadius: 38 + (this.player.pickupBonus ?? 0),
-            iframeBonus: this.player.iframesBonus ?? 0,
-            shieldCap: this.player.shieldCap ?? 40,
-          };
-          const level = metaLevel(this.metaSave, buff.id);
-          const desc = applyPassiveToCharacter(buff, adapter, level);
-          this.player.maxHpBonus = adapter.maxHp - PLAYER.hp;
-          this.player.maxHp = adapter.maxHp;
-          this.player.hp = Math.min(adapter.maxHp, adapter.hp);
-          this.player.speedMult = adapter.speed / PLAYER.speed;
-          this.player.pickupBonus = adapter.pickupRadius - 38;
-          this.player.iframesBonus = adapter.iframeBonus;
-          this.player.shieldCap = adapter.shieldCap;
-          this.run.characterStats = {
-            maxHp: this.player.maxHp, maxHpBonus: this.player.maxHpBonus,
-            speedMult: this.player.speedMult, pickupBonus: this.player.pickupBonus,
-            iframesBonus: this.player.iframesBonus, shieldCap: this.player.shieldCap,
-          };
-          appendPassive(this.run.passiveLog, 'chest', buff, level, desc);
-          this.passiveCounts = countPassives(this.run.passiveLog);
-          this.effects.text(this.player.x, this.player.y - 14, '宝箱 · ' + buff.name + metaPassiveLabel(level) + '：' + desc, HEX.brassLight, true);
-        }
-        sfx.pick();
-        chest.g.destroy();
-        this.chests.splice(i, 1);
-      }
-    }
-  }
-
-  // 本场大 Boss 解决后的去向：合并幕前半场原地换场，单场幕/合并幕末场通幕，第七场终局。
-  // 计时结束只开启前置问答，通幕永远由大 Boss 决定。
   finishStage() { return finishStageOf(this); }
 
   swapStage(next) { return swapStageOf(this, next); }
