@@ -66,6 +66,7 @@ import GridEditor from '../ui/grid-editor.js';
 import LevelupPanel from '../ui/levelup-panel.js';
 import { playBossIntro as playBossIntroOf, checkProgressEvents as checkProgressEventsOf, updateEventPointVisuals as updateEventPointVisualsOf, beginEncounter as beginEncounterOf, selectEncounterAnswer as selectEncounterAnswerOf, confirmEncounterAnswer as confirmEncounterAnswerOf, continueEncounter as continueEncounterOf } from './battle-encounters.js';
 import { addHostileShot as addHostileShotOf, updateHostileShots as updateHostileShotsOf, combatTargets as combatTargetsOf, addEnemySummon as addEnemySummonOf, updateSummons as updateSummonsOf, sweepSummons as sweepSummonsOf, onSummonDestroyed as onSummonDestroyedOf, detonateRune as detonateRuneOf, drawSummons as drawSummonsOf } from './battle-hostiles.js';
+import { grantSkill as grantSkillOf, skillCdOf as skillCdOfHelper, skillHostCell as skillHostCellOf, pickSkillAim as pickSkillAimOf, castSkill as castSkillOf } from './battle-skills.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -91,8 +92,6 @@ const BATTLE = { left: 10, right: 470, top: 26, bottom: 262 };
 // 把它调到 2/3 即可整体降速，不需要改任何结算代码。
 const KILL_EXP_PER_POINT = 1;
 // 道具技能：按 1/2/3 主动释放，冷却 = 基础值 × 卡牌 cdMul。每场重置技能库。
-const SKILL_CD_BASE = 5200;
-const SKILL_SLOT_MAX = 3;
 
 export default class BattleScene extends Phaser.Scene {
   constructor() {
@@ -1264,71 +1263,17 @@ export default class BattleScene extends Phaser.Scene {
   // ---------- 道具技能库（按 1/2/3 主动释放，王者式冷却，每场重置） ----------
   // 只有升级三选一里玩家选中的法术卡才会登记进本场技能库：选哪张就是哪个技能。
   // 辅助卡不入技能库（没有主动法术）；技能库随断点存档持久化，换场清空。
-  grantSkill(defId) {
-    if (!Object.hasOwn(SIGIL_DEFS, defId)) return;
-    const def = SIGIL_DEFS[defId];
-    const lib = this.run.skillLibrary ?? (this.run.skillLibrary = []);
-    const existing = lib.find(s => s.defId === defId);
-    if (existing) { existing.cdMs = this.skillCdOf(def); return; }
-    const entry = { defId, name: def.name, kind: def.kind, cdMs: this.skillCdOf(def), cooldownUntil: 0 };
-    if (lib.length < SKILL_SLOT_MAX) lib.push(entry);
-    else { lib.shift(); lib.push(entry); } // 槽位已满：顶掉最早的一格
-    const slot = lib.indexOf(entry) + 1;
-    this.effects.text(240, 116, '技能入库 · ' + def.name + '（按 ' + slot + '）', HEX.teal, true);
-    fireGuide(this, this.run, 'SKILL_GAIN', { name: def.name, slot });
-    this.saveProgress();
-  }
+  grantSkill(defId) { return grantSkillOf(this, defId); }
 
-  skillCdOf(def) {
-    return Math.round(SKILL_CD_BASE * (Number.isFinite(def.cdMul) ? def.cdMul : 1));
-  }
+  skillCdOf(def) { return skillCdOfHelper(this, def); }
 
   // 技能不占用法阵格，但复制命中管线需要一个承载格：取已解锁、未静默、带符印的格子。
-  skillHostCell() {
-    const cells = this.grid?.cells ?? [];
-    for (const cell of cells) {
-      if (cell.unlocked && !cell.mutedOutput && cell.slot?.kind === 'sigil') return cell.id;
-    }
-    return Number.isInteger(this.startCell) ? this.startCell : (cells.find(c => c.unlocked)?.id ?? 4);
-  }
+  skillHostCell() { return skillHostCellOf(this); }
 
   // 自动锁定屏幕内离玩家最近的敌人；没有目标时朝面向方向给一个落点。
-  pickSkillAim() {
-    const visible = visibleFilter(this.viewRect());
-    let best = null, bestD = Infinity;
-    for (const e of this.enemies) {
-      if (!e.alive || !visible(e)) continue;
-      const d = Math.hypot(e.x - this.player.x, e.y - this.player.y);
-      if (d < bestD) { bestD = d; best = e; }
-    }
-    if (best) return { x: best.x, y: best.y };
-    const facing = Number.isFinite(this.player.facing) ? this.player.facing : 0;
-    return { x: this.player.x + Math.cos(facing) * 60, y: this.player.y + Math.sin(facing) * 60 };
-  }
+  pickSkillAim() { return pickSkillAimOf(this); }
 
-  castSkill(index) {
-    if (this.phase !== 'play' || this.paused || this.hitstopLeft > 0 || !this.player.alive) return;
-    const entry = this.run.skillLibrary?.[index];
-    if (!entry) return;
-    if (this.engine.now < (entry.cooldownUntil ?? 0)) {
-      this.effects.text(240, 116, '技能冷却中', HEX.mute, true);
-      return;
-    }
-    const def = SIGIL_DEFS[entry.defId];
-    if (!def) return;
-    const origin = this.player.staffTip();
-    const aim = this.pickSkillAim();
-    const angle = Math.atan2(aim.y - origin.y, aim.x - origin.x);
-    entry.cooldownUntil = this.engine.now + entry.cdMs;
-    sfx.trigger();
-    this.effects.spellCast(entry.defId, origin.x, origin.y, angle);
-    // 复用法术命中管线：伤害/命中数字/连锁/经验/碎片全部照常结算。
-    const result = this.applySigil(this.skillHostCell(), entry.defId, aim, angle);
-    if (def.kind === 'ward') this.effects.spellWard(entry.defId, def.radius ?? 40);
-    else if (!result.empty) this.effects.spellImpact(entry.defId, aim.x, aim.y, def.radius ?? 14, angle);
-    fireGuide(this, this.run, 'SKILL_CAST', { name: entry.name });
-    this.saveProgress();
-  }
+  castSkill(index) { return castSkillOf(this, index); }
 
   saveProgress() {
     saveRun(this.run);
