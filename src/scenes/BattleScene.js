@@ -61,6 +61,7 @@ import { bossFrameOffset, clampFollowOffset, leashIntoView, playerVisible, DEFAU
 import { followBaseY, viewRect as viewRectOf, updateBossCamera as updateBossCameraOf, resumeFollow as resumeFollowOf } from '../ui/battle-camera.js';
 import { drawHostileShot } from '../ui/hostile-draw.js';
 import { computeFrequency } from '../ui/battle-frequency.js';
+import { readTuning as readTuningOf, pickStartCells as pickStartCellsOf, sampleStartCell as sampleStartCellOf } from './battle-setup.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -441,49 +442,12 @@ export default class BattleScene extends Phaser.Scene {
     return root;
   }
 
-  // 解析 URL 平衡对照参数：interval（秒）、starts（1-4）、duo（对偶倍率）
-  readTuning(params) {
-    // 注意 Number(null) === 0，必须先用 has 区分“没传”与“传了 0”
-    const intervalSec = params.has('interval') ? Number(params.get('interval')) : NaN;
-    const starts = params.has('starts') ? Number.parseInt(params.get('starts'), 10) : NaN;
-    const duo = params.has('duo') ? Number(params.get('duo')) : NaN;
-    return {
-      intervalMs: Number.isFinite(intervalSec) && intervalSec >= 0.8 && intervalSec <= 5 ? intervalSec * 1000 : null,
-      starts: Number.isInteger(starts) && starts >= 1 && starts <= 4 ? starts : null,
-      duoBonus: Number.isFinite(duo) && duo >= 0 && duo <= 2 ? duo : null,
-    };
-  }
+  readTuning(params) { return readTuningOf(params); }
 
-  pickStartCells() {
-    const unlocked = this.grid.unlockedIds();
-    const count = this.tuning?.starts ?? ACTS[this.chapter - 1].starts;
-    const cells = [this.startCell];
-    for (const id of unlocked) {
-      if (cells.length >= count) break;
-      if (!cells.includes(id)) cells.push(id);
-    }
-    return cells;
-  }
+  pickStartCells() { return pickStartCellsOf(this); }
 
   // ---------- 起点映射 ----------
-  sampleStartCell() {
-    // 玩家在战场中的归一化位置 -> 4×4 虚拟格坐标，再找最近的已解封格
-    const normC = Phaser.Math.Clamp(Math.floor((this.player.x / this.world.w) * 4), 0, 3);
-    const normR = Phaser.Math.Clamp(
-      Math.floor((this.player.y / this.world.h) * 4), 0, 3,
-    );
-    const anchor = toId(normR, normC);
-    let best = null;
-    let bestDist = Infinity;
-    for (const id of this.grid.unlockedIds()) {
-      const d = manhattan(anchor, id);
-      if (d < bestDist || (d === bestDist && (best === null || id < best))) {
-        bestDist = d;
-        best = id;
-      }
-    }
-    return best === null ? ACT1_CELLS[0] : best;
-  }
+  sampleStartCell() { return sampleStartCellOf(this); }
 
   sigilOf(cellId) {
     const defId = this.grid.cells[cellId]?.slot?.defId;
