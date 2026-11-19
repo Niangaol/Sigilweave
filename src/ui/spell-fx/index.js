@@ -127,32 +127,7 @@ function implOf(defId) {
 // 16 套图案内部是照 3~5R 画的（细节足），但实战里 R 是伤害半径，视觉必须落回 1.6~2.4R，
 // 否则陨星（radius 95）会画出 400px 的大爆、把小半个屏幕糊住。
 // 轻法术收得紧一点（0.46），重击留大一点（0.56）——重量差就这样保留下来。
-export const IMPACT_SCALE = {
-  frost_arrow: 0.46,
-  arcane_bolt: 0.56,
-  chain_lightning: 0.6,
-  echo_sigil: 0.46,
-  mana_siphon: 0.56,
-  flame_burst: 0.58,
-  ember_fan: 0.5,
-  thorn_vine: 0.5,
-  soul_lance: 0.5,
-  pierce_lance: 0.6,
-  holy_ward: 0.5,
-  aegis_ring: 0.5,
-  starfall: 0.48,
-  judgment_hammer: 0.56,
-  quake_maw: 0.56,
-  meteor_judgment: 0.56,
-  frost_nova: 0.54,
-  thunder_storm: 0.54,
-  sunflare: 0.56,
-  void_lance: 0.56,
-  sanctum: 0.5,
-  bramble_maul: 0.54,
-  soul_echo: 0.5,
-  glacier: 0.52,
-};
+
 const DEFAULT_IMPACT_SCALE = 0.5;
 
 // 视觉半径：不再直接吃「伤害半径」，否则寒霜（18）只有 30px、陨星（95）画到 400px。
@@ -173,59 +148,39 @@ export function visualRadius(gameplayRadius) {
 //   erupt/settle       —— 爆裂类：炸开出场、碎屑外飘上浮 + 中心残环焦痕
 //   assemble/shatter   —— 守护类：符文归位出场、环带碎裂散场
 // 没列到的 defId 走 converge/dissipate 兜底。
-export const ENTRY_STYLE = {
-  frost_arrow: 'converge',
-  arcane_bolt: 'converge',
-  chain_lightning: 'converge',
-  pierce_lance: 'converge',
-  echo_sigil: 'converge',
-  mana_siphon: 'converge',
-  soul_lance: 'converge',
-  flame_burst: 'erupt',
-  ember_fan: 'erupt',
-  starfall: 'erupt',
-  meteor_judgment: 'erupt',
-  quake_maw: 'erupt',
-  thorn_vine: 'erupt',
-  judgment_hammer: 'erupt',
-  holy_ward: 'assemble',
-  aegis_ring: 'assemble',
-  sanctum: 'assemble',
-  frost_nova: 'erupt',
-  thunder_storm: 'erupt',
-  sunflare: 'erupt',
-  void_lance: 'converge',
-  bramble_maul: 'erupt',
-  soul_echo: 'converge',
-  glacier: 'erupt',
-};
 
-export const EXIT_STYLE = {
-  frost_arrow: 'dissipate',
-  arcane_bolt: 'dissipate',
-  chain_lightning: 'dissipate',
-  pierce_lance: 'dissipate',
-  echo_sigil: 'dissipate',
-  mana_siphon: 'dissipate',
-  soul_lance: 'dissipate',
-  flame_burst: 'settle',
-  ember_fan: 'settle',
-  starfall: 'settle',
-  meteor_judgment: 'settle',
-  quake_maw: 'settle',
-  thorn_vine: 'settle',
-  judgment_hammer: 'settle',
-  holy_ward: 'shatter',
-  aegis_ring: 'shatter',
-  sanctum: 'shatter',
-  frost_nova: 'settle',
-  thunder_storm: 'settle',
-  sunflare: 'settle',
-  void_lance: 'dissipate',
-  bramble_maul: 'settle',
-  soul_echo: 'dissipate',
-  glacier: 'settle',
-};
+
+export const SPELL_DEFS = Object.freeze({
+  frost_arrow: { impactScale: 0.46, entry: 'converge', exit: 'dissipate' },
+  arcane_bolt: { impactScale: 0.56, entry: 'converge', exit: 'dissipate' },
+  flame_burst: { impactScale: 0.58, entry: 'erupt', exit: 'settle' },
+  judgment_hammer: { impactScale: 0.56, entry: 'erupt', exit: 'settle' },
+  thorn_vine: { impactScale: 0.5, entry: 'erupt', exit: 'settle' },
+  starfall: { impactScale: 0.48, entry: 'erupt', exit: 'settle' },
+  holy_ward: { impactScale: 0.5, entry: 'assemble', exit: 'shatter' },
+  mana_siphon: { impactScale: 0.56, entry: 'converge', exit: 'dissipate' },
+  chain_lightning: { impactScale: 0.6, entry: 'converge', exit: 'dissipate' },
+  pierce_lance: { impactScale: 0.6, entry: 'converge', exit: 'dissipate' },
+  echo_sigil: { impactScale: 0.46, entry: 'converge', exit: 'dissipate' },
+  ember_fan: { impactScale: 0.5, entry: 'erupt', exit: 'settle' },
+  quake_maw: { impactScale: 0.56, entry: 'erupt', exit: 'settle' },
+  soul_lance: { impactScale: 0.5, entry: 'converge', exit: 'dissipate' },
+  aegis_ring: { impactScale: 0.5, entry: 'assemble', exit: 'shatter' },
+  meteor_judgment: { impactScale: 0.56, entry: 'erupt', exit: 'settle' },
+  frost_nova: { impactScale: 0.54, entry: 'erupt', exit: 'settle' },
+  thunder_storm: { impactScale: 0.54, entry: 'erupt', exit: 'settle' },
+  sunflare: { impactScale: 0.56, entry: 'erupt', exit: 'settle' },
+  void_lance: { impactScale: 0.56, entry: 'converge', exit: 'dissipate' },
+  sanctum: { impactScale: 0.5, entry: 'assemble', exit: 'shatter' },
+  bramble_maul: { impactScale: 0.54, entry: 'erupt', exit: 'settle' },
+  soul_echo: { impactScale: 0.5, entry: 'converge', exit: 'dissipate' },
+  glacier: { impactScale: 0.52, entry: 'erupt', exit: 'settle' },
+});
+
+// 旧导出名继续保留（fx-check 与测试在用）：从 SPELL_DEFS 派生，单一事实源。
+export const IMPACT_SCALE = Object.fromEntries(Object.entries(SPELL_DEFS).map(([id, d]) => [id, d.impactScale]));
+export const ENTRY_STYLE = Object.fromEntries(Object.entries(SPELL_DEFS).map(([id, d]) => [id, d.entry]));
+export const EXIT_STYLE = Object.fromEntries(Object.entries(SPELL_DEFS).map(([id, d]) => [id, d.exit]));
 
 // 「出现」：主体不是啪一下满尺寸，而是从 50% 弹到 100%（smoothstep），配上前 13% 的凝聚层。
 // 「消失」：72% 之后主体的 k 被加速到 1.9 倍 —— 主体先散架，碎片层再接住，观感是「碎掉」而不是「变透明」。
