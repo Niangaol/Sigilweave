@@ -426,3 +426,85 @@ describe('variant-parts：纹理生成与配件定位', () => {
     expect(eliteShield.scale).toBeGreaterThan(bigShield.scale);
   });
 });
+
+// C5：编队标记（spec §5.4）。同编队成员脚下画同色小三角，颜色按 formationId 哈希从 4 个预设里取。
+// 这里只做绘制冒烟 + 可观测证据（fillPoints 真的被调用、颜色随 id 变化），
+// 不测「好不好看」——那是人眼验收。
+describe('C5 编队标记：脚下三角', () => {
+  const MARK = (from) => from.filter((c) => c[0] === 'fillPoints');
+
+  it('formationId 存在时 draw 不抛错，且脚下真的画了一个三角形（pxPoly → fillPoints）', () => {
+    const { scene, calls } = fakeScene();
+    const enemy = new Enemy(scene, ENEMY_TYPES.skeleton, 240, 150, { x: 240, y: 80 }, 100, 40, 8, 1);
+    enemy.formationId = 'siege';
+    calls.length = 0;
+
+    expect(() => enemy.draw(0)).not.toThrow();
+
+    const tris = MARK(calls).filter((c) => Array.isArray(c[1]) && c[1].length === 3);
+    expect(tris.length).toBeGreaterThanOrEqual(1);
+    // 三角必须在脚下：三个顶点的 y 都 >= 逻辑坐标 y（脚底那条线以下）
+    for (const entry of tris) {
+      for (const p of entry[1]) expect(p.y).toBeGreaterThanOrEqual(150);
+    }
+  });
+
+  it('没有 formationId 时不画三角（普通波零变化）', () => {
+    const { scene, calls } = fakeScene();
+    const enemy = new Enemy(scene, ENEMY_TYPES.skeleton, 240, 150, { x: 240, y: 80 }, 100, 40, 8, 1);
+    calls.length = 0;
+
+    enemy.draw(0);
+
+    const tris = MARK(calls).filter((c) => Array.isArray(c[1]) && c[1].length === 3);
+    expect(tris).toHaveLength(0);
+  });
+
+  it('颜色由 formationId 决定、且从 4 个预设里取：同 id 同色，不同 id 会换到别的色', () => {
+    const colorOf = (id) => {
+      const { scene, calls } = fakeScene();
+      const enemy = new Enemy(scene, ENEMY_TYPES.skeleton, 240, 150, { x: 240, y: 80 }, 100, 40, 8, 1);
+      enemy.formationId = id;
+      calls.length = 0;
+      enemy.draw(0);
+      const tris = MARK(calls).filter((c) => Array.isArray(c[1]) && c[1].length === 3);
+      const idx = calls.findIndex((c) => c === tris[0]);
+      // 三角的前一条记录是 pxPoly 的 fillStyle(color, alpha)
+      return calls.slice(0, idx).reverse().find((c) => c[0] === 'fillStyle')[1];
+    };
+
+    const a1 = colorOf('siege');
+    const a2 = colorOf('siege');
+    expect(a1).toBe(a2);
+
+    // 8 个编队 id 至少要落出多于 1 种颜色，否则哈希等于没生效
+    const ids = ['siege', 'shield_wall', 'pincer', 'mixed', 'harass', 'brute', 'casters', 'swarm'];
+    const distinct = new Set(ids.map(colorOf));
+    expect(distinct.size).toBeGreaterThan(1);
+    expect(distinct.size).toBeLessThanOrEqual(4);
+  });
+
+  it('素材缺失走程序化路径时也画三角，且不抛错', () => {
+    const { scene, calls } = fakeScene({ textures: { exists: () => false } });
+    const enemy = new Enemy(scene, ENEMY_TYPES.skeleton, 240, 150, { x: 240, y: 80 }, 100, 40, 8, 1);
+    enemy.formationId = 'pincer';
+    calls.length = 0;
+
+    expect(() => enemy.draw(0)).not.toThrow();
+
+    const tris = MARK(calls).filter((c) => Array.isArray(c[1]) && c[1].length === 3);
+    expect(tris.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('精英与 Boss 强度怪不画编队三角（它们不吃光环，标记会误导「先打前排」）', () => {
+    const { scene, calls } = fakeScene();
+    const elite = new Enemy(scene, { ...ENEMY_TYPES.oath_bishop, elite: true }, 240, 150, { x: 240, y: 80 }, 100, 40, 8, 1);
+    elite.formationId = 'siege';
+    calls.length = 0;
+
+    elite.draw(0);
+
+    const tris = MARK(calls).filter((c) => Array.isArray(c[1]) && c[1].length === 3);
+    expect(tris).toHaveLength(0);
+  });
+});

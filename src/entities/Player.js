@@ -3,6 +3,7 @@
 // 法杖尖端必须与 staffTipOf 严格对齐——所有法术特效从这里起手（见 docs/staff-origin.png）。
 import { C, pxRect } from '../ui/Palette.js';
 import { PLAYER } from '../data/roster.js';
+import { CONTROL_RESISTANCE } from '../data/control.js';
 import { kitStyle } from '../ui/kit-style.js';
 
 // 法杖尖端（世界坐标）：所有法术特效的统一出发位置。
@@ -39,12 +40,22 @@ export default class Player {
     this.stunUntil = 0;
     this.rootUntil = 0;
     this.slowUntil = 0;
+    // 击退僵直与「真眩晕」分开记：眩晕冲刺解不掉，击退僵直冲刺能解（spec §3.1.1）。
+    this.knockStunUntil = 0;
     this.slowFactor = 1;
     this.controlAt = 0;
+    // 控制抗性递减（spec §3.2）：每类控制各记一条命中时间戳队列，窗口外的出队。
+    this.controlLog = { stun: [], root: [], slow: [] };
     this.hurtAt = -9999;
     this.walkPhase = 0;
     this.facing = 1;
     this.moving = false;
+    // 冲刺状态机（spec §3.1）：readyAt 管冷却+后摇，until 管位移段，invuln 只管途中无敌。
+    this.dashReadyAt = 0;
+    this.dashUntil = 0;
+    this.dashInvulnUntil = 0;
+    this.dashDir = { x: 1, y: 0 };
+    this.dashFrom = { x, y };
     this.g = scene.add.graphics().setDepth(y);
     // 素材精灵：未就位时保持 null，draw() 自动降级为程序化绘制（接口与手感不变）
     this.sprite = scene.textures?.exists('player') && typeof scene.add?.sprite === 'function'
@@ -58,6 +69,13 @@ export default class Player {
 
   // dx/dy 为 -1..1 的输入轴；斜向在这里归一化
   update(dtMs, dx, dy, bounds, now) {
+    // 冲刺期间位置完全由 updateDash 的时间轴决定：先委托，命中就整帧跳过普通移动，
+    // 免得输入轴在冲刺之外再叠一份位移，108px 的冲刺距离不再稳定。
+    if (this.updateDash(dtMs, bounds, now)) {
+      this.draw(now);
+      this.g.setDepth(Math.floor(this.y) + 0.5);
+      return;
+    }
     this.moving = dx !== 0 || dy !== 0;
     if (this.moving) {
       const len = Math.hypot(dx, dy) || 1;
@@ -78,26 +96,93 @@ export default class Player {
   // 硬控入口：只由场景侧在敌人招式命中时调用，叠加以「更晚结束」为准。
   applyControl(kind, ms, now) {
     if (!this.alive || !(ms > 0) || !Number.isFinite(ms)) return false;
-    const until = now + ms;
+    if (kind !== 'stun' && kind !== 'root' && kind !== 'slow') return false;
+    // 同类控制短时间内反复命中就递减：窗口外的时间戳先出队，步进到 0.35 封顶，单次不低于 minMs。
+    const log = this.controlLog[kind];
+    const cutoff = now - CONTROL_RESISTANCE.windowMs;
+    while (log.length && log[0] <= cutoff) log.shift();
+    const step = CONTROL_RESISTANCE.steps[Math.min(log.length, CONTROL_RESISTANCE.steps.length - 1)];
+    const realMs = Math.max(CONTROL_RESISTANCE.minMs, ms * step);
+    log.push(now);
+    const until = now + realMs;
     if (kind === 'stun') this.stunUntil = Math.max(this.stunUntil, until);
     else if (kind === 'root') this.rootUntil = Math.max(this.rootUntil, until);
-    else if (kind === 'slow') this.slowUntil = Math.max(this.slowUntil, until);
-    else return false;
+    else this.slowUntil = Math.max(this.slowUntil, until);
+    this.controlAt = now;
+    return true;
+  }
+
+  // 击退的僵直与「真眩晕」分开记：眩晕冲刺解不掉，击退僵直冲刺能解（spec §3.1.1）。
+  applyKnockStun(ms, now) {
+    if (!this.alive || !(ms > 0) || !Number.isFinite(ms)) return false;
+    this.knockStunUntil = Math.max(this.knockStunUntil, now + ms);
     this.controlAt = now;
     return true;
   }
 
   moveBlocked(now) {
-    return now < this.stunUntil || now < this.rootUntil;
+    return now < this.stunUntil || now < this.rootUntil || now < this.knockStunUntil;
   }
 
   speedFactorAt(now) {
     return now < this.slowUntil ? this.slowFactor : 1;
   }
 
+  // 冲刺（spec §3.1）：冷却/位移中再按无效；dx/dy 归一化，无输入时朝 facing。
+  // 启动即清定身/迟滞/击退僵直——闪避就是拿来撞掉这些的；眩晕不清（冲刺解不掉眩晕）。
+  startDash(dx, dy, now) {
+    if (!this.alive) return false;
+    if (now < this.dashReadyAt || now < this.dashUntil) return false;
+    const dash = PLAYER.dash;
+    const len = Math.hypot(dx, dy);
+    let ux;
+    let uy;
+    if (Number.isFinite(len) && len > 0) {
+      ux = dx / len;
+      uy = dy / len;
+    } else {
+      ux = this.facing < 0 ? -1 : 1;
+      uy = 0;
+    }
+    this.dashFrom = { x: this.x, y: this.y };
+    this.dashDir = { x: ux, y: uy };
+    this.dashUntil = now + dash.ms;
+    this.dashInvulnUntil = now + dash.invulnMs;
+    // 后摇与冷却取更晚者：位移结束还能立刻再按会磨掉闪避的节奏感
+    this.dashReadyAt = now + Math.max(dash.ms + dash.afterMs, dash.cooldownMs);
+    this.rootUntil = 0;
+    this.slowUntil = 0;
+    this.knockStunUntil = 0;
+    return true;
+  }
+
+  // 位移中每帧调用：按 now 在 dashFrom → dashFrom + dir×distance 之间插值，
+  // 位置取自时间轴而不是累加 dt——暂停/顿帧时位置不会漂。越界钳到世界边即停。
+  // 边界帧（now === dashUntil）仍插值到终点并算「冲刺中」：更晚的帧直接返回 false 且不碰位置，
+  // 免得场景侧持旧的 now 调用时把玩家拽回冲刺终点。
+  // 注意 dashUntil === 0（从未冲刺过）且 now === 0 的帧：那会让 t 算出 k=1 瞬移 +108px，
+  // 所以这里显式要求 dashUntil 是个正的时刻才算真的在冲刺。
+  updateDash(dtMs, bounds, now) {
+    if (!(this.dashUntil > 0) || now > this.dashUntil) return false;
+    const dash = PLAYER.dash;
+    const t = (now - (this.dashUntil - dash.ms)) / dash.ms;
+    const k = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 0;
+    this.x = this.dashFrom.x + this.dashDir.x * dash.distance * k;
+    this.y = this.dashFrom.y + this.dashDir.y * dash.distance * k;
+    const b = bounds ?? {};
+    const left = Number.isFinite(b.left) ? b.left : -Infinity;
+    const right = Number.isFinite(b.right) ? b.right : Infinity;
+    const top = Number.isFinite(b.top) ? b.top : -Infinity;
+    const bottom = Number.isFinite(b.bottom) ? b.bottom : Infinity;
+    this.x = Math.min(right, Math.max(left, this.x));
+    this.y = Math.min(bottom, Math.max(top, this.y));
+    return true;
+  }
+
   takeDamage(amount, now) {
     if (!this.alive) return false;
-    if (now < this.invulnUntil) return false;
+    // 冲刺途中另有独立无敌段：与受击无敌互不覆盖，谁晚归谁管
+    if (now < this.invulnUntil || now < this.dashInvulnUntil) return false;
     // 人物宝箱「坚韧余辉」以秒为单位累加；非法/负数按 0 处理，默认仍是 900ms。
     const bonusMs = Number.isFinite(this.iframesBonus) && this.iframesBonus > 0
       ? this.iframesBonus * 1000

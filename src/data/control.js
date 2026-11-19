@@ -44,6 +44,14 @@ export const DEFAULT_CONTACT_CONTROL = Object.freeze({ kind: 'knock', ms: 240, f
 // 所以全场敌方弹幕统一挂一条轻迟滞，精英的专属配置留给日后带来源信息的版本。
 export const DEFAULT_SHOT_CONTROL = Object.freeze({ kind: 'slow', ms: 900, factor: 0.7 });
 
+// 控制抗性递减（spec §3.2）：同类控制在 windowMs 内反复命中时，时长按 steps 逐级打折、
+// 单次不低于 minMs——既不让怪物轮流硬控把玩家锁死，也保住「一次控制就有一次完整时长」的手感。
+export const CONTROL_RESISTANCE = Object.freeze({
+  windowMs: 10000,
+  steps: Object.freeze([1, 0.6, 0.35]),
+  minMs: 150,
+});
+
 export function controlFor(defId, path) {
   const def = ENEMY_CONTROL[defId];
   if (!def) return null;

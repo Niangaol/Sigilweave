@@ -545,6 +545,9 @@ function spawnScene(stage = 3) {
   scene.add = { graphics: () => spawnGraphics() };
   // 场景替身只绑「被测方法直接调用、且真实实现会互相调用」的那几个原型方法
   scene.spawnEnemy = BattleScene.prototype.spawnEnemy.bind(scene);
+  // updateSpawner 会按轮次在 spawnFormation / spawnWave 之间二选一，两个都得绑真实现
+  scene.spawnWave = BattleScene.prototype.spawnWave.bind(scene);
+  scene.spawnFormation = BattleScene.prototype.spawnFormation.bind(scene);
   scene.bumpKillStreak = BattleScene.prototype.bumpKillStreak.bind(scene);
   return scene;
 }
@@ -612,6 +615,81 @@ describe('变体刷怪接入（enemySpawnLoad / spawnEnemy / 槽位预算）', (
     scene.combatRng = { next: () => 0.5 };
     call(scene, 'spawnWave', { hp: 10, speed: 30, damage: 8, maxAlive: 1, wave: 2 }, 2);
     expect(scene.enemies).toHaveLength(2); // 原有 1 + 兜底 1
+  });
+});
+
+// ---------- 编队波接线（spec §5.2 / Task C3） ----------
+// 编队是「节奏变化」：每 formationEvery 波整团刷一次，成员带 formationId 供 C4 光环判定。
+// 这里只驱动场景层的接线（轮次推进、扇区、成员打标），编队内容本身由 formations.test.js 覆盖。
+describe('编队波接线（waveIndex / spawnFormation）', () => {
+  it('满场早退：一只都不刷，waveIndex 与编队轮次都不推进', () => {
+    const scene = spawnScene(3);
+    scene.combatRng = { next: () => 0.5 };
+    // 预置 100 只杂兵：load=100 > difficultyAt(120000,3).maxAlive=80，room<=0
+    scene.enemies = Array.from({ length: 100 }, (_, i) => ({ x: i, y: i, alive: true }));
+    scene.waveIndex = 5;
+    scene.spawnTimer = 0;
+    call(scene, 'updateSpawner', 50);
+    expect(scene.enemies).toHaveLength(100);
+    expect(scene.waveIndex).toBe(5);          // 提前 return 不许推进轮次
+    expect(scene.spawnTimer).toBe(160);       // 仍是满场那句「短暂停手」
+  });
+
+  it('普通波成功刷怪后 waveIndex +1，且第一波（waveIndex=0）不走编队', () => {
+    const scene = spawnScene(3);
+    scene.combatRng = { next: () => 0.5 };
+    scene.waveIndex = 0;
+    scene.spawnTimer = 0;
+    call(scene, 'updateSpawner', 50);
+    expect(scene.enemies.length).toBeGreaterThan(0);
+    expect(scene.waveIndex).toBe(1);
+    // 普通波成员不带 formationId
+    expect(scene.enemies.every(e => e.formationId === undefined)).toBe(true);
+  });
+
+  it('第 3 波走编队：整团落地、成员共享 formationId、落点在玩家反方向扇区内', () => {
+    const scene = spawnScene(3);
+    scene.combatRng = { next: () => 0.5 };
+    scene.waveIndex = 3;                      // 3 % formationEvery === 0
+    scene.spawnTimer = 0;
+    const before = scene.enemies.length;
+    call(scene, 'updateSpawner', 50);
+    const fresh = scene.enemies.slice(before);
+    expect(fresh).toHaveLength(3);            // 盾墙推进 = 1 前排 + 2 远程
+    expect(fresh.map(e => e.formationId)).toEqual(['shield_wall', 'shield_wall', 'shield_wall']);
+    // rng 恒 0.5 时 rollFormation 确定性抽到黄铜守誓者 + 两只虚空符灵
+    expect(fresh.map(e => e.def.id)).toEqual(['brass_warden', 'void_elemental', 'void_elemental']);
+    // 扇区中心 = 玩家反方向（facing 缺省按 1 → π），成员整体在玩家身后
+    for (const e of fresh) expect(e.x).toBeLessThan(scene.player.x);
+    expect(scene.waveIndex).toBe(4);
+  });
+
+  it('spawnFormation 直接调用：槽位闸过小（maxAlive×0.4 < 员额）时整轮降级返回 0', () => {
+    const scene = spawnScene(3);
+    scene.combatRng = { next: () => 0.5 };
+    expect(call(scene, 'spawnFormation', { hp: 10, speed: 30, damage: 8, maxAlive: 5 })).toBe(0);
+    expect(scene.enemies).toHaveLength(0);
+    // 闸放到 80 就能编成，证明上面的 0 是闸拦的、不是本章抽不到
+    expect(call(scene, 'spawnFormation', { hp: 10, speed: 30, damage: 8, maxAlive: 80 })).toBe(3);
+    expect(scene.enemies.map(e => e.formationId)).toEqual(['shield_wall', 'shield_wall', 'shield_wall']);
+  });
+
+  it('编队抽不到时降级普通波：这一轮照常刷怪、照常推进 waveIndex', () => {
+    const scene = spawnScene(3);
+    scene.combatRng = { next: () => 0.5 };
+    scene.spawnFormation = () => 0;           // 模拟「本幕抽不到怪」的降级
+    scene.waveIndex = 3;
+    scene.spawnTimer = 0;
+    call(scene, 'updateSpawner', 50);
+    expect(scene.enemies.length).toBeGreaterThan(0);
+    expect(scene.waveIndex).toBe(4);          // 降级波也是真刷了怪的一轮
+  });
+
+  it('spawnWave 返回实际落地只数（供轮次推进判断「这一轮到底刷没刷」）', () => {
+    const scene = spawnScene(3);
+    scene.combatRng = { next: () => 0.5 };
+    expect(call(scene, 'spawnWave', { hp: 10, speed: 30, damage: 8, maxAlive: 80, wave: 2 }, 2)).toBe(2);
+    expect(scene.enemies).toHaveLength(2);
   });
 });
 

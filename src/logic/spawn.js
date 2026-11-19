@@ -1,19 +1,32 @@
 // 刷怪落点与拥挤控制（纯逻辑，可单测）。
 // 目标：同屏数量可以多一点，但落点必须散开，不能让怪堆成一坨。
+import { CHAPTER_ENEMY_WEIGHTS } from '../data/roster.js';
+import { formationsFor } from '../data/formations.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 // 以玩家为中心的环上取点：带最小间距与边界钳制，永不返回界外/贴脸的点。
 // rng 只被按固定顺序调用，保证同一 seed 的落点序列可复现。
+// sectorAngle / sectorSpread：编队扇区（spec §5.2）。整队只朝一个方向刷，
+// 编队才有「整体来向」的观感；两者都是有限数时才启用，否则保持全向随机。
+// 扇区只改角度公式、不多抽一次 rng——同 seed 的落点序列必须和不开扇区时一样可复现，
+// 否则 tests/spawn.test.js 的复现性对拍会随扇区漂移。
 export function pickSpawnPoint({
   rng, player, world, enemies = [],
   minDist = 230, maxDist = 430, minGap = 36, attempts = 14,
   nearDist = 140, farDist = 560, edge = 28,
+  sectorAngle = null, sectorSpread = null,
 }) {
+  // 非法扇区参数（NaN / Infinity / 字符串 / 缺一个）一律回退全向：
+  // 刷怪函数跑在战斗循环里，抛错会把一帧打成黑屏，静默回退比异常安全。
+  const sector = Number.isFinite(sectorAngle) && Number.isFinite(sectorSpread);
   const bounds = { left: edge, top: edge + 20, right: world.w - edge, bottom: world.h - edge };
   let fallback = null;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const angle = rng() * Math.PI * 2;
+    // spread 是全宽，半宽 = spread/2：spec 的「±0.6rad」对应 sectorSpread = 1.2
+    const angle = sector
+      ? sectorAngle + (rng() - 0.5) * sectorSpread
+      : rng() * Math.PI * 2;
     const dist = minDist + rng() * (maxDist - minDist);
     const x = clamp(player.x + Math.cos(angle) * dist, bounds.left, bounds.right);
     const y = clamp(player.y + Math.sin(angle) * dist, bounds.top, bounds.bottom);
@@ -50,6 +63,7 @@ export const MAX_WAVE_POINTS = 8;
 export function pickWavePoints({
   rng, player, world, enemies = [], count = 1,
   minDist, maxDist, minGap, attempts, nearDist, farDist, edge,
+  sectorAngle = null, sectorSpread = null,
 } = {}) {
   // 非法 count（NaN / 字符串 / Infinity）一律当 1；0 与负数表示本波不刷
   const asked = Number.isFinite(count) ? Math.floor(count) : 1;
@@ -67,6 +81,7 @@ export function pickWavePoints({
     const point = pickSpawnPoint({
       rng, player, world, enemies: taken,
       minDist, maxDist, minGap, attempts, nearDist, farDist, edge,
+      sectorAngle, sectorSpread,
     });
     points.push(point);
     taken.push({ x: point.x, y: point.y });
@@ -222,4 +237,65 @@ export function separateEnemiesBucketed(list, { gap = 22, player = null, contact
     }
   }
   return pushes;
+}
+
+// ---------- C3：编队抽样（spec §5.2） ----------
+// 纯函数：按幕取模板 → 按幕过滤候选怪 → 过槽位闸，任一环不成立就返回 null，
+// 由调用方降级成普通单点波。本幕抽不到的怪绝不硬塞，否则会出现
+// 「五幕书架里刷出蝠群」这种穿越怪。
+//
+// 为什么 picks 是「一个 role 一条」而不是「一只怪一条」：
+// 模板里同一个 role 的 count 表示「这一职能来几只同种怪」（蝠群就是 5 只蝠），
+// 逐只展开会让「同编队不重复」退化成全局去重，直接把 5 只蝠杀死。
+// 因此「同编队 defId 不重复」= 各 role 不共用怪种，跨 role 天然成立。
+export const FORMATION_SLOT_RATIO = 0.4;
+
+export function rollFormation({ chapter, load = 0, maxAlive = 0, rng } = {}) {
+  // 非法入参一律回退 null：刷怪跑在战斗循环里，抛错会把一帧打成黑屏
+  if (typeof rng !== 'function') return null;
+  const pool = Number.isInteger(chapter) && Object.hasOwn(CHAPTER_ENEMY_WEIGHTS, chapter)
+    ? new Map(CHAPTER_ENEMY_WEIGHTS[chapter])
+    : null;
+  if (!pool) return null;
+  const candidates = formationsFor(chapter);
+  if (candidates.length === 0) return null;
+  const cap = Number.isFinite(maxAlive) ? Math.max(0, maxAlive) : 0;
+  const used = Number.isFinite(load) ? Math.max(0, load) : 0;
+  // 每次只抽一个数：模板一次、每个 role 各一次。多抽会让同 seed 的刷怪节奏漂移
+  const draw = () => {
+    const v = rng();
+    return Number.isFinite(v) ? v : 0;
+  };
+
+  // 加权抽模板。rng 先钳到 [0,1)（越界/NaN 都按 0），否则 cumulative 比到表外会拿到 undefined
+  const totalWeight = candidates.reduce((s, f) => s + f.weight, 0);
+  const roll = clamp(draw(), 0, 0.999999999);
+  let acc = 0;
+  let formation = candidates[candidates.length - 1];
+  for (const f of candidates) {
+    acc += f.weight;
+    if (roll * totalWeight <= acc) { formation = f; break; }
+  }
+
+  const picks = [];
+  const takenIds = new Set();
+  let members = 0;
+  for (const role of formation.roles) {
+    // 候选 = 本幕敌种池 ∩ 本 role 的怪池，再去掉同编队已用过的怪种
+    const available = role.defIds.filter((id) => pool.has(id) && !takenIds.has(id));
+    // 整个池在本幕都抽不到：整轮降级，不硬塞
+    if (available.length === 0) return null;
+    const idx = clamp(Math.floor(draw() * available.length), 0, available.length - 1);
+    const defId = available[idx];
+    takenIds.add(defId);
+    picks.push({ path: role.path, defId, count: role.count });
+    members += role.count;
+  }
+
+  // 槽位闸：编队是一次性整团落地，比逐只刷挤得多，所以额度单独算——
+  // 总员额既不得超过同屏上限的 40%，也不得超过当前余量，超了整轮降级。
+  const gate = cap * FORMATION_SLOT_RATIO;
+  const room = cap - used;
+  if (members > gate || members > room) return null;
+  return { formation, picks };
 }

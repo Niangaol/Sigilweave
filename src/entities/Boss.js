@@ -1,5 +1,7 @@
 import { C, pxRect, pxLine, pxDiamond, pxRing } from '../ui/Palette.js';
 import { createBossModel, stepBoss, bossStats } from '../logic/boss.js';
+import { BREAK_WINDOW_MS, PHASE_THRESHOLDS, PHASE_COUNT } from '../data/boss-phases.js';
+import { shakeCamera } from '../ui/camera-shake.js';
 
 // 每场小 Boss / 场 Boss 各一张专属立绘；脚底仍对齐 y+21。
 // 场 4-7 是 2026-11-11 新画的八张专属立绘，不再复用前三场素材
@@ -26,6 +28,8 @@ export default class Boss {
     this.hp = this.maxHp = stats.hp;
     // Boss 专属固定减伤：直接复用敌人的 armor 通道（applyDamage 里按 (1 - armor) 结算）。
     this.armor = stats.armor;
+    // 破防窗口里护甲临时失效：原值存 baseArmor，退出窗口时还原（B4）。
+    this.baseArmor = stats.armor;
     this.alive = true; this.rewarded = false; this.damage = 12; this.hitAt = -9999;
     this.model = createBossModel(stage);
     this.g = scene.add.graphics().setDepth(200);
@@ -65,7 +69,48 @@ export default class Boss {
     const minY = 42 + (this.sprite?.displayHeight ?? 0) - BOSS_FEET;
     this.x = Math.max(28, Math.min(W.w - 28, this.x));
     this.y = Math.max(minY, Math.min(W.h - 28, this.y));
-    for (const shot of stepBoss(this.model, dtMs, this, p)) this.scene.addHostileShot(shot);
+    // mode / phase 都在下一步的 stepBoss 里翻转，所以「上一帧的值」要先存：
+    // 放在调用之后存就永远等于当前值，边沿检测失效。
+    const lastMode = this.model.mode;
+    const lastPhase = this.model.phase;
+    for (const shot of stepBoss(this.model, dtMs, this, p, { hpRatio: this.hp / this.maxHp })) this.scene.addHostileShot(shot);
+    const nowMs = Number.isFinite(now) ? now : (this.scene?.engine?.now ?? 0);
+    // 破防窗口（B4）：起点由场景层在 mode 边沿写一次，长度 BREAK_WINDOW_MS。
+    // 不能每帧覆写 now + 1200——那会把窗口无限续下去，Boss 等于永久破防。
+    if (this.model.mode === 'break' && lastMode !== 'break') {
+      this.breakUntil = nowMs + BREAK_WINDOW_MS;
+      // 曾经的 breakFxAt 是零读取死字段（金环读 breakUntil、弹字只播一次），已删。
+    }
+    // 破防期间护甲归零（原值存 baseArmor）：窗口内只吃 ×1.2 却仍被 30% 减伤挡掉的话，
+    // 玩家在窗口里看不出任何反馈，「乘虚而入」就白设计了。
+    if (this.model.mode === 'break') {
+      if (this.armor !== 0) { this.baseArmor = this.armor; this.armor = 0; }
+    } else if (this.baseArmor !== undefined && this.armor === 0) {
+      this.armor = this.baseArmor;
+    }
+    // ---------- B6 一次性演出：全部走边沿触发，不每帧重放 ----------
+    // 转阶段按 phase 判而不是按 mode 判：boss.js 的阶段推进会把 mode 打回 'aim'，
+    // 于是 shiftLeft 那 900ms 里 mode 一直是 aim，只比 mode 会整场漏掉换招演出。
+    // 首帧 model.phase 还是 undefined（stepBoss 首次调用才补 0），那一下不是换招，
+    // 不演出：否则每只 Boss 一登场就白炸一次三层 burst + 震屏。
+    if (Number.isFinite(lastPhase) && this.model.phase !== lastPhase) {
+      this.tintColor = C.brassLight; this.tintUntil = nowMs + 260;
+      shakeCamera(this.scene, 'phase', 260, 0.005);
+      // 三层 burst 由内向外炸开：血(内) → 黄铜(中) → 骨白(外)，读作「换招」而不是「受伤」
+      this.scene.effects?.burst?.(this.x, this.y, C.blood, 12);
+      this.scene.effects?.burst?.(this.x, this.y, C.brass, 16);
+      this.scene.effects?.burst?.(this.x, this.y, C.white, 20);
+    }
+    if (this.model.mode === 'ultimate' && lastMode !== 'ultimate') {
+      // 大招起手：染一层 arcane + 收拢一圈火花，给读条窗一个明确的起点
+      this.tintColor = C.arcane; this.tintUntil = nowMs + 300;
+      this.scene.effects?.burst?.(this.x, this.y, C.arcaneLight, 14);
+    }
+    if (this.model.mode === 'break' && lastMode !== 'break') {
+      // 破防：金环 + 弹字。窗口内护甲已经归零，再不给画面提示，玩家只会以为伤害变高了
+      this.scene.effects?.labelPopup?.(this.x, this.y - 30, '破防', C.brassLight, 10);
+      this.scene.effects?.burst?.(this.x, this.y, C.brassLight, 10);
+    }
     this.draw(now);
     this.g.setDepth(Math.floor(this.y) + 0.5);
     if (this.sprite) this.sprite.setDepth(Math.floor(this.y));
@@ -73,6 +118,13 @@ export default class Boss {
   draw(now) {
     const x = Math.round(this.x), y = Math.round(this.y), flash = now - this.hitAt < 100;
     const g = this.g; g.clear();
+    // 破防窗口金环（B6）：窗口内 Boss 身上套一圈由外向内收的黄铜双环。
+    // 破防的收益（护甲归零 + 伤害 ×1.2）在数值上很难一眼看清，必须给一个明确的画面窗。
+    if (this.model.mode === 'break' && now < (this.breakUntil ?? 0)) {
+      const k = 1 - Math.max(0, Math.min(1, (this.breakUntil - now) / BREAK_WINDOW_MS)); // 0→1 收拢进度
+      pxRing(g, x, y, Math.round(26 - 6 * k), C.brassDark, 0.85, 1);
+      pxRing(g, x, y, Math.round(22 - 6 * k), C.brassLight, 1, 1);
+    }
     // 预警：读条瞄准线 + 落点环（程序化，保持既有手感）
     if (this.model.windupLeft > 0 && this.model.aim) {
       const aim = this.model.aim;
@@ -94,11 +146,14 @@ export default class Boss {
       const s = this.sprite;
       s.setPosition(x, y + BOSS_FEET);
       s.setVisible(this.alive);
-      if (flash) s.setTintFill(0xffffff); else s.clearTint();
+      // 染色优先级：转阶段/大招的一瞬间 > 受击白闪 > 不染色。
+      // 旧版只有白闪，若把演出染色放在它后面，同一帧就会被清掉、换招看不出来。
+      if (now < (this.tintUntil ?? 0)) s.setTintFill(this.tintColor ?? C.brassLight);
+      else if (flash) s.setTintFill(0xffffff);
+      else s.clearTint();
       // 血条（旧版在头顶 -26 处，素材更高，改到精灵头顶上方）
       const top = Math.round(y + BOSS_FEET - s.displayHeight);
-      pxRect(g, x - 17, top - 8, 34, 3, C.nightDeep);
-      pxRect(g, x - 17, top - 8, Math.max(0, Math.round(34 * this.hp / this.maxHp)), 2, C.blood);
+      this.drawHpBar(g, x, top - 8);
       return;
     }
     // ---------- 程序化回退（素材缺失时，行为与旧版一致） ----------
@@ -110,8 +165,22 @@ export default class Boss {
     pxRect(g, x - 16, y - 5, 5, 15, C.stone); pxRect(g, x + 11, y - 5, 5, 15, C.stone);
     pxRect(g, x - 9, y + 9, 6, 9, C.stoneDark); pxRect(g, x + 3, y + 9, 6, 9, C.stoneDark);
     pxDiamond(g, x, y, 4, C.rot, 1, true); pxRect(g, x - 1, y - 1, 2, 2, C.teal);
-    pxRect(g, x - 17, y - 26, 34, 3, C.nightDeep);
-    pxRect(g, x - 17, y - 26, Math.max(0, Math.round(34 * this.hp / this.maxHp)), 2, C.blood);
+    this.drawHpBar(g, x, y - 26);
+  }
+
+  // 血条 + 阶段刻度（B7）：刻度标在 66% / 33% 两条换招线上，已跨过的那道用 brassLight 点亮。
+  // 只画一根血条的话，玩家看到的是「血条突然掉得快了」；有了刻度才能读出
+  // 「再压一段它就要换招」，从而决定是抢阶段还是留技能——这是阶段战可读性的关键一笔。
+  // 素材分支与程序化回退共用，避免两条路径的刻度位置悄悄漂移。
+  drawHpBar(g, x, barY) {
+    pxRect(g, x - 17, barY, 34, 3, C.nightDeep);
+    pxRect(g, x - 17, barY, Math.max(0, Math.round(34 * this.hp / this.maxHp)), 2, C.blood);
+    const phase = Number.isFinite(this.model.phase) ? this.model.phase : 0;
+    for (let i = 0; i < PHASE_THRESHOLDS.length && i < PHASE_COUNT - 1; i++) {
+      const tx = x - 17 + Math.round(34 * PHASE_THRESHOLDS[i]);
+      const lit = phase >= i + 1;   // 第 i 道刻度对应「已进入第 i+1 阶段」
+      pxRect(g, tx, barY - 1, 1, 5, lit ? C.brassLight : C.brassDark, lit ? 1 : 0.75);
+    }
   }
   destroy() { this.sprite?.destroy(); this.warningSprite?.destroy(); this.g.destroy(); }
 }

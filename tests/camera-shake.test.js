@@ -7,13 +7,25 @@ import { SHAKE_KINDS, createShakeGate, admitShake, shakeKindOf, shakeCamera, DEF
 const root = resolve(import.meta.dirname, '..');
 
 describe('震屏预算', () => {
-  it('三类事件的门槛与幅度就是设计值', () => {
+  it('四类事件的门槛与幅度就是设计值', () => {
+    // B6 新增 phase（Boss 转阶段）。这条是全量形状断言：新增 kind 必须同步补进来，
+    // 而不是把 toEqual 放成 toMatchObject 把清单测松——预算清单宁可手动维护。
     expect(SHAKE_KINDS).toEqual({
       hurt: { gapMs: 900, ampScale: 0.8 },
       strike: { gapMs: 800, ampScale: 1 },
       major: { gapMs: 250, ampScale: 1 },
+      phase: { gapMs: 150, ampScale: 1 },
     });
     expect(DEFAULT_SHAKE_KIND).toBe('major');
+  });
+
+  it('phase kind 不被 hurt 的 900ms 节流吞掉', () => {
+    // 转阶段常常紧接一次受击演出：phase 的门槛必须显著小于 hurt，
+    // 否则玩家看到的是「Boss 换招了但屏幕没反应」。
+    expect(SHAKE_KINDS.phase.gapMs).toBeLessThanOrEqual(150);
+    const gate = createShakeGate();
+    expect(admitShake(gate, 'hurt', 1000)).toBe(true);
+    expect(admitShake(gate, 'phase', 1050)).toBe(true);
   });
 
   it('同类事件在 gapMs 内只放行一次，过了就能再震', () => {

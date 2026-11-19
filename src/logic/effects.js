@@ -9,6 +9,7 @@ import { evoModsOf, evolutionOf } from '../data/evolutions.js';
 import { groupLinkage, linkageReady, markLinkage } from './linkage.js';
 
 import { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS } from '../data/cards.js';
+import { BREAK_DAMAGE_MUL } from '../data/boss-phases.js';
 export { SIGIL_DEFS, AUX_DEFS, RUNE_DEFS, OATH_DEFS };
 
 const SACRIFICE_SHIELD_COST = 8;
@@ -100,9 +101,14 @@ export function applyDamage(enemy, amount, now) {
   if (!enemy?.alive || !Number.isFinite(enemy.hp) || !Number.isFinite(amount) || amount < 0) return 0;
   // 融化易伤：结算带当前时刻时，2 秒窗口内的目标多受 15%。不传 now 的旧调用完全走原路径。
   const vuln = Number.isFinite(now) && now < (enemy.vulnUntil ?? 0) ? (enemy.vulnFactor ?? 1) : 1;
+  // 破防窗口（Boss 转阶段落下的空档）：窗口内伤害 ×BREAK_DAMAGE_MUL，且必须乘在护甲之前，
+  // 否则 0.3 护甲的 Boss 实际只吃到 0.7×1.2 的折扣、与面板承诺不符。
+  // 起点由场景层写在 enemy.breakUntil（Boss.update 的 mode 边沿），本层只读不写；
+  // 不传 now 的旧调用（尸爆、燃烧等）拿不到时刻，天然不吃这个倍率，零漂移。
+  const breakMul = Number.isFinite(now) && now < (enemy.breakUntil ?? 0) ? BREAK_DAMAGE_MUL : 1;
   // 一次性护盾：固定顺序「盾 → 甲 → 血」。
   // 盾先吃掉最多 amount 点伤害；缺省/非有限/≤0 的 shield 直接跳过，完全走原护甲路径。
-  let remaining = amount * vuln;
+  let remaining = amount * vuln * breakMul;
   let blocked = 0;
   const shield = Number.isFinite(enemy.shield) ? Math.max(0, enemy.shield) : 0;
   if (shield > 0) {
@@ -114,7 +120,15 @@ export function applyDamage(enemy, amount, now) {
   }
   // 表现层只读字段：这一下被盾吸收的伤害（不参与结算）。
   enemy.lastBlocked = blocked;
-  const armor = Number.isFinite(enemy.armor) ? Math.max(0, Math.min(1, enemy.armor)) : 0;
+  // 编队护卫光环（spec §5.3）：甲的「点数」在这里是 0..1 的减伤比例，所以光环做加法，
+  // 不是乘法——0.55 甲的前排怪 + 0.15 应该正好等于 0.70，乘算会只给到 0.62。
+  // 相加后必须重新 clamp01：否则 0.95 + 0.15 会得到 1.10，实伤变成负数（负伤害回血）。
+  // 光环字段由场景层每帧重算/删除，本层只读；缺省或非有限值一律按 0 加成，
+  // 让「没有光环」与旧实现逐字节一致，也让坏数据退化成无光环而不是 NaN 血量。
+  const auraBonus = enemy.formationAura?.armorBonus;
+  const armorBonus = Number.isFinite(auraBonus) ? auraBonus : 0;
+  const baseArmor = Number.isFinite(enemy.armor) ? enemy.armor : 0;
+  const armor = Math.max(0, Math.min(1, baseArmor + armorBonus));
   const real = Math.min(Math.max(0, enemy.hp), remaining * (1 - armor));
   enemy.hp = Math.max(0, enemy.hp - real);
   // 表现层只读字段：这一下实际扣了多少血，供受击动画飘伤害数字（不参与任何结算）。

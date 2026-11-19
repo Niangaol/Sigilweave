@@ -236,7 +236,10 @@ export function stepHostileShots(list, opts) {
     shot.y += (shot.vy * dtMs) / 1000;
 
     if (who && Math.hypot(shot.x - who.x, shot.y - who.y) < who.radius + shot.radius + 1) {
-      hits.push({ damage: shot.damage, x: shot.x, y: shot.y, kind: shot.kind });
+      // fromBoss 透传（B5）：只有 Boss 大招弹带这个标记，场景层据此挂 bossControlFor(stage)
+      // 并跳过全场兜底迟滞；普通弹显式为 false，走 DEFAULT_SHOT_CONTROL。
+      // 用 === true 而不是直接透传 shot.fromBoss：undefined 混进控制矩阵会让两条通道都漏挂。
+      hits.push({ damage: shot.damage, x: shot.x, y: shot.y, kind: shot.kind, fromBoss: shot.fromBoss === true });
       continue;
     }
     if (bounds && (shot.x < bounds.left || shot.x > bounds.right || shot.y < bounds.top || shot.y > bounds.bottom)) {

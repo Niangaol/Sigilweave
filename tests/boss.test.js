@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createBossModel, stepBoss, resolveBossOnce, bossPattern, bossStats, BOSS_HP, BOSS_ARMOR } from '../src/logic/boss.js';
+import Boss from '../src/entities/Boss.js';
+import { C } from '../src/ui/Palette.js';
 
 const fireOnce = (stage, position = { x: 0, y: 0 }, target = { x: 100, y: 0 }) => {
   const boss = createBossModel(stage);
@@ -159,5 +161,78 @@ describe('Boss 血量与专属固定减伤', () => {
     expect(bossStats(2, 'weird')).toEqual(bossStats(2, 'major'));
     // 具体基准值由数值表决定，这里只钉死「回退/别名」行为
     expect(Object.keys(BOSS_HP).sort()).toEqual(['base', 'majorMul', 'perStage']);
+  });
+});
+
+// B7：血条阶段刻度。Boss.draw 画在 Phaser Graphics 上，测试用假 Graphics 记录 fillRect，
+// 直接断言刻度的位置与点亮色——「不抛错」的冒烟测试挡不住刻度画错地方或忘记点亮。
+describe('B7 血条阶段刻度', () => {
+  const fakeScene = () => {
+    const rects = [];
+    const g = {
+      color: null, alpha: 1,
+      fillStyle(color, alpha = 1) { this.color = color; this.alpha = alpha; },
+      lineStyle() {},
+      fillRect(x, y, w, h) { rects.push({ x, y, w, h, color: this.color, alpha: this.alpha }); },
+      fillPoints(points) { for (const p of points) rects.push({ x: p.x, y: p.y, w: 1, h: 1, color: this.color, alpha: this.alpha }); },
+      strokePoints() {},
+      clear() { rects.length = 0; },
+      setDepth() { return this; },
+      destroy() {},
+    };
+    return {
+      rects,
+      engine: { now: 0 },
+      add: { graphics: () => g },
+      textures: { exists: () => false },   // 素材缺失 → 走程序化回退血条（x-17 / y-26）
+      addHostileShot() {},
+      world: { w: 480, h: 270 },
+      grid: { cells: [] },
+      player: { x: 240, y: 200 },
+      effects: { burst() {}, labelPopup() {} },
+    };
+  };
+
+  // 血条上的刻度：1px 宽、比血条高出各 1px，按 barY-1 起画
+  const tickAt = (rects, x, barY) => rects.find(r => r.x === x && r.y === barY - 1 && r.w === 1 && r.h === 5);
+
+  it('draw(0) 在 phase===2 时不抛错，且 66% / 33% 两道刻度都被 brassLight 点亮', () => {
+    const scene = fakeScene();
+    const boss = new Boss(scene, { tier: 'major' }, 3, 1);
+    boss.model.phase = 2;   // 已跨过两条换招线
+    expect(() => boss.draw(0)).not.toThrow();
+    const barY = Math.round(boss.y) - 26;
+    const bx = Math.round(boss.x) - 17;
+    const t1 = tickAt(scene.rects, bx + Math.round(34 * 0.66), barY);
+    const t2 = tickAt(scene.rects, bx + Math.round(34 * 0.33), barY);
+    expect(t1).toBeTruthy();
+    expect(t2).toBeTruthy();
+    expect(t1.color).toBe(C.brassLight);
+    expect(t2.color).toBe(C.brassLight);
+  });
+
+  it('phase 1 只点亮 66% 那道：33% 还是预告，不是已完成的状态', () => {
+    const scene = fakeScene();
+    const boss = new Boss(scene, { tier: 'major' }, 3, 1);
+    boss.model.phase = 1;
+    boss.draw(0);
+    const barY = Math.round(boss.y) - 26;
+    const bx = Math.round(boss.x) - 17;
+    expect(tickAt(scene.rects, bx + Math.round(34 * 0.66), barY).color).toBe(C.brassLight);
+    expect(tickAt(scene.rects, bx + Math.round(34 * 0.33), barY).color).not.toBe(C.brassLight);
+  });
+
+  it('phase 0 两道都不点亮，且刻度不与血条填充同色（否则看不出是刻度）', () => {
+    const scene = fakeScene();
+    const boss = new Boss(scene, { tier: 'major' }, 3, 1);
+    boss.draw(0);
+    const barY = Math.round(boss.y) - 26;
+    const bx = Math.round(boss.x) - 17;
+    for (const ratio of [0.66, 0.33]) {
+      const tick = tickAt(scene.rects, bx + Math.round(34 * ratio), barY);
+      expect(tick).toBeTruthy();
+      expect(tick.color).not.toBe(C.brassLight);
+      expect(tick.color).not.toBe(C.blood);   // 血条填充色，撞色就白画了
+    }
   });
 });

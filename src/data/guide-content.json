@@ -2,9 +2,9 @@
   "meta": {
     "game": "共振法阵 Sigilweave",
     "skill": "sigilweave-newbie-guide",
-    "version": "0.4.1",
+    "version": "0.4.3",
     "status": "已接入游戏源码（2026-11-17），答题反应+难度递进+断点存档+道具技能库（技能来自升级三选一玩家所选卡，含防御卡）；待领导验收；可用 ?guide=0 关闭",
-    "coverage": "第一幕 G00-G04；第二幕 G05-G08 + 机制提示 G13（敌人变体）/G14（敌人还手）/G16（护盾）；第三幕 G09-G11；第四幕及以后 G12；进化与连携 G15；答题反应 QUIZ_FIRST_CORRECT/QUIZ_WRONG（整局各一次）；新功能 SKILL_GAIN/SKILL_CAST/SAVE_RESUME（整局各一次）",
+    "coverage": "第一幕 G00-G04；第二幕 G05-G08 + 机制提示 G13（敌人变体）/G14（敌人还手）/G16（护盾）；第三幕 G09-G11；第四幕及以后 G12；进化与连携 G15；答题反应 QUIZ_FIRST_CORRECT/QUIZ_WRONG（整局各一次）；新功能 SKILL_GAIN/SKILL_CAST/SAVE_RESUME（整局各一次）；反硬控 G17（右键冲刺解定身/迟滞/击退僵直，不解眩晕）；Boss 阶段战 G18（换招：节奏更快、别硬接、右键躲）；编队标记 G19（脚下三角是一伙的，先打前排散光环）",
     "artStyle": "西幻像素风：480x270 逻辑画布、硬边色块、Palette.js 色板、无渐变无模糊；见 references/visual-style.md",
     "sourceCommit": "0a48bab",
     "pet": {
@@ -379,6 +379,37 @@
         "护盾有上限、攒到顶就停，所以别把它当第二条命——该躲还是要躲。"
       ],
       "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G17",
+      "trigger": { "scene": "BattleScene", "act": ">=1", "event": "PLAYER_CONTROLED", "oncePerRun": true, "optional": true },
+      "pet": { "emotion": "tense", "action": "弓背炸毛，尾巴笔直" },
+      "lines": [
+        "喵！被定住/被撞飞的时候按右键冲刺，能挣开——但眩晕挣不开，看到红圈要提前躲！"
+      ],
+      "highlight": null,
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G18",
+      "trigger": { "scene": "BattleScene", "act": ">=1", "event": "enemyWindup", "oncePerRun": true, "optional": true },
+      "pet": { "emotion": "tense", "action": "弓背盯住 Boss，尾巴高高竖起" },
+      "lines": ["喵！它换打法了，节奏会更快、招数也变——别硬接，用右键躲！"],
+      "highlight": "敌人",
+      "advance": { "type": "tap" },
+      "voiceCue": "meow"
+    },
+    {
+      "id": "G19",
+      "trigger": { "scene": "BattleScene", "act": ">=1", "event": "formationFirstSeen", "oncePerRun": true, "optional": true },
+      "pet": { "emotion": "curious", "action": "歪头盯着地上的三角标记" },
+      "lines": [
+        "喵！脚下一伙的会互相加成——那个带三角标记的前排还活着，整队都会加甲变慢。先把它打掉，光环就散了！"
+      ],
+      "highlight": "敌人",
       "advance": { "type": "tap" },
       "voiceCue": "meow"
     },

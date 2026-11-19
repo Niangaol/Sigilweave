@@ -179,7 +179,20 @@ describe('stepHostileShots 推进', () => {
       { dtMs: 16, player: player(8, 0, 5), world: world() },
     );
     expect(out.list).toHaveLength(0);
-    expect(out.hits).toEqual([{ damage: 4, x: 0, y: 0, kind: 'bolt' }]);
+    // B5：hits 记录从 4 字段扩到 5 字段（追加 fromBoss），既有全量比较改 toMatchObject；
+    // 4 个原字段仍逐个精确比对，fromBoss 的是否透传由下面那条专用用例负责。
+    expect(out.hits).toMatchObject([{ damage: 4, x: 0, y: 0, kind: 'bolt' }]);
+  });
+
+  it('B5 命中记录透传 fromBoss：大招弹 true、普通弹 false', () => {
+    const hit = (fromBoss) => stepHostileShots(
+      [makeShot({ x: 0, y: 0 }, { x: 1, y: 0 }, { damage: 4, speed: 0, fromBoss })],
+      { dtMs: 16, player: player(8, 0, 5), world: world() },
+    ).hits[0];
+    expect(hit(true).fromBoss).toBe(true);
+    // 普通弹必须显式为 false：场景层据此走 DEFAULT_SHOT_CONTROL，
+    // 少这个字段会让 undefined 混进控制矩阵、Boss 专属控制漏挂或错挂。
+    expect(hit(false).fromBoss).toBe(false);
   });
 
   it('命中阈值严格小于 radius+r+1：正好等于不命中', () => {

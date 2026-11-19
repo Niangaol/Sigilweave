@@ -3,7 +3,7 @@
 // 预警线、血条、精英描边走 Graphics 覆盖层。素材缺失时整体降级为程序化像素绘制。
 import { fireGuide } from '../logic/guide.js';
 import { C, pxRect, pxRing, pxDiamond, pxPoly } from '../ui/Palette.js';
-import { createBrain, stepBrain } from '../logic/enemy-ai.js';
+import { createBrain, stepBrain, MELEE_RULES, RANGED_RULES } from '../logic/enemy-ai.js';
 import { variantPartKeys, placeVariantPart } from '../ui/variant-parts.js';
 import { sfx } from '../audio/Sfx.js';
 
@@ -12,6 +12,24 @@ import { sfx } from '../audio/Sfx.js';
 const ENEMY_BOUNDS = { left: 10, right: 470, top: 26, bottom: 262 };
 // 冲锋中的骑士撞到玩家算“高伤害”，由接触伤害的实时倍率体现。
 const CHARGE_DAMAGE_MUL = 2.5;
+
+// 本次前摇还剩多久：唯一事实源是大脑自己的倒计时，不是 §3 近战表 / §4 远程表的 windupMs。
+// 前摇由各 behavior 驱动（beginCast/beginWindup 写 windupLeft、近战层写 meleeLeft、
+// phase/blink 写 pauseLeft、星屑骑士的收势写在 cast 模式的 chargeLeft 里），两张表只是
+// 事件层配置，真实前摇经常和表值不一致：腐尸 520/蹒跚 450、枷锁守卫 550/甩链 1000、
+// 熔岩暴兽 480/喷发 700、星屑骑士 300/650…照表画环等于给玩家错的倒计时。
+// chargeLeft 只在 cast 模式是前摇计时器（charge/recover 模式都不是抬手）。
+// 四个字段一个都不存在的 brain（手写替身）返回 null，由调用方落回表值兜底。
+function windupRemaining(brain) {
+  const b = brain && typeof brain === 'object' ? brain : null;
+  if (!b) return null;
+  const known = [b.windupLeft, b.meleeLeft, b.pauseLeft, b.mode === 'cast' ? b.chargeLeft : null]
+    .filter((v) => Number.isFinite(v));
+  if (!known.length) return null;
+  let remain = 0;
+  for (const v of known) if (v > remain) remain = v;
+  return remain;
+}
 
 // defId → 素材 key（《美术素材交付规范 v1.0》参数总表）。
 // stitch_abomination 用 ghoul（尸骸体量贴合缝合尸魁）；oath_bishop 用 cultist 放大提色（同属robed施法者）。
@@ -59,6 +77,21 @@ const ENEMY_FEET = {
 };
 // 走/攻动画前缀（只有两张表有动画；单帧图只做朝向翻转）
 const ENEMY_ANIM = { skeleton: 'skeleton', corpse: 'corpse' };
+// 编队标记的 4 个预设色（spec §5.4）：按编队实例 id 哈希取，同队同色、不同队尽量不同色。
+// 用 4 槽轮转而不是全色板：同屏最多几队，4 色足够分开，也免得每队一个色反而像装饰。
+// 注意青=护盾条、金=精英框都在别处有固定含义，这里确实借用了其中两色——
+// 三角是脚下 6×4 的填充小图形、没有描边、透明度 0.85，靠形状和位置区分，
+// 不靠颜色独占语义；实机若糊成一团再换色板。
+const FORMATION_MARK_COLORS = Object.freeze([C.teal, C.arcane, C.brass, C.mute]);
+
+// 一个够用的确定性哈希：只用来把 id 摊到 4 个槽位，不追求分布质量。
+// 不能用 Math.random（会让同一队在两个客户端画出不同颜色），也不能用对象 id。
+function formationColorIndex(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 4096;
+  return h % FORMATION_MARK_COLORS.length;
+}
+
 // 精英放大/提色，让大体积敌人撑住半径
 const ENEMY_STYLE = {
   stitch_abomination: { scale: 1.15 },
@@ -121,6 +154,10 @@ export default class Enemy {
     this.walkPhase = 0;
     this.charging = false;
     this.windup = false;
+    // 前摇预警环（A5）：起手时刻与本次前摇总时长。时长取该敌种在 §3 近战表 / §4 远程表里的
+    // windupMs——表里没有的敌种（冲锋/砸地类）记 0，表示「没有可读的倒计时」，也就不推环。
+    this.windupAt = 0;
+    this.windupDur = 0;
     this.prevX = this.x;
     this.face = 1;
     // 允许战斗场景覆盖可活动区域；不提供时用与 BattleScene.BATTLE 相同的默认值
@@ -167,7 +204,7 @@ export default class Enemy {
       self: this.selfState(1),
       player: this.playerState(),
       opts: { BATTLE: this.bounds, damage: this.baseDamage },
-    }), 0);
+    }), 0, scene.engine?.now ?? 0);
     this.draw(0);
   }
 
@@ -204,7 +241,7 @@ export default class Enemy {
         player: this.playerState(),
         opts: { BATTLE: this.bounds, damage: this.baseDamage },
       });
-      this.applyResult(result, dtMs);
+      this.applyResult(result, dtMs, now);
     }
     // 血条延迟条：任何来源的掉血都先留一条白条，220ms 后再快速追平真实血量。
     // 用 hpSeen 观察 hp 变化，法术/尸爆/献祭走 applyDamage 也能自动触发，不依赖 takeDamage。
@@ -257,17 +294,57 @@ export default class Enemy {
     if (player && slowed && Math.hypot(this.x - player.x, this.y - player.y) <= 90) {
       factor = Math.min(factor, 0.6);
     }
+    // 编队护卫光环（spec §5.3）放在最后一乘：它是「队伍加成」，不是又一种控制。
+    // 必须乘在 root/frozen 的归零之后——归零代表「这一帧根本不能动」，
+    // 乘任何数都还是 0；而 slow_field 的 min(factor, 0.6) 是「再慢也慢不过 0.6」的
+    // 上限语义，光环作为额外的正向削弱乘在它之后，才不会破坏那条上限的优先级。
+    // 字段由 BattleScene.updateEnemies 每帧重算并删除，本层只读；非有限数按 1 处理，
+    // 让「没有光环」与旧实现逐字节一致（也避免 NaN 一路传到位移上）。
+    const auraMul = this.formationAura?.speedMul;
+    if (Number.isFinite(auraMul) && auraMul >= 0) factor *= auraMul;
     return Number.isFinite(factor) ? Math.max(0, factor) : 1;
   }
 
-  applyResult(result, dtMs) {
+  // 记一次前摇并向特效层推一颗血色地面预警环。windupAt / windupDur 成对出现，
+  // 表示「当前这颗环是哪一刻开始的、还剩多久」；被后面一颗环顶掉后两者一起被覆盖。
+  // 没有时长就不推：0ms 的环闪一下就没了，反而像误报。
+  pushWindupRing(now, dur) {
+    this.windupAt = Number.isFinite(now) ? now : 0;
+    this.windupDur = dur > 0 ? dur : 0;
+    if (this.windupDur > 0) {
+      this.scene?.effects?.telegraph?.(this.x, this.y, this.windupDur, C.blood, this.radius * 1.6);
+    }
+  }
+
+  applyResult(result, dtMs, now = 0) {
     if (!result || typeof result !== 'object') return;
     if (Number.isFinite(result.x)) this.x = result.x;
     if (Number.isFinite(result.y)) this.y = result.y;
     const wasWindup = this.windup === true;
     this.windup = result.windup === true;
-    // 抬手起手音：只在「暗 → 亮」的那一帧放一次（45ms 全局节流兜住多只同时抬手）。
-    // 近战有自己的挥砍音（onEnemyMelee），这里只给远程施法，避免两种前摇撞音。
+    // 前摇统一红环：近战（有扇形）与远程（只亮姿态）都走这里，玩家看到的是同一颗血色地面环，
+    // 不用区分敌种读预告。
+    //
+    // 何时推环：暗 → 亮那一帧推第一颗；前摇进行中如果大脑里的倒计时被作废重写，也要补一颗。
+    // 「作废重写」的判据是实际剩余量和「当前这颗环暗示的剩余量」差出一帧以上——典型有两种：
+    // ① 剩余量变长：枷锁守卫近战抬手 550ms 刚起，behavior 自己的甩链抬手 1000ms 就把它取消了；
+    // ② 剩余量也变短：腐尸近战抬手 520ms 数到 40ms 时被蹒跚 450ms 顶替，两招背靠背连抬手、
+    //    旗标根本不灭。只认起手帧的话，玩家手里攥的就是一张作废的短倒计时。
+    if (this.windup) {
+      const remain = windupRemaining(this.brain);
+      if (remain === null) {
+        // 兜底：大脑四个计时字段一个都没有（手写替身），落回 §3/§4 表值，只在起手帧推一次
+        if (!wasWindup) {
+          const rule = MELEE_RULES[this.defId] ?? RANGED_RULES[this.defId];
+          this.pushWindupRing(now, Number.isFinite(rule?.windupMs) ? rule.windupMs : 0);
+        }
+      } else if (remain > 0) {
+        const implied = this.windupDur - (now - this.windupAt);
+        if (!wasWindup || Math.abs(remain - implied) > 16) this.pushWindupRing(now, remain);
+      }
+      // remain <= 0：这一招已经落地/正在落地，没什么可预告的，保留上一颗环自然结束
+    }
+    // 抬手起手音：只在「暗 → 亮」的那一帧放一次（45ms 全局节流兜住多只同时抬手）。    // 近战有自己的挥砍音（onEnemyMelee），这里只给远程施法，避免两种前摇撞音。
     if (this.windup && !wasWindup && !this.meleePreview()) {
       sfx.enemyCast();
       // 新手引导 G14：第一次看到甲方向你起手（预警圈/扇形）时说明前摇。
@@ -458,6 +535,34 @@ export default class Enemy {
     this.drawShieldBar(g, x, m.barY);
     this.drawStun(g, x, m.top, now);
     this.drawShieldFlash(g, x, m, now);
+    this.drawFormationMark(g, x, y);
+  }
+
+  // 编队标记（spec §5.4）：脚下一个小三角，同队同色。
+  // 放在 drawOverlay 而不是 draw 里单独画：覆盖层每次都会 clear 后重画，
+  // 标记跟着它走就自然不会有「上一帧的三角没擦掉」。
+  // 精英不画——它们不吃光环，画了会让玩家误以为「先打那个带标记的」。
+  // 但有一个例外：站前排的精英要画。盾墙的前排池里第 3/5 幕只有精英黄铜守誓者，
+  // 它是光环**唯一**的来源；不画就等于「光环来自一只没有标记的怪」，
+  // 而 G19 的文案恰恰在教玩家「打掉带三角标记的前排」。收方规则不变（精英仍不吃光环）。
+  drawFormationMark(g, x, y) {
+    if (!this.formationId) return;
+    if (this.isBoss) return;
+    if (this.def?.elite && this.formationPath !== 'vanguard') return;
+    // 色相按「这一批」取，不按模板：同模板连着刷两批时，两批是两支独立的队，
+    // 同色会让玩家把两批看成一队，而光环实际是各算各的。
+    const id = String(this.formationUid ?? this.formationId);
+    const color = FORMATION_MARK_COLORS[formationColorIndex(id)];
+    // 脚底基线两条路径不同：素材的脚在 ENEMY_FEET，程序化的脚在半径处。
+    // 画在脚下 2px 起，避免和身体像素糊在一起。
+    const feet = this.sprite ? y + (ENEMY_FEET[this.defId] ?? 7) : y + this.radius;
+    const top = feet + 2;
+    // pxPoly 传三个顶点就是三角形（Palette 没有 pxTriangle，且 Palette 已冻结不能加）。
+    pxPoly(g, [
+      { x, y: top },
+      { x: x + 3, y: top + 4 },
+      { x: x - 3, y: top + 4 },
+    ], color, 0.85);
   }
 
   // 覆盖层定位基准：素材路径吃精灵实际外框，程序化路径退回逻辑半径。

@@ -13,6 +13,10 @@ export const SHAKE_KINDS = Object.freeze({
   strike: { gapMs: 800, ampScale: 1 },
   // 大事件：Boss 登场/倒下、通幕、玩家死亡；只留 250ms 防同帧叠加，不再额外稀释
   major: { gapMs: 250, ampScale: 1 },
+  // Boss 转阶段（B6）：换招是战斗节奏的转折点，必须震得出来；
+  // 门槛压到 150ms，因为转阶段常紧跟一次受击（hurt 900ms），
+  // 用 major 的 250ms 也够，但转阶段后往往还有破防/大招落地连着演，150ms 才排得开。
+  phase: { gapMs: 150, ampScale: 1 },
 });
 
 export const DEFAULT_SHAKE_KIND = 'major';

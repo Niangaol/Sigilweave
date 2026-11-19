@@ -22,11 +22,13 @@ import { REACTIONS, FACTIONS, factionOf } from '../data/factions.js';
 import { resonanceMultiplier, reactionAt } from '../logic/resonance.js';
 import { expNeeded } from '../logic/progression.js';
 import { Pool } from '../logic/pool.js';
-import { pickSpawnPoint, pickWavePoints, separateEnemiesBucketed, enemySpawnLoad } from '../logic/spawn.js';
+import { pickSpawnPoint, pickWavePoints, separateEnemiesBucketed, enemySpawnLoad, rollFormation } from '../logic/spawn.js';
+import { FORMATIONS, formationAuraOf } from '../data/formations.js';
 import { pickEnemyVariant, composeEnemyDef } from '../data/enemy-variants.js';
 import { getEncounterForStage } from '../data/encounters.js';
 import { createEncounterState, openEncounter, selectChoice, confirmChoice, finishEncounter } from '../logic/encounters.js';
 import { resolveBossOnce } from '../logic/boss.js';
+import { bossControlFor } from '../data/boss-phases.js';
 import { controlFor, CONTROL_DEFS, DEFAULT_CONTACT_CONTROL, DEFAULT_SHOT_CONTROL } from '../data/control.js';
 import { HOSTILE_LIMITS, stepHostileShots, stepSummons, meleeHits, makeShot, normalizeSummon } from '../logic/hostile.js';
 import { chapterOf, isValidStage, nextStage, firstStageOf } from '../logic/acts.js';
@@ -36,7 +38,7 @@ import Boss from '../entities/Boss.js';
 import EncounterPanel from '../ui/EncounterPanel.js';
 import {
   ACT1_CELLS, ACT1_SIGIL_BY_CELL, SIGILS, ENEMY_TYPES, SECTOR,
-  COMBO_NAMES, difficultyAt, PLAYER, cardVisual, pickEnemyType,
+  COMBO_NAMES, difficultyAt, DIFFICULTY, PLAYER, cardVisual, pickEnemyType,
 } from '../data/roster.js';
 import Background from '../ui/Background.js';
 import SigilBoard, { cellCenter } from '../ui/SigilBoard.js';
@@ -62,6 +64,10 @@ import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
 import { STAGE_CARDS } from '../data/cinematics.js';
 import { fireGuide, hideGuide } from '../logic/guide.js';
 import { saveRun, clearRun } from '../logic/save.js';
+
+// 编队 id → 模板：光环数值的唯一来源。表只有 8 条且模块已深冻，做成静态 Map
+// 比每帧在数组里 find 更省，也避免「拿不到模板就静默无光环」这种半失效状态。
+const FORMATION_BY_ID = new Map(FORMATIONS.map((f) => [f.id, f]));
 
 // 画框工厂：竖屏不创建（480×760 的画布上 8px 框会卡在地图区中间）
 export function createBattleFrame(scene, { seed, stage }) {
@@ -123,6 +129,10 @@ export default class BattleScene extends Phaser.Scene {
     // 合并幕后一幕含两场，时长按场参考秒数求和。
     this.durationMs = this.quickMode ? 15000 : chapterDurationMs(this.chapter);
     this.combatRng = new Rng(this.run.seed + ':combat:' + this.stage);
+    // 编队批次序号：同一模板可以连着刷两批，两批是两支独立的队——
+    // 只有「这一批的前排还活着」才给「这一批的后排」加成（spec §5.3 的「同编队」）。
+    // 用它拼 formationUid（分组键）；formationId 仍然是模板 id（取光环数值、取标记色相）。
+    this.formationSeq = 0;
     this.debugParams = params;
     this.phase = 'play';
     this.stressRunning = false;
@@ -171,6 +181,10 @@ export default class BattleScene extends Phaser.Scene {
     this.freqBuckets = [0, 0, 0, 0, 0];
     this.freqStart = 0;
     this.spawnTimer = 900;
+    // 编队轮次计数（spec §5.2）：每 DIFFICULTY.formationEvery 波试一次编队刷怪。
+    // 只在 create() 归零，换场不重置——编队是「本场持续的战斗节奏」，
+    // 换场重置会让玩家在每场开头都白等两轮普通波。
+    this.waveIndex = 0;
     // 割草节奏：开场热身 + 连斩计数 + 击杀经验折算
     this.warmupMs = 1600;
     this.killStreak = 0;
@@ -315,6 +329,8 @@ export default class BattleScene extends Phaser.Scene {
     });
     this.input.keyboard.addCapture(['W', 'A', 'S', 'D', 'SPACE', 'ESC', 'R', 'T', 'M', 'ONE', 'TWO', 'THREE', 'UP', 'DOWN', 'LEFT', 'RIGHT']);
     this.input.keyboard.resetKeys();
+    // 右键冲刺：与键盘走位并存，只在 play 相位生效（门槛见 tryDash）
+    this.bindDashPointer();
     // 压测入口只在显式 ?stress=1 下启用，不改变正常玩法
     if (params.get('stress') === '1') this.time.delayedCall(900, () => this.startStress());
     this.bootCount = (this.bootCount ?? 0) + 1;
@@ -714,6 +730,16 @@ export default class BattleScene extends Phaser.Scene {
       this.updateEnemies(dt);
       this.updateBossCamera();
       if (this.boss?.alive) {
+        // B6 转阶段清场：只清杂兵弹幕，Boss 自己的大招弹（fromBoss）留在场上。
+        // 一起清掉等于替玩家免掉一次大招伤害；phase 由 Boss.update 里的阶段机推进，
+        // 而 updateEnemies 排在上一行，所以这里同帧就能读到新 phase。
+        if (this.boss.model.phase !== (this.lastBossPhase ?? this.boss.model.phase)) {
+          this.lastBossPhase = this.boss.model.phase;
+          this.hostileShots = this.hostileShots.filter(s => s.fromBoss === true);
+          // 新手引导 G18：第一次看到 Boss 换打法时，教「节奏更快、别硬接、右键躲」。
+          // 埋点放在这里而不是 Player 层：换招是 Boss 侧事件，玩家那一侧只有「突然更难打了」。
+          fireGuide(this, this.run, 'G18');
+        }
         // Boss 拴绳：它停在原地放招时玩家会跑开，不夹回来就整只留在画面外。
         // 上边界要再让出大立绘的身高（脚在 boss.y，头顶在 boss.y - (displayH - 21)）。
         const view = this.viewRect();
@@ -801,6 +827,8 @@ export default class BattleScene extends Phaser.Scene {
       // 道具技能库：三格技能槽 + 当前冷却，Hud 每帧按 now 重画遮罩
       skills: this.run.skillLibrary ?? [],
       now: this.engine.now,
+      // 右键冲刺冷却：Hud 画技能栏左侧那枚 24×24 圆环（缺字段按 0 = 已就绪）
+      dashReadyAt: this.player?.dashReadyAt ?? 0,
     });
     // 画框跟着同一颗心脏：暂停与顿帧时 dt 传 0，碎屑与脉动一起定格
     this.frame?.update({
@@ -811,12 +839,38 @@ export default class BattleScene extends Phaser.Scene {
   }
 
   updatePlayer(dt) {
-    const { dx, dy } = this.readMoveAxis();
     const now = this.engine.now;
+    const { dx, dy } = this.readMoveAxis();
+    // 冲刺中（含位移结束的那一帧，updateDash 的边界帧仍会插值到终点）不再读输入：
+    // 位置完全由时间轴决定，普通移动整帧跳过。顿帧/暂停时 dt 已被上层置 0，不会漂。
+    const dashing = now <= this.player.dashUntil;
     const blocked = this.player.moveBlocked(now);
     const factor = (now < this.playerSlowUntil ? 0.75 : 1) * this.player.speedFactorAt(now);
     this.player.update(dt * factor * (this.player.speedMult ?? 1),
-      blocked ? 0 : dx, blocked ? 0 : dy, this.worldBounds, now);
+      dashing || blocked ? 0 : dx, dashing || blocked ? 0 : dy, this.worldBounds, now);
+  }
+
+  // 右键冲刺（spec §3.1）：只认右键，左键留给走位与暂停编辑，避免误触。
+  // 生命周期：create 里绑一次、shutdown 里 off，重复 create 不叠监听——注意这和 editPointer
+  // 「开面板绑、关面板解」是两套写法（编辑面板期间要吞掉右键，所以它自己收 off）；
+  // dashPointer 常驻，能不能冲由 tryDash 里的运行时门槛（相位/暂停/编辑/顿帧/死亡）把关。
+  bindDashPointer() {
+    if (this.dashPointer) return;
+    this.dashPointer = (pointer) => { if (pointer.button === 2) this.tryDash(this.engine.now); };
+    this.input.on('pointerdown', this.dashPointer);
+  }
+
+  // 冲刺放行门槛：非战斗相位（含升级三选一）/暂停/编辑/顿帧/死亡一律不响应。
+  // 眩晕不在门槛里——startDash 不清 stunUntil，冲刺结束后照样被定住，「挣不开」指的是控制本身。
+  tryDash(now = this.engine.now) {
+    const p = this.player;
+    if (this.phase !== 'play' || this.paused || this.menuOpen || this.editOpen
+      || this.hitstopLeft > 0 || !p?.alive) return false;
+    const { dx, dy } = this.readMoveAxis();
+    if (!p.startDash(dx, dy, now)) return false;
+    sfx.trigger();
+    this.effects?.burst?.(p.x, p.y, C.teal, 8);
+    return true;
   }
 
   // 敌人招式命中后的玩家硬控：查表 → 应用 → 飘字。返回控制名（没有配置时 null）。
@@ -834,20 +888,29 @@ export default class BattleScene extends Phaser.Scene {
     const p = this.player;
     const def = CONTROL_DEFS[cfg.kind];
     if (cfg.kind === 'knock') {
-      const dx = p.x - sx;
-      const dy = p.y - sy;
-      const len = Math.hypot(dx, dy) || 1;
-      const force = cfg.force ?? 40;
-      const b = this.worldBounds;
-      p.x = Math.min(Math.max(p.x + (dx / len) * force, b.left + p.radius), b.right - p.radius);
-      p.y = Math.min(Math.max(p.y + (dy / len) * force, b.top + p.radius), b.bottom - p.radius);
-      p.applyControl('stun', cfg.ms ?? 200, now);
+      // 冲刺期间（now <= dashUntil）位置归 updateDash 的时间轴独占：这里照常写 p.x/p.y 也会被
+      // 下一帧的插值覆盖掉，玩家看不出被撞开，反而像「击退失效」。所以冲刺中只挂僵直不位移，
+      // 僵直照常生效（冲刺无敌只免伤不免控，见 spec）。位移留给冲刺结束后那一小段后摇补上。
+      const dashing = now <= (p.dashUntil ?? 0);
+      if (!dashing) {
+        const dx = p.x - sx;
+        const dy = p.y - sy;
+        const len = Math.hypot(dx, dy) || 1;
+        const force = cfg.force ?? 40;
+        const b = this.worldBounds;
+        p.x = Math.min(Math.max(p.x + (dx / len) * force, b.left + p.radius), b.right - p.radius);
+        p.y = Math.min(Math.max(p.y + (dy / len) * force, b.top + p.radius), b.bottom - p.radius);
+      }
+      p.applyKnockStun(cfg.ms ?? 200, now);
       this.effects?.impact?.(p.x, p.y, def?.color ?? C.bone, true);
     } else {
       p.applyControl(cfg.kind, cfg.ms ?? 400, now);
       if (cfg.kind === 'slow') p.slowFactor = cfg.factor ?? 0.6;
     }
     if (def) this.effects?.labelPopup?.(p.x, p.y - 24, def.name, def.color, 12);
+    // 新手引导 G17：第一次被硬控时教「右键冲刺能挣开」。眩晕（stun）故意不教——
+    // 冲刺解不掉眩晕，给了提示只会让玩家白按一次 1.2s 冷却。
+    if (cfg.kind !== 'stun') fireGuide(this, this.run, 'G17');
     return def?.name ?? null;
   }
 
@@ -884,14 +947,76 @@ export default class BattleScene extends Phaser.Scene {
     // 槽位预算：变体 cost 2 的怪顶两只，所以 room 按 enemySpawnLoad 而不是只数算
     const room = dif.maxAlive - enemySpawnLoad(this.enemies);
     if (room <= 0) {
-      // 满场：短暂停手等击杀腾位，避免每帧空转
+      // 满场：短暂停手等击杀腾位，避免每帧空转。
+      // 这一支是提前 return：本轮不刷，编队轮次也不消耗——waveIndex 只在真正
+      // spawn 出怪之后才 +1，否则满场期会把轮次空烧掉，腾位那一刻刷的就不是编队。
       this.spawnTimer = 160;
       return;
     }
-    const wave = warming ? 1 : Math.max(1, Math.min(dif.wave ?? 1, room));
-    this.spawnWave(dif, wave);
+    let spawned = 0;
+    // 每 formationEvery 波试一次编队（spec §5.2）。waveIndex 从 0 起算，
+    // 所以第一波必是普通波：开场先让玩家看到杂兵，别一上来就是队形。
+    if (this.waveIndex > 0 && this.waveIndex % DIFFICULTY.formationEvery === 0) {
+      spawned = this.spawnFormation(dif);
+    }
+    if (spawned === 0) {
+      const wave = warming ? 1 : Math.max(1, Math.min(dif.wave ?? 1, room));
+      spawned = this.spawnWave(dif, wave);
+    }
+    // 只有真的刷出怪才推进轮次：满场早退（上面那个 return）一只没刷，不推进；
+    // 编队没编成时降级成的普通波也是真刷了怪的一轮，照常推进——
+    // 这样「每 3 轮一次编队」的节拍始终稳定，不会因为某幕编队常年抽不到
+    // 就变成「每轮都试一次编队再降级」，把普通波的兵种多样性挤掉。
+    if (spawned > 0) this.waveIndex++;
     const jitter = 0.85 + this.combatRng.next() * 0.3;
     this.spawnTimer = Math.max(150, dif.spawnMs * jitter * (warming ? 2.2 : 1));
+  }
+
+  // 编队波（spec §5.2）：rollFormation 按幕抽模板与怪种，抽不到就整轮降级
+  // （返回 0，由调用方改刷普通波）。返回实际落地的只数，供轮次推进判断。
+  spawnFormation(dif) {
+    const roll = rollFormation({
+      chapter: this.chapter,
+      load: enemySpawnLoad(this.enemies),
+      maxAlive: dif.maxAlive,
+      rng: () => this.combatRng.next(),
+    });
+    if (!roll) return 0;
+    // 这一批的实例 id：分组（谁给谁加成）用 uid，取数值/取色相仍用模板 id。
+    // 不这么拆的话，同模板两批同屏时 A 队前排已死、B 队前排还活着，
+    // A 队后排仍会被加成——「打掉前排光环就散」在正常节奏下不成立。
+    const formationUid = `${roll.formation.id}#${++this.formationSeq}`;
+    // 扇区取「玩家反方向」：整队从一个方向压过来，队形才读得出来。
+    // Player 只有 facing（±1）没有速度矢量，所以按朝向取反当扇区中心；
+    // spread 1.2 = spec 的 ±0.6rad（扇区公式里 spread 是全宽）。
+    const sectorAngle = (this.player?.facing ?? 1) < 0 ? 0 : Math.PI;
+    const sectorSpread = 1.2;
+    let spawned = 0;
+    for (const pick of roll.picks) {
+      const points = pickWavePoints({
+        rng: () => this.combatRng.next(),
+        player: this.player,
+        world: this.world,
+        enemies: this.enemies,
+        count: pick.count,
+        sectorAngle, sectorSpread,
+        minDist: 275, maxDist: 380, minGap: 30,
+        nearDist: 250, farDist: 430,
+      });
+      for (const point of points) {
+        // 槽位预算与普通波同一套：已落地 ≥1 只后超载就收手，
+        // 但已经落地的成员留着——半支编队比整轮回滚更自然。
+        if (spawned > 0 && enemySpawnLoad(this.enemies) >= dif.maxAlive) return spawned;
+        this.spawnEnemy(dif, point, {
+          defId: pick.defId,
+          formationId: roll.formation.id,
+          formationUid,
+          formationPath: pick.path,
+        });
+        spawned++;
+      }
+    }
+    return spawned;
   }
 
   // 一波怪：一次抽出 count 个互不重叠的落点（屏幕外 275~380，避免贴脸刷出来）
@@ -913,9 +1038,12 @@ export default class BattleScene extends Phaser.Scene {
       this.spawnEnemy(dif, point);
       spawned++;
     }
+    return spawned;
   }
 
-  spawnEnemy(dif, point = null) {
+  // opts.defId / opts.formationId：编队波指定怪种与编队 id（spec §5.2）。
+  // 普通波不传 opts，行为与旧版逐字一致。
+  spawnEnemy(dif, point = null, opts = {}) {
     // 幸存者式：以玩家为中心、屏幕外环形生成；压测等调用方可直接传 dif 不传落点。
     const { x, y } = point ?? pickSpawnPoint({
       rng: () => this.combatRng.next(),
@@ -928,7 +1056,11 @@ export default class BattleScene extends Phaser.Scene {
 
     // 按幕权重抽敌人类型，再按幕权重叠一层变体；天生精英（def.elite）不再叠变体。
     // RNG 顺序固定：类型 roll → 变体 roll，同一 seed 的刷怪序列可复现。
-    const base = pickEnemyType(this.chapter, this.combatRng.next());
+    // 编队波由 opts.defId 指定怪种（rollFormation 已按幕过滤过），此时不抽类型，
+    // 变体照抽——所以编队波比普通波少一次 rng 调用，这是编队波固有的消耗差异。
+    const base = opts.defId && ENEMY_TYPES[opts.defId]
+      ? ENEMY_TYPES[opts.defId]
+      : pickEnemyType(this.chapter, this.combatRng.next());
     const variant = base.elite ? null : pickEnemyVariant(this.chapter, base, this.combatRng.next());
     const def = composeEnemyDef(base, variant);
     // 属性 = 难度基准 × 等级成长 × 敌种/变体倍率
@@ -950,10 +1082,76 @@ export default class BattleScene extends Phaser.Scene {
       this.enemySeq++,
     );
     this.enemies.push(enemy);
+    // 编队成员打标（spec §5.2）：C4 的光环判定（前排活着 → 同队加甲减速）按编队分组。
+    // formationPath 记的职能决定「谁算前排」——没有这个标记，updateEnemies 只能靠 defId 反查
+    // 编队模板，而同一个 defId 在不同编队里可能站在不同职能上（例如 page_golem 既做 vanguard
+    // 也出现在 elite 池），反查会串队。随成员一起落库，一次写入、之后只读。
+    // formationId 是模板（数值/色相），formationUid 是这一批（分组）：
+    // 同模板的两批是两支独立的队，A 队前排死了不该给 B 队后排加成。
+    if (opts.formationId) enemy.formationId = opts.formationId;
+    if (opts.formationId) enemy.formationUid = opts.formationUid ?? opts.formationId;
+    if (opts.formationId && opts.formationPath) enemy.formationPath = opts.formationPath;
+    // 新手引导 G19（spec §6.4）：第一次出现带三角标记的怪时讲清「脚下一伙的会互相加成」。
+    // 放在打标之后、返回之前：只有真的成为编队成员才会触发，普通波（无 formationId）不会误报。
+    // 用 oncePerRun 去重，整局只出现一次——玩家看懂标记后不需要再听第二遍。
+    if (opts.formationId) fireGuide(this, this.run, 'G19', { highlight: '敌人' });
     return enemy;
   }
 
+  // 护卫光环（spec §5.3）：每帧重扫一次，把「本队还有没有前排活着」翻译成成员身上的字段。
+  // 不做节流：节流会让前排死后的那个窗口里加成还在，玩家看到的正是「前排死了加成没消失」。
+  // 扫描成本是 O(n) 分桶 + O(队数 × 成员)，与同屏 60~90 只相比可忽略。
+  // 三条硬规则都在这里落地（实体层只读字段，不判谁该吃）：
+  //   1. Boss 不进编队、不吃光环，也不许当「前排还活着」的证据（它根本不在编队桶里）。
+  //   2. 精英**可以当前排**并给后排发光环，但自己不吃（spec §5.3 表：「编队只给杂兵」讲的是收方）。
+  //      这一条不能收严成「精英也不能当前排」：shield_wall 的前排池只有
+  //      [page_golem, brass_warden]，第 3/5 幕的怪池里没有 page_golem，
+  //      前排必然落到精英黄铜守誓者身上；把精英排除出证据，这两幕的光环就永远不生效，
+  //      等于把表里写好的机制做成死代码。
+  //   3. 前排自己不拿光环：spec 写的是「同编队其余成员」，前排同时拿甲+减速等于自罚。
+  //      没有前排、或前排全灭时立刻 delete，绝不留上一帧的值。
+  refreshFormationAuras() {
+    // 第一遍按「这一批」分桶：收「活着的编队成员」，Boss 不收。
+    // 键用 formationUid 而不是 formationId：同模板可以连着刷两批，两批是两支独立的队。
+    // 按模板分组时，A 队前排已死、B 队前排还活着 → A 队后排仍带光环，
+    // 「打掉前排光环就散」在正常节奏下（约每 10s 一批、走过来要 4~7s）不成立。
+    // 精英留在桶里是刻意的——它是合格的前排，只是自己不吃加成（下一段判收方时剔除）。
+    const groups = new Map();
+    for (const e of this.enemies) {
+      if (!e?.alive || !e.formationId || e.isBoss) continue;
+      const key = e.formationUid ?? e.formationId;
+      const arr = groups.get(key);
+      if (arr) arr.push(e); else groups.set(key, [e]);
+    }
+
+    // 第二遍逐只定字段。遍历的是「场上所有敌人」而不是仅分组成员：
+    // Boss/精英/刚死亡的成员也要走到这里被删一次，否则它们上一帧残留的字段
+    // 会一直留到对象被销毁为止（对象池复用时会白拿一次加成）。
+    for (const e of this.enemies) {
+      const inFormation = !!e && e.alive === true && !e.isBoss && !!e.formationId;
+      const members = inFormation ? groups.get(e.formationUid ?? e.formationId) : null;
+      // 模板缺失（存档里的旧 id / 拼错的 id）时按「无光环」处理：
+      // 宁可这队没有加成，也不要凭 id 猜一组数值。
+      const aura = members ? formationAuraOf(FORMATION_BY_ID.get(e.formationId)) : null;
+      // 前排判定只看「带 vanguard 路径的成员还活着没有」：路径在刷怪时随成员落库，
+      // 不由 defId 反查模板——同一个 defId 在不同编队可能站不同位置，反查会串队。
+      const hasVanguard = aura != null && members.some((m) => m.alive && m.formationPath === 'vanguard');
+      // 收方剔除两类：精英（spec §5.3）与上前排的那只自己（spec 说的是「其余成员」）。
+      const receives = hasVanguard && !e.def?.elite && e.formationPath !== 'vanguard';
+      if (!receives) {
+        // delete 而不是置 null：'formationAura' in e 是测试与调试都想读的「有没有」语义，
+        // 留一个 null 会让 applyDamage 的 ?. 与后续排查都变成两套判断。
+        delete e.formationAura;
+      } else {
+        // 每帧新对象、不共享引用：某只怪被单独改字段时不能污染全队。
+        e.formationAura = { armorBonus: aura.armorBonus, speedMul: aura.speedMul };
+      }
+    }
+  }
+
   updateEnemies(dt) {
+    // 光环必须先于逐只结算：同一帧里前排刚死、后排这一帧算速度时就必须已经没加成。
+    this.refreshFormationAuras();
     // 逐帧轻量分离：同屏已经到 60~90，旧版「>48 只就跳过」会直接叠成一坨；
     // 改用空间分桶 O(n·k) 版本，压测灌到 150 只也不会退化成 O(n²)。
     if (this.enemies.length > 1) {
@@ -962,6 +1160,9 @@ export default class BattleScene extends Phaser.Scene {
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       if (!e.alive) {
+        // 死掉的成员不带走光环字段：对象本身会被销毁，但对象池/复用路径上
+        // 残留的 formationAura 会让「复活的同一只」白拿一次加成。
+        delete e.formationAura;
         // 任何来源造成的Boss死亡都必须汇到统一通幕结算，不能直接跳过
         if (e.isBoss && !this.bossDefeated) this.defeatBoss('combat', e.definition.bossId, e.definition.tier === 'mini' ? 'mini' : 'major');
         if (!this.enemies.includes(e)) continue; // defeatBoss 已将其移出并销毁
@@ -974,6 +1175,7 @@ export default class BattleScene extends Phaser.Scene {
       // 大地图：杂兵离玩家过远即回收（Boss 不受此限），不再按屏幕边界退场
       if (!e.isBoss && Math.hypot(e.x - this.player.x, e.y - this.player.y) > 560) e.alive = false;
       if (!e.alive) {
+        delete e.formationAura;
         e.destroy();
         this.enemies.splice(i, 1);
         continue;
@@ -2296,6 +2498,11 @@ export default class BattleScene extends Phaser.Scene {
     if (definition.type === 'boss') {
       this.bossStarted = true;
       this.boss = new Boss(this, definition, this.stage, this.enemySeq++);
+      // 阶段基线归零：否则上一只 Boss 的 phase 会让新 Boss 登场同帧误判一次「转阶段」。
+      // model.phase 在 createBossModel 时还是 undefined，由 stepBoss 首次调用补成 0，
+      // 所以这里必须写 0（而不是 model.phase）：写 undefined 会让新 Boss 第一帧
+      // updateEnemies 之后被误判成一次转阶段，G18 引导也会在开战瞬间就弹。
+      this.lastBossPhase = this.boss.model.phase ?? 0;
       this.boss.x = this.player.x;
       // 新 Boss 立绘 72/104px：下限按实际显示高度算，保证整只 Boss 落在 HUD 下方。
       const bossMinY = 42 + (this.boss.sprite?.displayHeight ?? 0) - 21 + 4;
@@ -2456,8 +2663,16 @@ export default class BattleScene extends Phaser.Scene {
         this.effects?.hurt?.();
         this.effects?.impact?.(hit.x, hit.y, C.blood, true);
         sfx.hurt();
-        // 弹幕不带来源 defId，用全场统一的轻迟滞；精英的专属配置见 ENEMY_CONTROL.shot
-        this.applyPlayerControl?.(DEFAULT_SHOT_CONTROL, hit.x, hit.y, this.engine?.now ?? 0);
+        // B5 硬控分流：只有 Boss 大招弹带 fromBoss，挂该场专属控制；
+        // 普通弹（含阶段倍率放大后的）仍走全场统一的轻迟滞。
+        // 不按 fromBoss 一刀切，是因为普通 Boss 弹若跳过 DEFAULT_SHOT_CONTROL
+        // 又在场 1/2 拿不到 bossControlFor（那两场为 null），等于完全没有控制。
+        if (hit.fromBoss === true) {
+          const cfg = this.boss ? bossControlFor(this.stage) : null;
+          if (cfg) this.applyPlayerControl(cfg, hit.x, hit.y, this.engine?.now ?? 0);
+        } else {
+          this.applyPlayerControl?.(DEFAULT_SHOT_CONTROL, hit.x, hit.y, this.engine?.now ?? 0);
+        }
       }
     }
     const g = this.hostileG;
@@ -2773,6 +2988,8 @@ export default class BattleScene extends Phaser.Scene {
     this.input.keyboard.off('keydown-E', this.onEdit);
     if (this.editPointer) this.input.off('pointerdown', this.editPointer);
     this.editPointer = null;
+    if (this.dashPointer) this.input.off('pointerdown', this.dashPointer);
+    this.dashPointer = null;
     this.editUI?.destroy(true);
     this.editUI = null;
     this.editOpen = false;

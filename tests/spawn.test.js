@@ -1,10 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { pickSpawnPoint, separateEnemies } from '../src/logic/spawn.js';
+import { pickSpawnPoint, pickWavePoints, separateEnemies } from '../src/logic/spawn.js';
 
 const world = { w: 1920, h: 1440 };
 const player = { x: 960, y: 720 };
 // 固定序列伪随机，保证可复现
 const seq = (values) => { let i = 0; return () => values[i++ % values.length]; };
+// 两个角的最短夹角：扇区中心可以是任意方向（编队要往「玩家反方向」刷），
+// 直接 atan2 会在 ±π 处跳变，必须按圆周距离比。
+const angDiff = (a, b) => {
+  const d = Math.abs(a - b) % (Math.PI * 2);
+  return d > Math.PI ? Math.PI * 2 - d : d;
+};
 
 describe('刷怪落点', () => {
   it('永远落在离玩家 nearDist..farDist 之间且不出界', () => {
@@ -42,6 +48,72 @@ describe('刷怪落点', () => {
       return [0, 1, 2].map(() => pickSpawnPoint({ rng, player, world, enemies: [] }));
     };
     expect(run()).toEqual(run());
+  });
+});
+
+// ---------- C2：编队扇区（spec §5.2：编队朝「玩家反方向 ±0.6rad」刷） ----------
+describe('刷怪落点·编队扇区', () => {
+  // 扇区只许改角度公式，不许多抽一次 rng：同 seed 的刷怪节奏一旦多抽一次，
+  // 下面这条「同 seed 同一落点序列」的复现性对拍就废了。
+  // 所以测的是「带扇区与不带扇区时 rng 调用次数相同」这个行为不变量，
+  // 而不是钉死某个次数——pickSpawnPoint 会重试，重试几次取决于点合不合格，
+  // 写死次数会把实现锁死（brief 里 toBe(3) 的写法已按此修正）。
+  it('带扇区与不带扇区时 rng 调用次数相同', () => {
+    const values = [0.9, 0.2, 0.35, 0.8, 0.15, 0.65];
+    const measure = (sector) => {
+      let calls = 0;
+      let i = 0;
+      const rng = () => { calls++; return values[i++ % values.length]; };
+      const point = pickSpawnPoint({
+        rng, player, world, enemies: [],
+        ...(sector ? { sectorAngle: Math.PI, sectorSpread: 1.2 } : {}),
+      });
+      return { calls, point };
+    };
+    const plain = measure(false);
+    const sector = measure(true);
+    expect(sector.calls).toBe(plain.calls);
+    expect(sector.calls).toBeGreaterThan(0);
+    // 扇区必须真的改变角度，否则这条测试会变成空操作
+    expect(sector.point).not.toEqual(plain.point);
+  });
+
+  it('给扇区时落点落在扇区内（sectorSpread 是全宽，半宽 = spread/2）', () => {
+    const sectorAngle = 0;
+    const sectorSpread = 1.2;
+    for (const v of [0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 0.33, 0.66]) {
+      const p = pickSpawnPoint({ rng: () => v, player, world, enemies: [], sectorAngle, sectorSpread });
+      expect(angDiff(Math.atan2(p.y - player.y, p.x - player.x), sectorAngle))
+        .toBeLessThanOrEqual(sectorSpread / 2 + 1e-9);
+    }
+  });
+
+  it('扇区中心即玩家反方向时，落点整体在玩家身后', () => {
+    const p = pickSpawnPoint({ rng: seq([0.9, 0.2]), player, world, enemies: [], sectorAngle: Math.PI, sectorSpread: 1.2 });
+    expect(p.x).toBeLessThan(player.x);
+    expect(angDiff(Math.atan2(p.y - player.y, p.x - player.x), Math.PI)).toBeLessThanOrEqual(0.6 + 1e-9);
+  });
+
+  it('扇区参数非法时回退全向随机，与不传参数的落点逐点相同', () => {
+    const base = pickSpawnPoint({ rng: () => 0.9, player, world, enemies: [] });
+    expect(pickSpawnPoint({ rng: () => 0.9, player, world, enemies: [], sectorAngle: NaN, sectorSpread: 1.2 })).toEqual(base);
+    expect(pickSpawnPoint({ rng: () => 0.9, player, world, enemies: [], sectorAngle: 0, sectorSpread: Infinity })).toEqual(base);
+    expect(pickSpawnPoint({ rng: () => 0.9, player, world, enemies: [], sectorAngle: 'x', sectorSpread: 1.2 })).toEqual(base);
+    expect(pickSpawnPoint({ rng: () => 0.9, player, world, enemies: [], sectorAngle: 0 })).toEqual(base);
+  });
+
+  it('pickWavePoints 透传扇区：整波落点都在同一扇区内', () => {
+    const sectorAngle = Math.PI * 0.5;
+    const sectorSpread = 0.6;
+    const pts = pickWavePoints({
+      rng: seq([0.1, 0.2, 0.5, 0.8, 0.9, 0.3]), player, world, enemies: [], count: 3,
+      sectorAngle, sectorSpread, minDist: 275, maxDist: 380, minGap: 30, nearDist: 250, farDist: 430,
+    });
+    expect(pts).toHaveLength(3);
+    for (const p of pts) {
+      expect(angDiff(Math.atan2(p.y - player.y, p.x - player.x), sectorAngle))
+        .toBeLessThanOrEqual(sectorSpread / 2 + 1e-9);
+    }
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import Hud from '../src/ui/Hud.js';
+import { C } from '../src/ui/Palette.js';
 function fixture() {
   const g = new Proxy({}, { get: (target, key) => target[key] ?? (() => g) });
   const scene = { time: { now: 0 }, add: { graphics: () => g, text: (x, y, text) => {
@@ -117,6 +118,92 @@ describe('画框存在时顶栏不往框身里画', () => {
         expect(x).toBeGreaterThanOrEqual(8);
         expect(x + w).toBeLessThanOrEqual(472);
       }
+    }
+  });
+});
+
+describe('冲刺冷却环（右键闪避，A4）', () => {
+  // 记录型夹具：除坐标外还记 fillStyle 的颜色/透明度，才能把「冷却遮罩」与「环框」分开断言。
+  // 扇形遮罩走 fillPoints（pxPoly），统一折算成 x/y/w/h 的包围盒，断言口径与 fillRect 一致。
+  function recording() {
+    const layers = [];
+    const recorder = () => {
+      const rects = [];
+      let color = null;
+      let alpha = 1;
+      // 点必须是 {x, y} 对象——Phaser 的 fillPoints 读 point.x / point.y，
+      // 传数组不报错也不画。旧夹具按 p[0]/p[1] 折算，于是把「传数组」这个 bug 一起测绿了，
+      // 实机上冲刺环只剩一个空框（2026-11-18 实机截图发现）。这里直接拒绝数组。
+      const box = (pts) => {
+        for (const p of pts) {
+          if (!p || typeof p !== 'object' || Array.isArray(p) || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+            throw new Error('fillPoints 的点必须是 {x, y} 有限数对象，收到：' + JSON.stringify(p));
+          }
+        }
+        const xs = pts.map((p) => p.x);
+        const ys = pts.map((p) => p.y);
+        return { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs) + 1, h: Math.max(...ys) - Math.min(...ys) + 1 };
+      };
+      const g = {
+        rects,
+        fillStyle(c, a = 1) { color = c; alpha = a; return g; },
+        lineStyle: () => g, strokePoints: () => g,
+        fillPoints: (pts) => { rects.push({ ...box(pts), color, alpha }); return g; },
+        setDepth: () => g, setScrollFactor: () => g, clear() { rects.length = 0; return g; },
+        fillRect: (x, y, w, h) => { rects.push({ x, y, w, h, color, alpha }); return g; },
+      };
+      layers.push(g);
+      return g;
+    };
+    const scene = {
+      time: { now: 0 },
+      add: {
+        graphics: recorder,
+        text: (x, y, t) => {
+          const o = { x, y, text: t, setDepth() { return o; }, setOrigin() { return o; }, setResolution() { return o; }, setScrollFactor() { return o; }, setText(v) { o.text = v; return o; } };
+          return o;
+        },
+      },
+    };
+    return { hud: new Hud(scene), layers };
+  }
+  const RING = { left: 148, top: 216, size: 24 };
+  const inRing = (r) => r.x >= RING.left && r.x + r.w <= RING.left + RING.size
+    && r.y >= RING.top && r.y + r.h <= RING.top + RING.size;
+
+  it('冷却中在环内压暗遮罩，就绪后不压', () => {
+    const { hud, layers } = recording();
+    const base = { hp: 100, maxHp: 100, shards: 0, rate: 0, elapsedMs: 0 };
+    const ringRects = () => layers.flatMap((l) => l.rects).filter(inRing);
+    const mask = () => ringRects().filter((r) => r.color === C.void && r.alpha === 0.72);
+    hud.update({ ...base, dashReadyAt: 600, now: 0 });        // 剩 600ms / 总共 1200ms
+    expect(mask().length).toBeGreaterThan(0);
+    hud.update({ ...base, dashReadyAt: 0, now: 0 });          // 就绪：遮罩撤掉
+    expect(mask()).toHaveLength(0);
+    expect(ringRects().length).toBeGreaterThan(0);           // 环框与就绪标记照画
+  });
+
+  it('就绪时环里真的画了箭头（不是只画一个空框）', () => {
+    const { hud, layers } = recording();
+    hud.update({ hp: 100, maxHp: 100, shards: 0, rate: 0, elapsedMs: 0, dashReadyAt: 0, now: 0 });
+    // 箭头是多边形（fillPoints），不是矩形；颜色为 teal。
+    const arrow = layers.flatMap((l) => l.rects)
+      .filter((r) => inRing(r) && r.color === C.teal);
+    expect(arrow.length).toBeGreaterThan(0);
+    // 箭头至少 3px 宽：只有框没有内容时这条会挂
+    expect(Math.max(...arrow.map((r) => r.w))).toBeGreaterThanOrEqual(3);
+  });
+
+  it('环不侵占右侧技能栏，也不越出画布底部', () => {
+    const { hud, layers } = recording();
+    hud.update({ hp: 100, maxHp: 100, shards: 0, rate: 0, elapsedMs: 0, dashReadyAt: 600, now: 0 });
+    // 只看技能栏左侧那一竖条：环整块必须落在 148..178 之间，一个像素都不许越过 178
+    const band = layers.flatMap((l) => l.rects).filter((r) => r.y >= 210 && r.y <= 240 && r.x < 178);
+    expect(band.length).toBeGreaterThan(0);
+    for (const r of band) {
+      expect(r.x).toBeGreaterThanOrEqual(RING.left);
+      expect(r.x + r.w).toBeLessThanOrEqual(178);
+      expect(r.y + r.h).toBeLessThanOrEqual(270);
     }
   });
 });
