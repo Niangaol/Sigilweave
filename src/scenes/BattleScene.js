@@ -70,6 +70,7 @@ import { grantSkill as grantSkillOf, skillCdOf as skillCdOfHelper, skillHostCell
 import { updateSpawner as updateSpawnerOf, spawnFormation as spawnFormationOf, spawnWave as spawnWaveOf, spawnEnemy as spawnEnemyOf } from './battle-spawner.js';
 import { refreshFormationAuras as refreshFormationAurasOf, updateEnemies as updateEnemiesOf, onEnemyKilled as onEnemyKilledOf, bumpKillStreak as bumpKillStreakOf, updateShards as updateShardsOf, onEnemyMelee as onEnemyMeleeOf } from './battle-enemies.js';
 import { applySigil as applySigilOf, onEnemyHit as onEnemyHitOf, triggerDeathBursts as triggerDeathBurstsOf, collectDefeated as collectDefeatedOf, resolveProjectile as resolveProjectileOf, queueOrCommit as queueOrCommitOf, commitSigil as commitSigilOf, tickPendingCasts as tickPendingCastsOf } from './battle-hit-pipeline.js';
+import { finishStage as finishStageOf, swapStage as swapStageOf, defeatBoss as defeatBossOf, startBossClearTransition as startBossClearTransitionOf, checkDeath as checkDeathOf, die as dieOf, buildSummary as buildSummaryOf } from './battle-stage-flow.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
@@ -1211,116 +1212,9 @@ export default class BattleScene extends Phaser.Scene {
 
   // 本场大 Boss 解决后的去向：合并幕前半场原地换场，单场幕/合并幕末场通幕，第七场终局。
   // 计时结束只开启前置问答，通幕永远由大 Boss 决定。
-  finishStage() {
-    if (this.phase !== 'bossDefeated' || !this.bossDefeated) return;
-    if (this.stageOutcome === 'swap') { this.swapStage(nextStage(this.stage)); return; }
-    this.phase = 'intermission'; this.paused = true; this.engine.paused = true;
-    const report = { ...this.engine.summary(this.engine.now), elapsedMs: this.engine.now, kills: this.kills, peakRate: this.peakRate };
-    recordAct(this.run, report);
-    this.run.shards = this.shardCount;
-    this.run.draft = snapshotBuild(this.grid, { act: this.chapter });
-    if (this.stageOutcome !== 'victory') {
-      // 通幕：幕号 +1，落回该幕第一场；先播「契约解除」标题卡与本幕数据，再落到幕间工作台。
-      const clearedChapter = this.chapter;
-      const clearedStage = this.stage;
-      this.chapter = Math.min(5, this.chapter + 1);
-      this.stage = firstStageOf(this.chapter);
-    this.run.chapter = this.chapter;
-    this.run.stage = this.stage;
-    this.stageOutcome = 'none';
-    // 进入新的一幕/新场：落盘当前游标，供「继续冒险」从此处读档。
-    this.saveProgress();
-    // 通幕卡按「刚打完的那一幕」出卡：stage 显式传刚清空的场（合并幕=后半场），
-      // payload.run 已指向下一幕第一场，供幕间工作台使用。
-      playCutscene(this, {
-        kind: 'clear', act: clearedChapter, stage: clearedStage, report, to: 'IntermissionScene',
-        payload: { run: this.run, report, __cine: true },
-      });
-    } else {
-      const totals = this.run.reports.reduce((out, report) => ({
-        elapsedMs: out.elapsedMs + report.elapsedMs,
-        kills: out.kills + report.kills,
-        triggers: out.triggers + report.triggers,
-        combos: out.combos + report.combos,
-        blocked: out.blocked + report.blocked,
-        peakRate: Math.max(out.peakRate, report.peakRate),
-      }), { elapsedMs: 0, kills: 0, triggers: 0, combos: 0, blocked: 0, peakRate: 0 });
-      // 通关：本局已结束，清除断点存档，避免标题页还提示续玩一个已通关的局。
-      clearRun();
-      // 终局：三道契约环碎裂 → 结局演出（StoryScene ending）→ 胜利结算。
-      // ?cine=0 / ?stress=1 时不播结局直达面板，保持调试契约（playCutscene 兜底会把结局照播）。
-      const victoryPayload = { ...this.buildSummary(), ...totals, victory: true, bossResolutions: structuredClone(this.run.bossResolutions), __cine: true };
-      if (cutscenesDisabled()) {
-        const fallback = { ...victoryPayload };
-        delete fallback.__cine;
-        this.scene.start('GameOverScene', fallback);
-        return;
-      }
-      playCutscene(this, {
-        kind: 'victory', act: this.chapter, stage: this.stage, report: totals, to: 'StoryScene',
-        payload: { mode: 'ending', stats: victoryPayload, __cine: true },
-      });
-    }
-  }
+  finishStage() { return finishStageOf(this); }
 
-  // 幕内换场：同一幕的下一场，不切场景、不弹工作台，只在原地重建世界层。
-  // 保留：构筑/手牌/碎晶/击杀数/引擎时间/成长/血量；重置：敌人/弹幕/宝箱/事件点/刷怪节奏。
-  swapStage(next) {
-    if (!isValidStage(next) || next === this.stage) return;
-    this.stage = next;
-    this.run.stage = next;
-    this.chapter = chapterOf(next);
-    this.run.chapter = this.chapter;
-    this.stageOutcome = 'none';
-    // 换场即换关：技能库清零，冷却复位，下一场只看本场发放了什么道具。
-    this.run.skillLibrary = [];
-    this.run.skillStage = next;
-    this.skillCooldowns = [0, 0, 0];
-    this.saveProgress();
-    const world = WORLD_SIZES[next] ?? WORLD_SIZES[1];
-    this.world = { w: world.w, h: world.h };
-    this.worldBounds = { left: 24, top: 40, right: world.w - 24, bottom: world.h - 24 };
-    this.battleBounds = this.worldBounds;
-    this.background.setAct(next);
-    this.cameras.main.setBounds(0, 0, world.w, world.h);
-    // 清场：旧场的敌人、弹幕、宝箱全部回收；经验粒子先结算，避免「差一点没捡到」。
-    this.flushExpMotes();
-    for (const enemy of this.enemies) enemy.destroy();
-    this.enemies = [];
-    this.boss = null;
-    this.bossStarted = false;
-    this.bossDefeated = false;
-    this.releaseProjectiles();
-    this.hostileShots = []; this.hostileG.clear();
-    this.summons = []; this.summonG?.clear(); this.summonAirG?.clear();
-    for (const chest of this.chests) chest.g?.destroy();
-    this.chests = [];
-    // 新场中心落位 + 事件点按新场重建（旧场已完成点仍记在 run.completedEvents）
-    this.player.x = world.w / 2;
-    this.player.y = world.h / 2;
-    this.player.moving = false;
-    this.player.draw(this.engine.now);
-    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
-    this.cameras.main.setDeadzone(60, 40);
-    this.cameras.main.setFollowOffset(0, followBaseY());
-    this.eventPoints = getEventPoints(next, this.world).map(p => ({ ...p, done: !!this.run.completedEvents[p.id], icon: null, label: null }));
-    // 刷怪节奏轻启，但引擎时间/等级/构筑全部延续（密度按新的幕生效）。
-    this.spawnTimer = 700;
-    this.warmupMs = 1400;
-    this.timeExpTimer = 0;
-    this.lastKillAt = this.engine.now - 9999;
-    this.killStreak = 0;
-    // 场次卡：1.6 秒原地停留，期间战斗冻结
-    const card = STAGE_CARDS[next];
-    this.phase = 'stageIntro'; this.paused = true; this.engine.paused = true;
-    this.input.keyboard.resetKeys();
-    this.stageIntroLeft = 1600;
-    sfx.bossRoar();
-    this.cameras.main.flash(180, 255, 246, 224);
-    this.effects.text(240, 90, card ? card.numeral + ' · ' + card.title : '第 ' + next + ' 场', 12, HEX.brassLight, true);
-    this.effects.text(240, 110, card ? card.star + ' 位 · 第 ' + this.chapter + ' 幕' : '', 9, HEX.brass, true);
-    this.effects.text(240, 126, '新的场地已经展开', 8, HEX.mute, true);
-  }
+  swapStage(next) { return swapStageOf(this, next); }
 
   onEnemyKilled(e) { return onEnemyKilledOf(this, e); }
 
@@ -1353,66 +1247,11 @@ export default class BattleScene extends Phaser.Scene {
 
   continueEncounter() { return continueEncounterOf(this); }
 
-  defeatBoss(method, bossId, tier = 'major') {
-    const receipt = resolveBossOnce(this.run, this.stage, bossId, method, tier);
-    if (!receipt.ok) return;
-    this.shardCount += receipt.reward; this.kills++;
-    // Boss 战利品：问答定义给出法术卡进手牌 + 随机一个罗盘本体增益。
-    // 这张卡只进手牌，不自动进技能库——技能库严格来自升级三选一玩家自己选的卡。
-    const spellDefId = stageSpellCard(this.stage);
-    const spellKey = cardKeyOf({ kind: 'sigil', defId: spellDefId, variant: rollVariant(this.combatRng, spellDefId) });
-    this.run.hand[spellKey] = (this.run.hand[spellKey] ?? 0) + 1;
-    const buff = rollBuffWeighted(COMPASS_BUFFS, () => this.combatRng.next(), this.run.kitAffinity);
-    if (buff) {
-      const level = metaLevel(this.metaSave, buff.id);
-      const desc = applyPassiveToCompass(buff, this.run.compassBuffs, level);
-      this.engine.comboWindowMul = this.run.compassBuffs.comboWindowMul;
-      if (this.engine.combos) this.engine.combos.windowMul = this.engine.comboWindowMul;
-      rebuildDerived(this.grid, ACTS[this.chapter - 1].baseIntervalMs * this.run.compassBuffs.intervalMul, { cooldownMul: this.run.compassBuffs.cooldownMul });
-      appendPassive(this.run.passiveLog, 'compass', buff, level, desc);
-      this.passiveCounts = countPassives(this.run.passiveLog);
-      this.effects.text(240, 96, '罗盘增益 · ' + buff.name + metaPassiveLabel(level) + '：' + desc, HEX.teal, true);
-    }
-    this.cameras.main.flash(140, 255, 246, 224);
-    sfx.bossShatter();
-    if (tier !== 'mini') {
-      this.bossDefeated = true;
-      // 本场大 Boss 已清空：合并幕前半场换场，单场幕/末场通幕，第七场通关。
-      this.stageOutcome = stageAdvanceDecision({ stage: this.stage, majorCleared: true });
-    }
-    this.bossStarted = false; // 复位：小Boss解决后，大Boss等级触发仍可生效
-    this.hostileShots = []; this.hostileG.clear();
-    this.summons = []; this.summonG?.clear(); this.summonAirG?.clear();
-    if (this.boss) {
-      const x = this.boss.x, y = this.boss.y;
-      this.boss.alive = false; this.boss.rewarded = true; this.boss.destroy();
-      this.effects.burst(x, y, C.arcane, 20);
-      sfx.bossDown();
-      this.enemies = this.enemies.filter(e => e !== this.boss);
-    }
-    // 小 Boss 打完不经过通幕，镜头立刻回到常规取景；大 Boss 由 startBossClearTransition 复位。
-    if (tier === 'mini') { this.bossCamOffset = 0; this.resumeFollow(); }
-  }
+  defeatBoss(method, bossId, tier = 'major') { return defeatBossOf(this, method, bossId, tier); }
 
   resumeFollow(offsetY = 0) { return resumeFollowOf(this, offsetY); }
 
-  startBossClearTransition() {
-    if (this.phase === 'bossDefeated' || this.phase === 'intermission') return;
-    this.phase = 'bossDefeated'; this.paused = true; this.engine.paused = true; this.transitionLeft = 800;
-    // 还在飞的经验粒子立刻结算：过场里不该出现「差一点没捡到」的损失
-    this.flushExpMotes();
-    this.bossCamOffset = 0;
-    this.resumeFollow();
-    this.hostileShots = []; this.hostileG.clear();
-    this.summons = []; this.summonG?.clear(); this.summonAirG?.clear();
-    for (const enemy of this.enemies) enemy.destroy(); this.enemies = [];
-    this.releaseProjectiles();
-    // 通幕瞬间的余韵：白闪 + 杖尖余波，再交给过场接住
-    this.cameras.main.flash(160, 255, 246, 224);
-    shakeCamera(this, 'major', 120, 0.003);
-    this.effects.burst(this.player.x, this.player.y, C.arcaneLight, 24);
-    this.effects.text(240, 115, '契约解除 · Boss 已击败', HEX.arcaneLight, true);
-  }
+  startBossClearTransition() { return startBossClearTransitionOf(this); }
 
   addHostileShot(shot) { return addHostileShotOf(this, shot); }
 
@@ -1445,59 +1284,12 @@ export default class BattleScene extends Phaser.Scene {
 
   onEnemyMelee(enemy, melee) { return onEnemyMeleeOf(this, enemy, melee); }
 
-  checkDeath() {
-    if (this.phase === 'play' && !this.player.alive) this.die();
-  }
+  checkDeath() { return checkDeathOf(this); }
 
-  die() {
-    if (this.phase !== 'play') return;
-    this.phase = 'dying';
-    // 死亡：本局结束，清除断点存档；再战从第一幕重来。
-    clearRun();
-    this.paused = true;
-    this.engine.paused = true;
-    // 玩家死亡：清空敌方弹幕与召唤物（炮台/符文不再继续打）
-    this.hostileShots = []; this.hostileG?.clear();
-    this.summons = []; this.summonG?.clear(); this.summonAirG?.clear();
-    this.pauseMenu.hide();
-    this.board.setDetailVisible(false);
-    this.pauseHint.setVisible(false);
-    this.hint.setVisible(false);
-    this.player.draw(this.engine.now); // 让玩家绘制成倒地状态
-    this.effects.deathBurst(this.player.x, this.player.y);
-    shakeCamera(this, 'major', 240, 0.006);
-    const summary = this.buildSummary();
-    this.time.delayedCall(1000, () => {
-      // 死亡：先演魂火熄灭，再揭开结算页；合计约 2.1 秒，仍可按键跳过
-      if (this.phase === 'dying') playCutscene(this, { kind: 'death', act: this.chapter, stage: this.stage, to: 'GameOverScene', payload: { ...summary, __cine: true }, report: summary });
-    });
-  }
+  die() { return dieOf(this); }
 
-  buildSummary() {
-    const s = this.engine.summary(this.engine.now);
-    return {
-      elapsedMs: this.engine.now,
-      chapter: this.chapter,
-      stage: this.stage,
-      hp: 0,
-      kills: this.kills,
-      shards: this.shardCount,
-      triggers: s.triggers,
-      triggersPerSec: s.triggersPerSec,
-      combos: s.combos,
-      blocked: s.blocked,
-      reroutes: s.reroutes,
-      dissipations: s.dissipations,
-      peakRate: this.peakRate,
-      cells: this.grid.unlockedIds().length,
-      // 结算给局外成长用：首杀/问答击破的原始凭据。
-      bossResolutions: structuredClone(this.run.bossResolutions ?? {}),
-      miniBossResolutions: structuredClone(this.run.miniBossResolutions ?? {}),
-      quick: this.quickMode,
-    };
-  }
+  buildSummary() { return buildSummaryOf(this); }
 
-  // 压测：真实实体类堆到 150 敌 / 300 弹丸 / 200 碎片，采样 20 秒帧时间
   startStress() {
     if (this.phase !== 'play') return;
     this.stressRunning = true;
