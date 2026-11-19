@@ -127,9 +127,10 @@ export function stepCultist(brain, ctx) {
 
 // 亡灵骑士：步行追人；每 2.6s 预警 600ms 锁定玩家当前点，接着 3.2 倍速度直线冲锋，
 // 冲过目标点或 1.2s 后停下，恢复步行。
-export function stepKnight(brain, ctx) {
+// 冲锋/突进共用骨架：两段式移动（前摇锁向 → 冲刺 → 收势），差异只在默认参数表。
+function chargeStep(brain, ctx, fallbackRule) {
   const { self, player, dt, bounds } = ctx;
-  const tune = tuneOf(ctx, KNIGHT_RULE);
+  const tune = tuneOf(ctx, fallbackRule);
 
   if (brain.mode === 'windup') {
     brain.windupLeft -= dt;
@@ -184,7 +185,9 @@ export function stepKnight(brain, ctx) {
   return makeResult(brain, [], false, false);
 }
 
-// 缝合尸魁：慢速追人；进入 26px 后站定，每 800ms 生成一次践踏事件（伤害由场景结算）。
+// 铁砧暴君：慢速接近，进入 58px 后 650ms 蓄力，然后砸地产生 46px 半径震荡。
+export function stepKnight(brain, ctx) { return chargeStep(brain, ctx, KNIGHT_RULE); }
+
 export function stepStitch(brain, ctx) {
   const { self, player, dt, bounds, opts } = ctx;
   const tune = tuneOf(ctx, STITCH_RULE);
@@ -394,64 +397,8 @@ export function stepPhase(brain, ctx) {
 }
 
 // 索引猎犬：走位接近 → 700ms 蓄力 → 900ms 高速扑咬（4.2 倍速），冲锋期接触伤害翻倍。
-export function stepLunge(brain, ctx) {
-  const { self, player, dt, bounds } = ctx;
-  const tune = tuneOf(ctx, LUNGE_RULE);
+export function stepLunge(brain, ctx) { return chargeStep(brain, ctx, LUNGE_RULE); }
 
-  if (brain.mode === 'windup') {
-    brain.windupLeft -= dt;
-    brain.x = self.x;
-    brain.y = self.y;
-    if (brain.windupLeft > 0) return makeResult(brain, [], false, true);
-    brain.mode = 'charge';
-    brain.chargeLeft = tune.chargeMs;
-    brain.dir = unitVector(brain.aim.x - self.x, brain.aim.y - self.y)
-      ?? unitVector(player.x - self.x, player.y - self.y)
-      ?? { x: 0, y: 1 };
-    brain.charges += 1;
-    return makeResult(brain, [], true, false);
-  }
-
-  if (brain.mode === 'charge') {
-    const stepMs = Math.min(dt, brain.chargeLeft);
-    const speed = self.speed * tune.chargeSpeedMul;
-    brain.x = self.x + brain.dir.x * speed * (stepMs / 1000);
-    brain.y = self.y + brain.dir.y * speed * (stepMs / 1000);
-    clampToBounds(brain, bounds);
-    brain.chargeLeft = Math.max(0, brain.chargeLeft - dt);
-    const passed = (brain.x - brain.aim.x) * brain.dir.x + (brain.y - brain.aim.y) * brain.dir.y >= 0;
-    if (brain.chargeLeft <= 0 || passed) {
-      brain.mode = 'walk';
-      brain.chargeLeft = 0;
-      brain.chargeIn = tune.intervalMs;
-      return makeResult(brain, [], false, false);
-    }
-    return makeResult(brain, [], true, false);
-  }
-
-  const dir = unitVector(player.x - self.x, player.y - self.y);
-  if (dir) {
-    brain.x = self.x + dir.x * self.speed * (dt / 1000);
-    brain.y = self.y + dir.y * self.speed * (dt / 1000);
-  } else {
-    brain.x = self.x;
-    brain.y = self.y;
-  }
-  clampToBounds(brain, bounds);
-
-  brain.chargeIn -= dt;
-  if (brain.chargeIn <= 0) {
-    brain.mode = 'windup';
-    brain.windupLeft = tune.windupMs;
-    brain.chargeIn = 0;
-    brain.aim = { x: player.x, y: player.y };
-    brain.windups += 1;
-    return makeResult(brain, [], false, true);
-  }
-  return makeResult(brain, [], false, false);
-}
-
-// 铁砧暴君：慢速接近，进入 58px 后 650ms 蓄力，然后砸地产生 46px 半径震荡。
 export function stepSlam(brain, ctx) {
   const { self, player, dt, bounds, opts } = ctx;
   const tune = tuneOf(ctx, SLAM_RULE);
@@ -497,10 +444,11 @@ export function stepSlam(brain, ctx) {
 
 // 天平裁决者：保持 130px 环绕，3.6s 一次抬手，然后打一发慢速重弹（伤害 ×1.6）；
 // 每第 2 轮在玩家脚下放一个裁决符文（§4/§5）。
-export function stepJudge(brain, ctx) {
+// 环绕+远程骨架：保持距离绕圈、预警、抬手、放弹；差异只在默认参数与两个速度系数。
+function orbitRangedStep(brain, ctx, fallbackRule, fallbackRanged, tangentialMul, capMul) {
   const { self, player, dt, bounds } = ctx;
-  const tune = tuneOf(ctx, JUDGE_RULE);
-  const ranged = rangedSpecOf(brain) ?? RANGED_RULES.scale_arbiter;
+  const tune = tuneOf(ctx, fallbackRule);
+  const ranged = rangedSpecOf(brain) ?? fallbackRanged;
 
   if (brain.mode === 'windup') {
     brain.windupLeft -= dt;
@@ -527,11 +475,11 @@ export function stepJudge(brain, ctx) {
     vy = -ny * self.speed * 1.1;
   } else {
     const radial = Math.max(-self.speed, Math.min(self.speed, (dist - tune.holdDist) * 2.2));
-    const tangential = self.speed * 0.7 * (brain.orbitDir < 0 ? -1 : 1);
+    const tangential = self.speed * tangentialMul * (brain.orbitDir < 0 ? -1 : 1);
     vx = -ny * tangential + nx * radial;
     vy = nx * tangential + ny * radial;
     const mag = Math.hypot(vx, vy);
-    const cap = self.speed * 1.15;
+    const cap = self.speed * capMul;
     if (mag > cap && mag > 0) { vx = (vx / mag) * cap; vy = (vy / mag) * cap; }
   }
   brain.x = self.x + vx * (dt / 1000);
@@ -544,56 +492,10 @@ export function stepJudge(brain, ctx) {
 }
 
 // 蚀日祭司：保持 100px 环绕，4.8s 一次抬手，然后打八向星环；每第 2 轮召唤一个蚀日炮台。
-export function stepEclipse(brain, ctx) {
-  const { self, player, dt, bounds } = ctx;
-  const tune = tuneOf(ctx, ECLIPSE_RULE);
-  const ranged = rangedSpecOf(brain) ?? RANGED_RULES.eclipse_priest;
+export function stepJudge(brain, ctx) { return orbitRangedStep(brain, ctx, JUDGE_RULE, RANGED_RULES.scale_arbiter, 0.7, 1.15); }
 
-  if (brain.mode === 'windup') {
-    brain.windupLeft -= dt;
-    brain.x = self.x;
-    brain.y = self.y;
-    if (brain.windupLeft > 0) return makeResult(brain, [], false, true);
-    const shots = makeVolley(brain, ctx, ranged);
-    brain.mode = 'walk';
-    brain.windupLeft = 0;
-    brain.attackIn = tune.attackMs;
-    const summon = finishCast(brain, ctx, ranged, shots);
-    return makeResult(brain, shots, false, false, null, false, null, summon);
-  }
+export function stepEclipse(brain, ctx) { return orbitRangedStep(brain, ctx, ECLIPSE_RULE, RANGED_RULES.eclipse_priest, 0.5, 1.1); }
 
-  const dx = player.x - self.x;
-  const dy = player.y - self.y;
-  const dist = Math.hypot(dx, dy);
-  const nx = dist > 1e-6 ? dx / dist : 0;
-  const ny = dist > 1e-6 ? dy / dist : 1;
-  let vx = 0;
-  let vy = 0;
-  if (dist < tune.retreatDist) {
-    vx = -nx * self.speed * 1.1;
-    vy = -ny * self.speed * 1.1;
-  } else {
-    const radial = Math.max(-self.speed, Math.min(self.speed, (dist - tune.holdDist) * 2.2));
-    const tangential = self.speed * 0.5 * (brain.orbitDir < 0 ? -1 : 1);
-    vx = -ny * tangential + nx * radial;
-    vy = nx * tangential + ny * radial;
-    const mag = Math.hypot(vx, vy);
-    const cap = self.speed * 1.1;
-    if (mag > cap && mag > 0) { vx = (vx / mag) * cap; vy = (vy / mag) * cap; }
-  }
-  brain.x = self.x + vx * (dt / 1000);
-  brain.y = self.y + vy * (dt / 1000);
-  clampToBounds(brain, bounds);
-
-  brain.attackIn -= dt;
-  if (brain.attackIn <= 0) return beginCast(brain, ctx, tune, ranged.windupMs);
-  return makeResult(brain, [], false, false);
-}
-
-// ---------- 分行为：2026-11 新行为 ----------
-
-// 腐尸「lurch」：踱步(walkMs) → 停顿(holdMs) → 贴身预警(windupMs) → 扑咬(lungeMs @lungeMul)
-// → 收势(recoverMs，仅保留少量惯性)。玩家不在 triggerDist 内时只重复踱步/停顿。
 export function stepLurch(brain, ctx) {
   const { self, player, dt, bounds } = ctx;
   const tune = tuneOf(ctx, LURCH_RULE);
