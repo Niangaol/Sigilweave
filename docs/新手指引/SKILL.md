@@ -89,7 +89,7 @@ agent_created: true
   "id": "G01",
   "trigger": { "scene": "BattleScene", "act": 1, "event": "sceneEnter", "oncePerRun": true },
   "pet": { "name": "墨宝", "emotion": "excited" },
-  "lines": ["主人！第一幕来啦～", "用 WASD 或方向键走位，怪潮从四周压过来哦！"],
+  "lines": ["主人！第一幕来啦～", "先别急——我把话说完怪才来哦，趁现在看清楚界面～", "用 WASD 或方向键走位，怪潮从四周压过来哦！"],
   "highlight": "touchControls",
   "advance": { "type": "tap" },
   "voiceCue": "meow"

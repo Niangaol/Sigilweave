@@ -78,9 +78,10 @@ import { startStress as startStressOf } from './battle-stress.js';
 import { onShutdown as onShutdownOf } from './battle-teardown.js';
 import TouchControls from '../ui/TouchControls.js';
 import { sfx, toggleSound } from '../audio/Sfx.js';
+import { startBattleMusic, isBattleMusicPlaying } from '../audio/BattleMusic.js';
 import { playCutscene, cutscenesDisabled } from '../ui/transition.js';
 import { STAGE_CARDS } from '../data/cinematics.js';
-import { fireGuide, hideGuide } from '../logic/guide.js';
+import { fireGuide, hideGuide, GUIDE_DONE_EVENT, shouldHoldForOpeningGuide, openingGuideIdForStage } from '../logic/guide.js';
 import { saveRun, clearRun } from '../logic/save.js';
 
 // 编队 id → 模板：光环数值的唯一来源。表只有 8 条且模块已深冻，做成静态 Map
@@ -415,11 +416,27 @@ export default class BattleScene extends Phaser.Scene {
 
     // 新手引导 · 各幕开场：第一幕 G01 / 第二幕 G07 / 第三幕 G09 / 幕四起 G12。
     // 由过场进入时延后到过场揭幕后（journey≈5.84s、act 标题卡≈3s），避免压在过场上。
-    const stageGuideId = this.stage === 1 ? 'G01' : this.stage === 2 ? 'G07' : this.stage === 3 ? 'G09' : 'G12';
+    const stageGuideId = openingGuideIdForStage(this.stage);
     const guideDelay = this.__cine ? (this.stage === 3 ? 6100 : 3300) : 500;
+    // 讲解闸门：第一次进场的开场讲解期间冻结战斗——主角站在地图上、怪兽不刷，
+    // 像按了暂停键；墨宝把话讲完（GUIDE_DONE）才解冻并立刻放第一波怪。
+    // 读档续玩 / ?guide=0 不会立闸门，玩法照旧。
+    this.guideGate = shouldHoldForOpeningGuide(this.run, this.stage);
+    this.onGuideDone = () => {
+      if (!this.guideGate) return; // 中途别的引导读完，不影响开场闸门
+      this.guideGate = false;
+      this.spawnTimer = Math.min(this.spawnTimer ?? 900, 450);
+    };
+    this.game.events.on(GUIDE_DONE_EVENT, this.onGuideDone);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.game.events.off(GUIDE_DONE_EVENT, this.onGuideDone);
+    });
     this.time.delayedCall(guideDelay, () => {
       if (this.scene.isActive() && !this.transitionLeft) {
-        fireGuide(this, this.run, stageGuideId, { act: this.chapter, stage: this.stage });
+        const fired = fireGuide(this, this.run, stageGuideId, { act: this.chapter, stage: this.stage });
+        if (!fired) this.guideGate = false; // 引导没弹出来就别把游戏冻住
+      } else {
+        this.guideGate = false;
       }
     });
     // 进场即落盘一次（首次进入也有存档）；读档续玩时墨宝专门打招呼。
@@ -497,7 +514,9 @@ export default class BattleScene extends Phaser.Scene {
         if (spaceDown) this.hint.setVisible(false);
       }
     }
-    const wantPause = this.menuOpen || this.focusPaused || this.spaceHeld;
+    // guideGate：开场新手讲解期间也当暂停处理——引擎/刷怪/敌人全冻结，
+    // 但背景与画面照常渲染（主角站在地图上），墨宝讲完才放行。
+    const wantPause = this.menuOpen || this.focusPaused || this.spaceHeld || !!this.guideGate;
     if (wantPause !== this.paused) {
       this.paused = wantPause;
       this.engine.paused = wantPause;
@@ -553,6 +572,10 @@ export default class BattleScene extends Phaser.Scene {
     if (this.editOpen) this.tickEditBoardMotion(time, delta);
 
     if (this.phase === 'play' && !this.paused && !frozen) {
+      // 热血战斗 BGM：惰性启动，只在真正开打时响。
+      // 引导闸门期间 paused=true 不放；墨宝讲完解冻的这一帧起乐，正好与怪兽入场同步。
+      // 过场期间本场景被 Phaser pause、update 不跑，也不会与过场配乐叠在一起。
+      if (!isBattleMusicPlaying()) startBattleMusic();
       // 道具技能：按 1/2/3 释放（用 Key 对象的 JustDown，不受升级弹窗的事件解绑影响）
       if (Phaser.Input.Keyboard.JustDown(this.keys.skill1)) this.castSkill(0);
       if (Phaser.Input.Keyboard.JustDown(this.keys.skill2)) this.castSkill(1);
