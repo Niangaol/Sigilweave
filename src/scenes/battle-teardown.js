@@ -1,9 +1,13 @@
 // 场景关闭：解绑输入/事件、销毁 UI 与对象、清空列表。
 // 从 BattleScene 迁出（2026-11-19 架构重构收尾）。场景方法保留一行委托。
 import { hideGuide } from '../logic/guide.js';
+import { stopBattleMusic } from '../audio/BattleMusic.js';
 
 export function onShutdown(scene) {
   hideGuide(this);
+  // 离开战斗（换场/过场/死亡/回标题/重开）即停 BGM，由下一次进场的惰性启动接管，
+  // 保证任意时刻只有这一处战斗场景在放配乐，不与过场/故事音乐重叠。
+  stopBattleMusic();
   scene.game.events.off('blur', scene.handleBlur);
   scene.game.events.off('focus', scene.handleFocus);
   scene.input.keyboard.off('keydown-ESC', scene.onEsc);

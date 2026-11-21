@@ -3,7 +3,7 @@
 // 不修改战斗逻辑、不改 phase；点击气泡才推进台词，用 DOM 命中测试避免吞掉底层 Phaser 输入。
 import Phaser from 'phaser';
 import { C, HEX, addText, pxRect, pxFrame, pxPoly, pxDiamond, applyPixelZoom, uiLayerOffset, isPortrait, getRenderScale } from '../ui/Palette.js';
-import { GUIDE_EVENT, GUIDE_HIDE_EVENT, guideEnabled, resolveLines } from '../logic/guide.js';
+import { GUIDE_EVENT, GUIDE_HIDE_EVENT, GUIDE_ACTIVE_EVENT, GUIDE_DONE_EVENT, guideEnabled, resolveLines } from '../logic/guide.js';
 
 const PET_TEX = 'guide_pet';       // BootScene 里注册的纹理 key
 const PET_W = 32, PET_H = 34;      // 素材逻辑尺寸
@@ -34,7 +34,13 @@ export default class GuideScene extends Phaser.Scene {
     this.pet = null;
 
     this.showHandler = (payload) => this.show(payload);
-    this.hideHandler = () => { this.queue.length = 0; this.hide(); };
+    // 被动关闭也广播 done，避免战斗闸门一直挂着（如切场景时 hideGuide）。
+    this.hideHandler = () => {
+      const had = this.active;
+      this.queue.length = 0;
+      this.hide();
+      if (had) this.game.events.emit(GUIDE_DONE_EVENT);
+    };
     this.game.events.on(GUIDE_EVENT, this.showHandler);
     this.game.events.on(GUIDE_HIDE_EVENT, this.hideHandler);
 
@@ -69,10 +75,13 @@ export default class GuideScene extends Phaser.Scene {
     this.ctx = item;
     this.lines = item.lines;
     this.index = 0;
+    const wasActive = this.active;
     this.active = true;
     this.scene.setVisible(true);
     this.scene.bringToTop();
     this.render();
+    // 从「无引导」进入讲解：广播 active，战斗据此立起冻结闸门。
+    if (!wasActive) this.game.events.emit(GUIDE_ACTIVE_EVENT, { id: item.card?.id });
   }
 
   hide() {
@@ -90,8 +99,9 @@ export default class GuideScene extends Phaser.Scene {
     this.index += 1;
     if (this.index >= this.lines.length) {
       this.hide();
-      // 队列里还有下一条就接着播
+      // 队列里还有下一条就接着播；全部读完才广播 done，战斗据此解冻。
       if (this.queue.length) this.startCard(this.queue.shift());
+      else this.game.events.emit(GUIDE_DONE_EVENT);
     } else {
       this.render();
     }
