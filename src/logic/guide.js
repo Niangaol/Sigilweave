@@ -7,6 +7,10 @@ import { settingValue } from './settings.js';
 export const GUIDE_ENABLED_KEY = 'guide';
 export const GUIDE_EVENT = 'guide:show';
 export const GUIDE_HIDE_EVENT = 'guide:hide';
+// 引导显隐生命周期：战斗场景据此把「灵宠讲解」当作暂停键——讲解期间冻结战斗，
+// 讲解全部读完才放行，实现「先听墨宝讲、怪兽再入场」的新手体验。
+export const GUIDE_ACTIVE_EVENT = 'guide:active';
+export const GUIDE_DONE_EVENT = 'guide:done';
 
 const CARDS = new Map((GUIDE.guides ?? []).map((g) => [g.id, g]));
 const STUCK = new Map((GUIDE.stuckHints ?? []).map((h) => [h.when, h]));
@@ -73,4 +77,16 @@ export function fireGuide(scene, run, id, ctx = {}) {
 
 export function hideGuide(scene) {
   scene?.game?.events?.emit(GUIDE_HIDE_EVENT);
+}
+
+// 各场开场的「新手讲解」卡片 id：第一幕 G01 / 第二幕 G07 / 第三幕 G09 / 幕四起 G12。
+export function openingGuideIdForStage(stage) {
+  return stage === 1 ? 'G01' : stage === 2 ? 'G07' : stage === 3 ? 'G09' : 'G12';
+}
+
+// 是否要为本场开场讲解冻结战斗：引导开启 + 本局还没讲过 + 卡片存在。
+// 这是纯函数，便于单测；战斗场景进场时据此立起「讲解闸门」。
+export function shouldHoldForOpeningGuide(run, stage, params) {
+  const id = openingGuideIdForStage(stage);
+  return guideEnabled(params) && !wasSeen(run, id) && !!getCard(id);
 }
