@@ -4,7 +4,7 @@ import { hideGuide } from '../logic/guide.js';
 import { stopBattleMusic } from '../audio/BattleMusic.js';
 
 export function onShutdown(scene) {
-  hideGuide(this);
+  hideGuide(scene);
   // 离开战斗（换场/过场/死亡/回标题/重开）即停 BGM，由下一次进场的惰性启动接管，
   // 保证任意时刻只有这一处战斗场景在放配乐，不与过场/故事音乐重叠。
   stopBattleMusic();
