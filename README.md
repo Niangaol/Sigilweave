@@ -1,5 +1,7 @@
 # 共振法阵 Resonance Sigil
 
+> 环境约定：Playwright 固定 1.65.0（chromium 1254），详见 [ENVIRONMENT.md](./ENVIRONMENT.md)。
+
 H5 单页游戏：类幸存者 × 牌组构筑 × 空间编程。西幻像素风，480×270 逻辑画布，桌面按屏幕取整数倍率出图（1080p 4 倍、1440p 5 倍），小屏走分数倍率 × 设备像素比，不靠浏览器拉伸糊图；摄像机跟随大地图，法术罗盘固定右下角。
 
 **在线试玩** <https://niangaol.github.io/Sigilweave/> ｜ **源码** <https://github.com/Niangaol/Sigilweave>
