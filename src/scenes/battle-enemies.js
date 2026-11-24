@@ -61,6 +61,22 @@ export function updateEnemies(scene, dt) {
   }
   for (let i = scene.enemies.length - 1; i >= 0; i--) {
     const e = scene.enemies[i];
+    // 多管血：打空一管不销毁，回满并进入下一阶段（横幅 + 两段色 burst）。
+    // 清杂兵弹幕与 G18 引导由 BattleScene.update 的 lastBossPhase 边沿统一处理，
+    // 这里只做「离事件最近」的演出，避免同一事件两处各演一遍。
+    if (e.pendingBarShift) {
+      e.pendingBarShift = false;
+      const style = e.enterNextBar?.();
+      if (style) {
+        scene.effects.text(240, 92, '第二阶段 · ' + style.name, 12, HEX.brassLight, true);
+        scene.effects.text(240, 114, '它的打法变了', 9, HEX.blood, true);
+        scene.effects.burst(e.x, e.y, C.brassLight, 24);
+        scene.effects.burst(e.x, e.y, style.color, 16);
+        scene.cameras?.main?.flash?.(160, 255, 246, 224);
+        shakeCamera(scene, 'phase', 320, 0.006);
+        continue;
+      }
+    }
     if (!e.alive) {
       // 死掉的成员不带走光环字段：对象本身会被销毁，但对象池/复用路径上
       // 残留的 formationAura 会让「复活的同一只」白拿一次加成。

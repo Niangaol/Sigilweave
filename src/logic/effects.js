@@ -133,7 +133,16 @@ export function applyDamage(enemy, amount, now) {
   enemy.hp = Math.max(0, enemy.hp - real);
   // 表现层只读字段：这一下实际扣了多少血，供受击动画飘伤害数字（不参与任何结算）。
   enemy.lastHitAmount = real;
-  if (enemy.hp === 0) enemy.alive = false;
+  if (enemy.hp === 0) {
+    // 多管血（Boss 阶段战）：打空一管不死亡，标记 pendingBarShift 交给场景层
+    // 「回满 → 换阶段 → 横幅演出」。数据层只读 bar/barMax 字段，不认 isBoss。
+    const maxBars = Number.isFinite(enemy.barMax) ? enemy.barMax : 1;
+    if (maxBars > 1 && (Number.isFinite(enemy.bar) ? enemy.bar : 0) < maxBars - 1) {
+      enemy.pendingBarShift = true;
+    } else {
+      enemy.alive = false;
+    }
+  }
   return real;
 }
 

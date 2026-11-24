@@ -1,6 +1,6 @@
 import { C, pxRect, pxLine, pxDiamond, pxRing } from '../ui/Palette.js';
 import { createBossModel, stepBoss, bossStats } from '../logic/boss.js';
-import { BREAK_WINDOW_MS, PHASE_THRESHOLDS, PHASE_COUNT } from '../data/boss-phases.js';
+import { BREAK_WINDOW_MS, PHASE_SHIFT_MS, BOSS_BARS, bossPhaseFor, bossPhaseStyleFor } from '../data/boss-phases.js';
 import { shakeCamera } from '../ui/camera-shake.js';
 
 // 每场小 Boss / 场 Boss 各一张专属立绘；脚底仍对齐 y+21。
@@ -26,6 +26,9 @@ export default class Boss {
     // 强度按场递增（场 1..7），与幕的叙事划分无关；场 Boss 比小 Boss 更硬一档（×1.35 血、5% 额外减伤）。
     const stats = bossStats(stage, definition?.tier);
     this.hp = this.maxHp = stats.hp;
+    // 多管血：一管血 = 一个阶段。打空当前管不死亡，回满进入下一管（见 enterNextBar）。
+    this.bar = 0; this.barMax = BOSS_BARS;
+    this.phaseStyle = bossPhaseStyleFor(stage);
     // Boss 专属固定减伤：直接复用敌人的 armor 通道（applyDamage 里按 (1 - armor) 结算）。
     this.armor = stats.armor;
     // 破防窗口里护甲临时失效：原值存 baseArmor，退出窗口时还原（B4）。
@@ -60,7 +63,7 @@ export default class Boss {
     let factor = now < (this.slowUntil ?? 0) ? (this.slowFactor ?? 1) : 1;
     if (this.scene.grid.cells.some(c => c.unlocked && c.slot?.defId === 'slow_field') && d <= 90) factor = Math.min(factor, 0.6);
     if (now < (this.rootUntil ?? 0)) factor = 0;
-    if (d > 55 && this.model.windupLeft <= 0) {
+    if (d > 55 && this.model.windupLeft <= 0 && !(this.model.shiftLeft > 0)) {
       this.x += dx / d * 14 * factor * dtMs / 1000;
       this.y += dy / d * 14 * factor * dtMs / 1000;
     }
@@ -115,9 +118,37 @@ export default class Boss {
     this.g.setDepth(Math.floor(this.y) + 0.5);
     if (this.sprite) this.sprite.setDepth(Math.floor(this.y));
   }
+  // 打空当前血条：回满并进入下一阶段。返回阶段外观（名字 + 主色），
+  // 场景层用它做横幅演出；已经是最后一管时返回 null，由场景走正常死亡结算。
+  enterNextBar() {
+    const max = Number.isFinite(this.barMax) ? this.barMax : 1;
+    if ((this.bar ?? 0) >= max - 1) return null;
+    this.bar = (this.bar ?? 0) + 1;
+    this.hp = this.maxHp;
+    this.alive = true;
+    this.model.phase = this.bar;
+    this.model.mode = 'aim';
+    this.model.modeLeft = 0;
+    this.model.windupLeft = 0;
+    this.model.shiftLeft = PHASE_SHIFT_MS;   // 转阶段冻结：900ms 内不出手
+    this.model.ultIn = Math.min(4000, bossPhaseFor(this.bar).ultEveryMs);
+    this.breakUntil = 0;
+    if (Number.isFinite(this.baseArmor)) this.armor = this.baseArmor;
+    this.phaseStyle = bossPhaseStyleFor(this.model.act);
+    return this.phaseStyle;
+  }
+
   draw(now) {
     const x = Math.round(this.x), y = Math.round(this.y), flash = now - this.hitAt < 100;
     const g = this.g; g.clear();
+    // 阶段 2 常驻光环：按场配色、1px 脉动。它是「这只 Boss 已经换过招」最持久的视觉信号，
+    // 比一次性 burst 更长命，也不依赖血条（玩家视线常在中下部）。
+    if (Number.isFinite(this.model.phase) && this.model.phase >= 1) {
+      const style = this.phaseStyle ?? bossPhaseStyleFor(this.model.act);
+      const k = 0.5 + 0.5 * Math.sin(now / 260);
+      pxRing(g, x, y - 12, Math.round(28 + 5 * k), style.color, 0.22 + 0.16 * k, 1);
+      pxRing(g, x, y - 12, Math.round(22 + 3 * k), style.color, 0.14 + 0.12 * k, 1);
+    }
     // 破防窗口金环（B6）：窗口内 Boss 身上套一圈由外向内收的黄铜双环。
     // 破防的收益（护甲归零 + 伤害 ×1.2）在数值上很难一眼看清，必须给一个明确的画面窗。
     if (this.model.mode === 'break' && now < (this.breakUntil ?? 0)) {
@@ -150,6 +181,7 @@ export default class Boss {
       // 旧版只有白闪，若把演出染色放在它后面，同一帧就会被清掉、换招看不出来。
       if (now < (this.tintUntil ?? 0)) s.setTintFill(this.tintColor ?? C.brassLight);
       else if (flash) s.setTintFill(0xffffff);
+      else if (Number.isFinite(this.model.phase) && this.model.phase >= 1) s.setTint((this.phaseStyle ?? bossPhaseStyleFor(this.model.act)).color);
       else s.clearTint();
       // 血条（旧版在头顶 -26 处，素材更高，改到精灵头顶上方）
       const top = Math.round(y + BOSS_FEET - s.displayHeight);
@@ -168,18 +200,18 @@ export default class Boss {
     this.drawHpBar(g, x, y - 26);
   }
 
-  // 血条 + 阶段刻度（B7）：刻度标在 66% / 33% 两条换招线上，已跨过的那道用 brassLight 点亮。
-  // 只画一根血条的话，玩家看到的是「血条突然掉得快了」；有了刻度才能读出
-  // 「再压一段它就要换招」，从而决定是抢阶段还是留技能——这是阶段战可读性的关键一笔。
-  // 素材分支与程序化回退共用，避免两条路径的刻度位置悄悄漂移。
+  // 血条 + 管数方块：血条显示当前这一管的血量，右侧方块表示「还剩几管」。
+  // 打空一管时血条回满、方块熄灭一格——玩家一眼能读出「还要再打一条」，
+  // 而不是误以为「血条怎么突然回来了」。素材分支与程序化回退共用，避免两条路径漂移。
   drawHpBar(g, x, barY) {
     pxRect(g, x - 17, barY, 34, 3, C.nightDeep);
     pxRect(g, x - 17, barY, Math.max(0, Math.round(34 * this.hp / this.maxHp)), 2, C.blood);
-    const phase = Number.isFinite(this.model.phase) ? this.model.phase : 0;
-    for (let i = 0; i < PHASE_THRESHOLDS.length && i < PHASE_COUNT - 1; i++) {
-      const tx = x - 17 + Math.round(34 * PHASE_THRESHOLDS[i]);
-      const lit = phase >= i + 1;   // 第 i 道刻度对应「已进入第 i+1 阶段」
-      pxRect(g, tx, barY - 1, 1, 5, lit ? C.brassLight : C.brassDark, lit ? 1 : 0.75);
+    const bar = Number.isFinite(this.bar) ? this.bar : 0;
+    const max = Number.isFinite(this.barMax) ? this.barMax : 1;
+    for (let i = 0; i < max; i++) {
+      const bx = x + 20 + i * 5;
+      const col = i < bar ? C.brassDark : i === bar ? C.blood : C.stone;
+      pxRect(g, bx, barY, 3, 3, col, 1);
     }
   }
   destroy() { this.sprite?.destroy(); this.warningSprite?.destroy(); this.g.destroy(); }

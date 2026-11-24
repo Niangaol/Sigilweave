@@ -193,46 +193,46 @@ describe('B7 血条阶段刻度', () => {
     };
   };
 
-  // 血条上的刻度：1px 宽、比血条高出各 1px，按 barY-1 起画
-  const tickAt = (rects, x, barY) => rects.find(r => r.x === x && r.y === barY - 1 && r.w === 1 && r.h === 5);
+  // 血条右侧的管数方块：3×3，从 x+20 起每格 5px，y 与血条同高
+  const dotAt = (rects, x, barY, i) => rects.find(r => r.x === x + 20 + i * 5 && r.y === barY && r.w === 3 && r.h === 3);
 
-  it('draw(0) 在 phase===2 时不抛错，且 66% / 33% 两道刻度都被 brassLight 点亮', () => {
+  it('两管血：第一条血时当前管亮血色，未来管是石灰', () => {
     const scene = fakeScene();
     const boss = new Boss(scene, { tier: 'major' }, 3, 1);
-    boss.model.phase = 2;   // 已跨过两条换招线
-    expect(() => boss.draw(0)).not.toThrow();
+    expect(boss.bar).toBe(0);
+    expect(boss.barMax).toBe(2);
+    boss.draw(0);
     const barY = Math.round(boss.y) - 26;
-    const bx = Math.round(boss.x) - 17;
-    const t1 = tickAt(scene.rects, bx + Math.round(34 * 0.66), barY);
-    const t2 = tickAt(scene.rects, bx + Math.round(34 * 0.33), barY);
-    expect(t1).toBeTruthy();
-    expect(t2).toBeTruthy();
-    expect(t1.color).toBe(C.brassLight);
-    expect(t2.color).toBe(C.brassLight);
+    const x = Math.round(boss.x);
+    expect(dotAt(scene.rects, x, barY, 0).color).toBe(C.blood);
+    expect(dotAt(scene.rects, x, barY, 1).color).toBe(C.stone);
   });
 
-  it('phase 1 只点亮 66% 那道：33% 还是预告，不是已完成的状态', () => {
+  it('进入第二条血：已打空的管熄灭成暗黄铜，当前管亮血色', () => {
     const scene = fakeScene();
     const boss = new Boss(scene, { tier: 'major' }, 3, 1);
+    boss.bar = 1;
     boss.model.phase = 1;
     boss.draw(0);
     const barY = Math.round(boss.y) - 26;
-    const bx = Math.round(boss.x) - 17;
-    expect(tickAt(scene.rects, bx + Math.round(34 * 0.66), barY).color).toBe(C.brassLight);
-    expect(tickAt(scene.rects, bx + Math.round(34 * 0.33), barY).color).not.toBe(C.brassLight);
+    const x = Math.round(boss.x);
+    expect(dotAt(scene.rects, x, barY, 0).color).toBe(C.brassDark);
+    expect(dotAt(scene.rects, x, barY, 1).color).toBe(C.blood);
   });
 
-  it('phase 0 两道都不点亮，且刻度不与血条填充同色（否则看不出是刻度）', () => {
+  it('enterNextBar：打空一管回满血、phase+1、shiftLeft 冻结；最后一管返回 null', () => {
     const scene = fakeScene();
     const boss = new Boss(scene, { tier: 'major' }, 3, 1);
-    boss.draw(0);
-    const barY = Math.round(boss.y) - 26;
-    const bx = Math.round(boss.x) - 17;
-    for (const ratio of [0.66, 0.33]) {
-      const tick = tickAt(scene.rects, bx + Math.round(34 * ratio), barY);
-      expect(tick).toBeTruthy();
-      expect(tick.color).not.toBe(C.brassLight);
-      expect(tick.color).not.toBe(C.blood);   // 血条填充色，撞色就白画了
-    }
+    boss.hp = 0;
+    boss.alive = false;   // applyDamage 在最后一管时置 false；多管血路径由场景层先消费
+    boss.alive = true;
+    const style = boss.enterNextBar();
+    expect(style).toBeTruthy();
+    expect(style.name).toBeTruthy();
+    expect(boss.bar).toBe(1);
+    expect(boss.hp).toBe(boss.maxHp);
+    expect(boss.model.phase).toBe(1);
+    expect(boss.model.shiftLeft).toBe(900);
+    expect(boss.enterNextBar()).toBeNull();   // 已经是最后一管
   });
 });

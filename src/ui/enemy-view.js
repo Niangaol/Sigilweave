@@ -140,7 +140,21 @@ export function drawSpriteBody(e, now, x, y, flash, moving, age = Infinity, hitT
   if (e.scene.anims.exists(key) && (s.anims.currentAnim?.key !== key || !s.anims.isPlaying)) s.play(key, true);
 }
 
-// 预警线 / 血条 / 精英描边 / 盾条 / 眩晕：覆盖层，压在精灵上一层。
+// 精英角标：四角各一个 3px 的 L 形括号，替代整圈 1px 矩形。
+// 整圈金框读起来像「选中框」而不是游戏内物件，在小怪密集时格外抢眼；
+// 只留四角既够识别（配合头顶金色血条），又不抢像素。
+// 颜色用暗铜：亮金留给血条与 Boss 演出，精英的「边色」只需要在轮廓上被读到。
+function drawEliteCorners(g, x, top, bottom, halfW, color) {
+  const l = 3;
+  // 只画左上 / 右下两角：整圈框像选中框，四角又太吵，对角括号是「精英」最轻的信号。
+  // 保持 4 条指令，与旧的整圈边框同预算（60+ 同屏的绘制预算护栏不变）。
+  pxRect(g, x - halfW, top, l, 1, color, 0.85);                    // 左上·横臂
+  pxRect(g, x - halfW, top, 1, l, color, 0.85);                    // 左上·竖臂
+  pxRect(g, x + halfW - l + 1, bottom, l, 1, color, 0.85);         // 右下·横臂
+  pxRect(g, x + halfW - 1, bottom - l + 1, 1, l, color, 0.85);     // 右下·竖臂
+}
+
+// 预警线 / 血条 / 精英角标 / 盾条 / 眩晕：覆盖层，压在精灵上一层。
 // 素材路径按精灵实际外框定位，避免大体积精灵把标记画进身体里。
 export function drawOverlay(e, x, y, now = Infinity) {
   const g = e.g;
@@ -149,10 +163,7 @@ export function drawOverlay(e, x, y, now = Infinity) {
   const m = overlayMetrics(e, x, y);
   if (e.sprite) {
     if (e.def?.elite) {
-      pxRect(g, x - m.hw, m.top, m.hw * 2, 1, C.brass, 0.9);
-      pxRect(g, x - m.hw, y + e.radius + 1, m.hw * 2, 1, C.brass, 0.9);
-      pxRect(g, x - m.hw, m.top, 1, y + e.radius + 2 - m.top, C.brass, 0.9);
-      pxRect(g, x + m.hw - 1, m.top, 1, y + e.radius + 2 - m.top, C.brass, 0.9);
+      drawEliteCorners(g, x, m.top, y + e.radius + 1, m.hw, C.brassDark);
       pxRect(g, x - 8, m.top - 6, 16, 2, C.void, 0.8);
       pxRect(g, x - 8, m.top - 6, Math.max(1, Math.round(16 * e.hp / e.maxHp)), 2, C.brassLight, 1);
     }
@@ -167,10 +178,7 @@ export function drawOverlay(e, x, y, now = Infinity) {
   } else {
     drawHealth(e, g, x, y);
     if (e.def?.elite) {
-      pxRect(g, x - e.radius - 2, y - e.radius - 2, e.radius * 2 + 4, 1, C.brass, 0.9);
-      pxRect(g, x - e.radius - 2, y + e.radius + 1, e.radius * 2 + 4, 1, C.brass, 0.9);
-      pxRect(g, x - e.radius - 2, y - e.radius - 2, 1, e.radius * 2 + 4, C.brass, 0.9);
-      pxRect(g, x + e.radius + 1, y - e.radius - 2, 1, e.radius * 2 + 4, C.brass, 0.9);
+      drawEliteCorners(g, x, y - e.radius - 2, y + e.radius + 1, e.radius + 2, C.brassDark);
       pxRect(g, x - 8, y - e.radius - 8, 16, 2, C.void, 0.8);
       pxRect(g, x - 8, y - e.radius - 8, Math.max(1, Math.round(16 * e.hp / e.maxHp)), 2, C.brassLight, 1);
     }
@@ -275,15 +283,7 @@ export function drawProcedural(e, x, y, flash) {
     case 'knight': drawKnight(e, g, x, y, bob, color, flash); break;
     default: drawSkeleton(e, g, x, y, bob, color, flash); break;
   }
-  drawHealth(e, g, x, y);
-  if (e.def?.elite) {
-    pxRect(g, x - e.radius - 2, y - e.radius - 2, e.radius * 2 + 4, 1, C.brass, 0.9);
-    pxRect(g, x - e.radius - 2, y + e.radius + 1, e.radius * 2 + 4, 1, C.brass, 0.9);
-    pxRect(g, x - e.radius - 2, y - e.radius - 2, 1, e.radius * 2 + 4, C.brass, 0.9);
-    pxRect(g, x + e.radius + 1, y - e.radius - 2, 1, e.radius * 2 + 4, C.brass, 0.9);
-    pxRect(g, x - 8, y - e.radius - 8, 16, 2, C.void, 0.8);
-    pxRect(g, x - 8, y - e.radius - 8, Math.max(1, Math.round(16 * e.hp / e.maxHp)), 2, C.brassLight, 1);
-  }
+  // 血条与精英角标由 drawOverlay 统一负责（它开头会 clear，画在这里会被清掉）
 }
 
 // 抬手姿态（替代旧的瞄准线预告）：身体亮色闪 + 头顶小菱形；

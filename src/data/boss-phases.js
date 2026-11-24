@@ -7,16 +7,18 @@
 //
 // 纪律：非法场号/阶段号一律回退默认值，绝不抛错（战斗循环里扔异常会直接把一帧打成黑屏）。
 
-// 三阶段循环参数。phase 0/1/2 对应 spec §4.1 表格里的阶段 1/2/3
-// （血量区间 100%~66% / 66%~33% / 33%~0%）。
+// 两阶段参数：一管血 = 一个阶段。phase 0 是第一条血（100%），
+// 打空后回满进入 phase 1（第二条血）。不再按血量比例切段——
+// 玩家看到的是「血条打空 → 它站起来、血条回满、换成另一套招」。
 // attackMul 只作用在出手间隔上：阶段越靠后攻击越密，但单发伤害不变
 // （伤害成长靠 BOSS_HP 与破防窗口，不靠阶段倍率，避免后期一发秒人）。
 export const BOSS_PHASES = Object.freeze([
   Object.freeze({ phase: 0, attackMul: 1.0, windupMs: 600, countMul: 1.0, speedMul: 1.0, ultEveryMs: 12000 }),
-  Object.freeze({ phase: 1, attackMul: 0.82, windupMs: 540, countMul: 1.25, speedMul: 1.08, ultEveryMs: 10000 }),
-  Object.freeze({ phase: 2, attackMul: 0.68, windupMs: 480, countMul: 1.5, speedMul: 1.15, ultEveryMs: 8000 }),
+  Object.freeze({ phase: 1, attackMul: 0.78, windupMs: 520, countMul: 1.3, speedMul: 1.12, ultEveryMs: 9000 }),
 ]);
 export const PHASE_COUNT = BOSS_PHASES.length;
+// 每条血 = 一个阶段。所有 Boss（含小 Boss）都是 2 管。
+export const BOSS_BARS = PHASE_COUNT;
 
 // 破防窗口（spec §4.3）：大招落地后 Boss 临时归零装甲、受伤 ×1.2，
 // 给玩家一轮三技能爆发的输出窗口。只要 1200ms / ×1.2，是因为再高就成了
@@ -28,10 +30,33 @@ export const BREAK_DAMAGE_MUL = 1.2;
 export const ENRAGE_HP_RATIO = 0.2;
 export const ENRAGE_ATTACK_MUL = 0.8;
 
-// 转阶段演出：shiftLeft > 0 期间冻结一切出手，且一次最多推一格阶段
-// （一击从 100% 打到 20% 也先演阶段 2，不允许两段演出叠在同一帧）。
+// 转阶段演出：shiftLeft > 0 期间冻结一切出手。多管血下阶段由「打空一管」触发，
+// 不再按血量比例自动推进，因此也不存在「一击跨两段」的问题。
 export const PHASE_SHIFT_MS = 900;
-export const PHASE_THRESHOLDS = Object.freeze([0.66, 0.33]);
+
+// 第二条血（阶段 2）的普通弹幕：每场换一套弹型，让「换阶段」在画面上立刻可读。
+// 键与 BOSS_PATTERNS 相同（场号 1..7）；字段含义完全一致，只是数值与形状不同。
+export const BOSS_PATTERNS_P2 = Object.freeze({
+  1: Object.freeze({ name: '崩石环阵', count: 10, ring: true, speed: 46, damage: 11 }),
+  2: Object.freeze({ name: '尸潮扇幕', count: 9, spread: 0.9, speed: 58, damage: 11 }),
+  3: Object.freeze({ name: '虚空九线', count: 9, spread: 0.7, speed: 84, damage: 12 }),
+  4: Object.freeze({ name: '书页环雨', count: 12, ring: true, speed: 52, damage: 11 }),
+  5: Object.freeze({ name: '天平扇裁', count: 7, spread: 0.55, speed: 66, damage: 12 }),
+  6: Object.freeze({ name: '熔火环爆', count: 14, ring: true, speed: 60, damage: 12 }),
+  7: Object.freeze({ name: '终星扇环', count: 11, spread: 0.8, speed: 90, damage: 13 }),
+});
+
+// 阶段 2 的外观与横幅：每场一个名字 + 主色。场景层据此做转阶段横幅与光环，
+// 实体层据此给立绘染一层常驻色偏。颜色沿用 Palette 的十六进制值（数据层不 import UI）。
+export const BOSS_PHASE_STYLE = Object.freeze({
+  1: Object.freeze({ name: '石心怒醒', color: 0xc9b98c }),
+  2: Object.freeze({ name: '尸潮狂涌', color: 0x86a06b }),
+  3: Object.freeze({ name: '虚蚀降临', color: 0x9a7bff }),
+  4: Object.freeze({ name: '书焚之页', color: 0xdcc9a0 }),
+  5: Object.freeze({ name: '天平倾覆', color: 0xf0c75a }),
+  6: Object.freeze({ name: '熔炉沸腾', color: 0xff8a55 }),
+  7: Object.freeze({ name: '终星燃尽', color: 0xff6b88 }),
+});
 
 // 七场专属大招（spec §4.2）。speed / damage 由本表提供，boss.js 不自己编数值。
 // waves = 本次大招合成几拨弹型；spec 里场 2 的「双波间隔 200ms」在纯逻辑层
@@ -85,6 +110,14 @@ export function bossUltimateFor(stage) {
 
 export function bossControlFor(stage) {
   return BOSS_CONTROLS[stageOf(stage)] ?? null;
+}
+
+export function bossPattern2For(stage) {
+  return BOSS_PATTERNS_P2[stageOf(stage)] ?? BOSS_PATTERNS_P2[STAGE_MIN];
+}
+
+export function bossPhaseStyleFor(stage) {
+  return BOSS_PHASE_STYLE[stageOf(stage)] ?? BOSS_PHASE_STYLE[STAGE_MIN];
 }
 
 export function bossPhaseFor(phase) {

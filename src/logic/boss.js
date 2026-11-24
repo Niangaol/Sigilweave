@@ -3,13 +3,12 @@
 // 模板号 = 场号（1..7），场与旧七幕美术一一对应，弹幕表本身不随幕合并而改。
 import { isValidStage } from './acts.js';
 import {
-  PHASE_COUNT,
-  PHASE_THRESHOLDS,
   PHASE_SHIFT_MS,
   BREAK_WINDOW_MS,
   ENRAGE_HP_RATIO,
   ENRAGE_ATTACK_MUL,
   bossPhaseFor,
+  bossPattern2For,
   bossUltimateFor,
 } from '../data/boss-phases.js';
 export const BOSS_PATTERNS = Object.freeze({
@@ -37,7 +36,10 @@ export function bossStats(stage, tier = 'major') {
   };
 }
 
-export function bossPattern(act) {
+export function bossPattern(act, phase = 0) {
+  // 阶段 2 换一套弹型（BOSS_PATTERNS_P2）：这是「换阶段」最直观的变化。
+  // 旧分支永远用 phase 0，因此不传阶段时与改动前逐字一致。
+  if (phase >= 1) return bossPattern2For(act);
   return BOSS_PATTERNS[act] ?? BOSS_PATTERNS[1];
 }
 
@@ -116,14 +118,9 @@ function stepBossPhased(model, dtMs, position, target, hpRatio) {
     return [];
   }
 
-  // ③ 阶段推进：一次最多推一格。一击从 100% 打到 20% 也先演阶段 2，
-  //    shiftLeft 归零后下一帧再判一次才进阶段 3——不允许两段演出叠在同一帧。
-  if (model.phase < PHASE_COUNT - 1 && hpRatio <= PHASE_THRESHOLDS[model.phase]) {
-    model.phase += 1;
-    model.shiftLeft = PHASE_SHIFT_MS;
-    model.mode = 'aim';   // 蓄力中的大招被转阶段打断：mode 回 aim，ultIn 保留、稍后重新起手
-    return [];
-  }
+  // ③ 阶段推进不再由本模块按血量比例自动触发：多管血下「打空一管」由
+  //    Boss.enterNextBar() 显式写入 phase / shiftLeft（场景层在尸体判定前消费）。
+  //    这里只负责 shiftLeft 的倒计时（见 ①），阶段一开就冻结出手。
 
   // ④ 大招蓄力：chargeMs 到点即落地，落地瞬间切破防。
   if (model.mode === 'ultimate') {
@@ -182,7 +179,7 @@ function attackIntervalOf(model, hpRatio) {
 // countMul 生效时 spread 同步 × sqrt(countMul)——否则弹变多而总张角不变，
 // 玩家看到的不是「更凶」而是「糊成一堵墙」，反而不知道该往哪躲（spec §4.1.3）。
 function phasedVolley(model, position, cfg) {
-  const pattern = bossPattern(model.act);
+  const pattern = bossPattern(model.act, model.phase);
   // 坐标兜底：纯逻辑模块要求「非法输入回退、不抛错」。旧分支对此不做防护
   // （它假定调用方一定给真坐标），新分支补上——但只补新分支，旧分支一个字不动。
   const ox = Number.isFinite(position?.x) ? position.x : 0;

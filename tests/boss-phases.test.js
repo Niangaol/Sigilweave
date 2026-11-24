@@ -13,7 +13,7 @@ import {
   ENRAGE_HP_RATIO,
   ENRAGE_ATTACK_MUL,
   PHASE_SHIFT_MS,
-  PHASE_THRESHOLDS,
+  BOSS_BARS,
 } from '../src/data/boss-phases.js';
 
 // Boss 站位与玩家站位： Boss 在正上方、玩家在正下方，
@@ -41,9 +41,11 @@ function landUltimate(stage, hpRatio = 0.9) {
 }
 
 describe('B1 阶段与大招数据', () => {
-  it('三阶段参数与 spec §4.1 一致', () => {
-    expect(BOSS_PHASES.map(p => p.windupMs)).toEqual([600, 540, 480]);
-    expect(BOSS_PHASES.map(p => p.countMul)).toEqual([1, 1.25, 1.5]);
+  it('两阶段参数：一管血 = 一个阶段', () => {
+    expect(BOSS_BARS).toBe(2);
+    expect(BOSS_PHASES).toHaveLength(2);
+    expect(BOSS_PHASES.map(p => p.windupMs)).toEqual([600, 520]);
+    expect(BOSS_PHASES.map(p => p.countMul)).toEqual([1, 1.3]);
   });
 
   it('七场都有大招，且硬控只在场 3~7', () => {
@@ -56,16 +58,15 @@ describe('B1 阶段与大招数据', () => {
 
   it('非法场号回退', () => { expect(bossUltimateFor(99).kind).toBe(bossUltimateFor(1).kind); });
 
-  it('其余常量与 spec §4.1 / §4.3 对齐', () => {
-    expect(PHASE_THRESHOLDS).toEqual([0.66, 0.33]);
+  it('其余常量与两阶段口径对齐', () => {
     expect(PHASE_SHIFT_MS).toBe(900);
     expect(BREAK_WINDOW_MS).toBe(1200);
     expect(BREAK_DAMAGE_MUL).toBe(1.2);
     expect(ENRAGE_HP_RATIO).toBe(0.2);
     expect(ENRAGE_ATTACK_MUL).toBe(0.8);
-    expect(BOSS_PHASES.map(p => p.attackMul)).toEqual([1, 0.82, 0.68]);
-    expect(BOSS_PHASES.map(p => p.speedMul)).toEqual([1, 1.08, 1.15]);
-    expect(BOSS_PHASES.map(p => p.ultEveryMs)).toEqual([12000, 10000, 8000]);
+    expect(BOSS_PHASES.map(p => p.attackMul)).toEqual([1, 0.78]);
+    expect(BOSS_PHASES.map(p => p.speedMul)).toEqual([1, 1.12]);
+    expect(BOSS_PHASES.map(p => p.ultEveryMs)).toEqual([12000, 9000]);
   });
 
   it.each([0, 8, 99, -1, 1.5, '1', NaN, Infinity, null, undefined])('非法入参 %j 一律回退不抛错', bad => {
@@ -75,8 +76,7 @@ describe('B1 阶段与大招数据', () => {
     expect(bossUltimateFor(bad)).toBe(bossUltimateFor(1));
     expect(bossPhaseFor(bad)).toBe(BOSS_PHASES[0]);
     expect(bossPhaseFor(1)).toBe(BOSS_PHASES[1]);
-    expect(bossPhaseFor(2)).toBe(BOSS_PHASES[2]);
-    expect(bossPhaseFor(3)).toBe(BOSS_PHASES[0]);   // 只有 0/1/2 三个阶段，3 也回退
+    expect(bossPhaseFor(2)).toBe(BOSS_PHASES[0]);   // 只有 0/1 两个阶段，2 起一律回退
   });
 
   it('七场大招表与硬控表键集合齐全', () => {
@@ -152,86 +152,63 @@ describe('B2 stepBoss 阶段机（旧路径零漂移）', () => {
     expect(shots.every(s => s.fromBoss === undefined)).toBe(true);
   });
 
-  it('传 ctx 时按 hpRatio 推阶段，一次只推一格', () => {
+  it('阶段不再由 hpRatio 自动推进：只认外部写入的 phase（enterNextBar 驱动）', () => {
     const m = createBossModel(1);
-    stepBoss(m, 16, { x: 240, y: 72 }, { x: 240, y: 200 }, { hpRatio: 0.3 });
-    expect(m.phase).toBe(1);                     // 不是 2
-    for (let i = 0; i < 60; i++) stepBoss(m, 16, { x: 240, y: 72 }, { x: 240, y: 200 }, { hpRatio: 0.3 });
-    expect(m.phase).toBe(2);
+    stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.2 });   // 残血也不自动推阶段
+    expect(m.phase).toBe(0);
+    m.phase = 1;
+    m.shiftLeft = PHASE_SHIFT_MS;
+    stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 1 });     // 回满血也不倒退
+    expect(m.phase).toBe(1);
   });
 
-  it('转阶段期间不产弹', () => {
+  it('转阶段期间不产弹（shiftLeft 冻结）', () => {
     const m = createBossModel(1);
-    stepBoss(m, 16, { x: 240, y: 72 }, { x: 240, y: 200 }, { hpRatio: 0.6 });
-    expect(m.shiftLeft).toBe(900);
+    stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 1 });
+    m.phase = 1;
+    m.shiftLeft = PHASE_SHIFT_MS;
     const shots = [];
-    for (let i = 0; i < 55; i++) shots.push(...stepBoss(m, 16, { x: 240, y: 72 }, { x: 240, y: 200 }, { hpRatio: 0.6 }));
+    for (let i = 0; i < 55; i++) shots.push(...stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 1 }));
     expect(shots).toHaveLength(0);
   });
 
-  it('阶段 2 的弹数 ×1.25 且张角同步放宽', () => {
+  it('阶段 2 换弹幕表：场 1 从扇形五连变成环形十发', () => {
     const m = createBossModel(1);
-    stepBoss(m, 16, { x: 240, y: 72 }, { x: 240, y: 200 }, { hpRatio: 0.5 });
-    const before = m.shiftLeft; void before;
-    // 立刻把 shift 走完，再等一次出手
-    for (let i = 0; i < 60; i++) stepBoss(m, 16, { x: 240, y: 72 }, { x: 240, y: 200 }, { hpRatio: 0.5 });
+    stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 1 });
+    m.phase = 1;
+    m.shiftLeft = 0;
     const shots = [];
-    for (let i = 0; i < 200; i++) shots.push(...stepBoss(m, 16, { x: 240, y: 72 }, { x: 240, y: 200 }, { hpRatio: 0.5 }));
-    expect(shots.length).toBe(7);                // ceil(5 × 1.25) = 7
-  });
-
-  it('阶段 3 的弹数 ×1.5 且张角同步放宽', () => {
-    const m = createBossModel(1);
-    stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.5 });
-    for (let i = 0; i < 60; i++) stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.2 });
-    expect(m.phase).toBe(2);
-    // 走完第二段 shift（0.2 ≤ 0.33），再等一次出手
-    for (let i = 0; i < 60; i++) stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.2 });
-    const shots = [];
-    for (let i = 0; i < 200; i++) shots.push(...stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.2 }));
-    expect(shots.length).toBe(8);                // ceil(5 × 1.5) = 8
-  });
-
-  it('张角随 sqrt(countMul) 放宽：同样 7 发比旧口径更宽', () => {
-    // 阶段 1 的 5 发与阶段 2 的 7 发同表对比没意义，直接钉「极弹夹角」：
-    const m = createBossModel(1);
-    stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.5 });
-    for (let i = 0; i < 60; i++) stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.5 });
-    const shots = [];
-    for (let i = 0; i < 200; i++) shots.push(...stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.5 }));
+    for (let i = 0; i < 200; i++) shots.push(...stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 1 }));
+    expect(shots.length).toBe(13);                // ceil(10 × 1.3)
     const angles = shots.map(s => Math.atan2(s.vy, s.vx)).sort((a, b) => a - b);
-    const span = angles[angles.length - 1] - angles[0];
-    // spread 是「半宽」：极弹偏移 = ±spread，故总张角 = 2×spread。
-    // 7 发、spread 0.42 × sqrt(1.25) ≈ 0.4697 → 总张角 ≈ 0.9394
-    expect(span).toBeCloseTo(2 * 0.42 * Math.sqrt(1.25), 6);
+    expect(angles[1] - angles[0]).toBeCloseTo((Math.PI * 2) / 13, 6);
   });
 
-  it('阶段 2 出手频率更快（attackIn ×0.82），狂暴再 ×0.8', () => {
+  it('阶段 2 出手频率更快（attackIn ×0.78），残血再叠狂暴 ×0.8', () => {
     const fireAt = (hpRatio) => {
       const m = createBossModel(1);
       stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio });
-      for (let i = 0; i < 60; i++) stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio });
+      m.phase = 1;
+      m.shiftLeft = 0;
       for (let i = 0; i < 4000; i++) {
         const shots = stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio });
-        if (shots.length > 0) return { tick: i, attackIn: m.attackIn };
+        if (shots.length > 0) return m.attackIn;
       }
-      return { tick: -1, attackIn: NaN };
+      return NaN;
     };
-    const normal = fireAt(0.5);
-    const enraged = fireAt(0.1);
-    expect(normal.tick).toBeGreaterThan(0);
-    expect(normal.attackIn).toBeCloseTo(2000 * 0.82, 6);        // 2200 - 1×200 = 2000，阶段 2
-    expect(enraged.attackIn).toBeCloseTo(2000 * 0.68 * 0.8, 6); // 阶段 3 再叠狂暴
-    expect(enraged.attackIn).toBeLessThan(normal.attackIn);
+    expect(fireAt(1)).toBeCloseTo(2000 * 0.78, 6);
+    expect(fireAt(0.1)).toBeCloseTo(2000 * 0.78 * 0.8, 6);
   });
 
-  it('阶段 2 的 windupMs 是 540 而不是旧分支的 600', () => {
+  it('阶段 2 的 windupMs 是 520 而不是旧分支的 600', () => {
     const m = createBossModel(1);
-    stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.5 });
-    for (let i = 0; i < 60; i++) stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.5 });
+    stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 1 });
+    m.phase = 1;
+    m.shiftLeft = 0;
+    m.attackIn = 1;
     for (let i = 0; i < 4000; i++) {
-      if (m.windupLeft > 0) { expect(m.windupLeft).toBe(540); return; }
-      stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.5 });
+      stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 1 });
+      if (m.windupLeft > 0) { expect(m.windupLeft).toBe(520); return; }
     }
     expect.unreachable('阶段 2 应当出手');
   });
@@ -247,10 +224,11 @@ describe('B2 stepBoss 阶段机（旧路径零漂移）', () => {
     expect(model.mode).toBe('aim');
   });
 
-  it('hpRatio 回到阈值以上不倒退阶段', () => {
+  it('阶段只进不退：回满血也不会把 phase 打回去', () => {
     const m = createBossModel(1);
     stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.3 });
-    expect(m.phase).toBe(1);
+    m.phase = 1;
+    m.shiftLeft = 0;
     for (let i = 0; i < 60; i++) stepBoss(m, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.9 });
     expect(m.phase).toBe(1);
   });
@@ -534,29 +512,17 @@ describe('修复轮：首次大招 4 秒内起手，每场至少一次大招 + �
     expect(landed.model.ultIn).toBe(BOSS_PHASES[0].ultEveryMs);   // 12000，不是 4000
   });
 
-  it('hpRatio 掉到阶段 2 后大招仍按阶段值循环，不被 4 秒提前规则反复刷新', () => {
-    // 转阶段会把 mode 打回 aim 但保留 ultIn：若把「提前」写进阶段切换，
-    // 玩家压一次阶段就能无限续大招，阶段战会被做成答题机。
-    //
-    // 这里的断言点必须推到 phase 真的变成 1 之后的那一帧。原因是 stepBoss 里
-    // 破防分支（②）先于阶段推进（③），一次带 dtMs=1200 的调用只把 modeLeft
-    // 耗尽、mode 归 aim 就 return 了，phase 仍是 0——在那一帧断言 ultIn 等于
-    // BOSS_PHASES[0] 的值，等于断言「没变的东西没变」，把提前规则注入 ③ 也不会红。
+  it('手动进入阶段 2 后大招按阶段值 9000 循环，不被 4 秒提前规则刷新', () => {
+    // 转阶段保留 ultIn：若把「提前」写进阶段切换，玩家压一次阶段就能无限续大招。
     const model = createBossModel(1);
     let elapsed = 0;
     while (elapsed < 6000) { stepBoss(model, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.9 }); elapsed += 16; }
-    expect(model.mode).toBe('break');                          // 第一次大招已落地
-    stepBoss(model, 1200, BOSS_POS, PLAYER_POS, { hpRatio: 0.2 });   // 只耗尽破防窗口，phase 未推进
-    expect(model.mode).toBe('aim');
-    expect(model.phase).toBe(0);                               // 上一帧的真实位置，别在这里断言 ultIn
-
-    // 推进到阶段真正切换的那一帧（③ 分支），此后 mode 仍被写回 aim。
-    let guard = 0;
-    while (model.phase === 0 && guard++ < 64) stepBoss(model, 16, BOSS_POS, PLAYER_POS, { hpRatio: 0.2 });
-    expect(model.phase).toBe(1);                               // 确认真的进入了阶段 2
-
-    // 转阶段不清零、也不套用提前规则：保留的是阶段 1 落地时写的 cfg.ultEveryMs，
-    // 而不是 Math.min(4000, …) 的 4000。
+    expect(model.mode).toBe('break');                            // 第一次大招已落地
+    expect(model.ultIn).toBe(BOSS_PHASES[0].ultEveryMs);         // 12000
+    // 阶段切换由实体层写入（enterNextBar），stepBoss 不清零、不套提前规则
+    model.phase = 1;
+    model.mode = 'aim';
+    model.modeLeft = 0;
     expect(model.ultIn).toBe(BOSS_PHASES[0].ultEveryMs);
     expect(model.ultIn).not.toBe(4000);
   });

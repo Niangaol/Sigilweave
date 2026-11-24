@@ -63,8 +63,8 @@ describe('震屏预算', () => {
     const gate = readFileSync(resolve(root, 'src/ui/camera-shake.js'), 'utf8');
     expect((scene.match(/cameras\??\.main\??\.shake\?\.?\(/g) ?? []).length).toBe(0);
     expect((gate.match(/\.shake\(/g) ?? []).length).toBe(1);   // 只有 shakeCamera 内部那一行
-    // 允许震的调用点：受伤×3、演出级×1、大事件×3（Boss 登场/通幕/死亡）
-    expect((scene.match(/shakeCamera\((this|scene), '/g) ?? []).length).toBe(7);
+    // 允许震的调用点：受伤×3、演出级×1、大事件×3（Boss 登场/通幕/死亡）、转阶段×1
+    expect((scene.match(/shakeCamera\((this|scene), '/g) ?? []).length).toBe(8);
     for (const kind of ['hurt', 'strike', 'major']) {
       expect(scene).toMatch(new RegExp("shakeCamera\\((this|scene), '" + kind + "'"));
     }
